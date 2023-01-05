@@ -28,10 +28,8 @@ def extract_feature(dataset, model, nclasses=10):
         y_train.append(y)
     xvit_train = np.stack(xvit_train)
     y_train = numpy.stack(y_train)
-    print(y_train)
     onehot_ytrain = numpy.zeros((len(y_train), nclasses), dtype=int)
     onehot_ytrain[np.arange(len(y_train)),y_train] = 1
-    print(onehot_ytrain)
     # y_train = torchvision.transforms.functional.one_hot(torch.tensor(y_train), num_classes=10)
     return xvit_train, onehot_ytrain
 
@@ -53,7 +51,7 @@ def extract_raw(dataset, nclasses=10):
 
 
 learning_rate = 1
-train_size = 512
+train_size = 50000
 test_size = 10000
 _BATCH_SIZE = 0
 train_time = 2000
