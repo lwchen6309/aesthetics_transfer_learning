@@ -97,7 +97,7 @@ if __name__ == '__main__':
         y_train_full = vit_dct['y_train']
         x_test = vit_dct['x_test']
         y_test = vit_dct['y_test']
-    use_raw_data = True
+    use_raw_data = False
     if use_raw_data:
         x_train_full, y_train_full = extract_raw(train_dataset)
         x_test, y_test = extract_raw(test_dataset)
@@ -139,7 +139,10 @@ if __name__ == '__main__':
         # util.print_summary('NNGP test', y_test, fx_test_nngp, None, loss)
         util.print_summary('NTK test', y_test, fx_test_ntk, None, loss)
         accuracies.append(util._accuracy(fx_test_ntk, y_test))
-    np.savez('raw_nngp.npz', train_sizes=train_sizes, accuracies=np.array(accuracies))
+    filename = 'nngp.npz'
+    if use_raw_data:
+        filename = 'raw_' + filename
+    np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))
     plt.plot(train_sizes, accuracies)
     plt.title('CIFAR-10')
     plt.xlabel('Number training sample')

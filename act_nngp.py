@@ -164,8 +164,11 @@ if __name__ == '__main__':
             # similarity = x_train_rest@x_train_rest.T
             remained_idx = remained_idx[sort_idx]
 
-    np.savez('raw_act_nngp.npz', train_sizes=train_sizes, accuracies=np.array(accuracies))
-    
+    filename = 'act_nngp.npz'
+    if use_raw_data:
+        filename = 'raw_' + filename
+    np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))
+
     filename = 'raw_nngp.npz'
     plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='NNGP')
     filename = 'raw_act_nngp.npz'
