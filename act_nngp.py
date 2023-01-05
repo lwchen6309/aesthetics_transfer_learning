@@ -168,7 +168,7 @@ if __name__ == '__main__':
     if use_raw_data:
         filename = 'raw_' + filename
     np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))
-
+    
     filename = 'raw_nngp.npz'
     plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='NNGP')
     filename = 'raw_act_nngp.npz'
