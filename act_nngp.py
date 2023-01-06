@@ -28,10 +28,8 @@ def extract_feature(dataset, model, nclasses=10):
         y_train.append(y)
     xvit_train = np.stack(xvit_train)
     y_train = numpy.stack(y_train)
-    print(y_train)
     onehot_ytrain = numpy.zeros((len(y_train), nclasses), dtype=int)
     onehot_ytrain[np.arange(len(y_train)),y_train] = 1
-    print(onehot_ytrain)
     # y_train = torchvision.transforms.functional.one_hot(torch.tensor(y_train), num_classes=10)
     return xvit_train, onehot_ytrain
 
@@ -53,30 +51,28 @@ def extract_raw(dataset, nclasses=10):
 
 
 learning_rate = 1
-train_size = 512
+train_size = 50000
 test_size = 10000
 _BATCH_SIZE = 0
-train_time = 2000
 
 
-def plot_raw_vit_nngp_performance():
-    raw_dct = np.load('raw_nngp.npz')
-    vit_dct = np.load('nngp.npz')
-    train_sizes = vit_dct['train_sizes']
-    raw_nngp_accuracies = raw_dct['accuracies']
-    vit_nngp_accuracies = vit_dct['accuracies']
-    plt.plot(train_sizes, raw_nngp_accuracies, label='Image')
-    plt.plot(train_sizes, vit_nngp_accuracies, label='ViT feature')
+def plot_nngp_performance():
+    expfiles = ['raw_nngp.npz', 'nngp.npz', 'act_nngp.npz', 
+            'act_nngp_unsample.npz', 'act_nngp_entropy.npz']
+    labels = ['NTK', 'NTK w/ ViT', 'Active NTK w/ ViT', 
+            'Active NTK w/ ViT usampple', 'Active NTK w/ ViT entropy']
+    for filename, label in zip(expfiles, labels):
+        plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label=label)
+    plt.legend()   
     plt.title('CIFAR-10')
     plt.xlabel('Number training sample')
     plt.ylabel('Accuracy')
-    plt.legend()
     plt.show()
 
 
 if __name__ == '__main__':
     # Build data pipelines.
-    # plot_raw_vit_nngp_performance()
+    # plot_nngp_performance()
     # raise Exception
 
     print('Loading data.')
@@ -99,13 +95,13 @@ if __name__ == '__main__':
         y_train_full = vit_dct['y_train']
         x_test = vit_dct['x_test']
         y_test = vit_dct['y_test']
-    use_raw_data = True
+    use_raw_data = False
     if use_raw_data:
         x_train_full, y_train_full = extract_raw(train_dataset)
         x_test, y_test = extract_raw(test_dataset)
-
-    # train_sizes = (2**np.arange(1,15)).astype(int)
-    train_sizes = (2**np.arange(1,10)).astype(int)
+    
+    train_sizes = (2**np.arange(4,15)).astype(int)
+    # train_sizes = (2**np.arange(4,10)).astype(int)
     accuracies = [] 
     remained_idx = np.arange(len(x_train_full))
     # Iterate over the array and pick data
@@ -113,15 +109,24 @@ if __name__ == '__main__':
         # Pick the first index in the remained_idx list
         if i > 0:
             newdata_len = train_size - train_sizes[i-1]
-            data_idx = np.concatenate([data_idx, remained_idx[:newdata_len]])
-            remained_idx = remained_idx[newdata_len:]
+            ## Choose sampling strategry
+            var = numpy.array(var)
+            p = var / var.sum()
+            remained_idx_idx = np.arange(len(remained_idx))
+            ## Greedy Algorithm
+            picked_idx_idx = np.flip(np.argsort(var))[:newdata_len]
+            ## Uncertianty Sampling
+            # picked_idx_idx = numpy.random.choice(remained_idx_idx, size=newdata_len, p=p)
+            data_idx = np.concatenate([data_idx, remained_idx[picked_idx_idx]])
+            remained_idx = np.delete(remained_idx, picked_idx_idx)
+            var = np.delete(var, picked_idx_idx)
         else:
             data_idx = remained_idx[:train_size]
             remained_idx = remained_idx[train_size:]
         assert(len(data_idx) == train_size)
-        x_train = x_train_full[data_idx]
-        y_train = y_train_full[data_idx]
-        x_train_rest = x_train_full[remained_idx]
+        x_train = x_train_full[data_idx,:]
+        y_train = y_train_full[data_idx,:]
+        x_train_rest = x_train_full[remained_idx,:]
 
         # Build the infinite network.
         _, _, kernel_fn = stax.serial(
@@ -152,35 +157,24 @@ if __name__ == '__main__':
         util.print_summary('NTK test', y_test, fx_test_ntk, None, loss)
         accuracies.append(util._accuracy(fx_test_ntk, y_test))
 
-        if train_size < 513:
+        # _, fx_rest_ntk = predict_fn(x_test=x_train_rest)
+        # exp_prob = np.exp(fx_rest_ntk)
+        # exp_prob = exp_prob / exp_prob.sum(axis=1,keepdims=True)
+        # entropy = (exp_prob * np.log(exp_prob + 1e-3)).sum(axis=1)
+        # var = entropy
+
+        if train_size < 2000:
             var = []
             for x_rest in tqdm(x_train_rest):
                 _, fx_rest_ntk = predict_fn(x_test=x_rest[None], compute_cov=True)
                 var.append(fx_rest_ntk.covariance)
             var = np.stack(var).ravel()
-            # _, fx_rest_ntk = predict_fn(x_test=x_train_rest, compute_cov=True)
-            # var = np.diag(fx_rest_ntk.covariance)
-            sort_idx = np.flip(np.argsort(var))
-            # similarity = x_train_rest@x_train_rest.T
-            remained_idx = remained_idx[sort_idx]
 
-    filename = 'act_nngp.npz'
+    # filename = 'act_nngp.npz'
     if use_raw_data:
         filename = 'raw_' + filename
     np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))
     
-    filename = 'raw_nngp.npz'
-    plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='NNGP')
-    filename = 'raw_act_nngp.npz'
-    plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='Active NNGP')
-    filename = 'nngp.npz'
-    plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='NNGO w/ ViT')
-    filename = 'act_nngp.npz'
-    plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label='Active NNGP w/ ViT')
-    plt.legend()
-    plt.title('CIFAR-10')
-    plt.xlabel('Number training sample')
-    plt.ylabel('Accuracy')
-    plt.show()
+
 
 

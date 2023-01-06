@@ -102,7 +102,8 @@ if __name__ == '__main__':
         x_train_full, y_train_full = extract_raw(train_dataset)
         x_test, y_test = extract_raw(test_dataset)
 
-    train_sizes = (2**np.arange(1,15)).astype(int)
+    train_sizes = (2**np.arange(4,15)).astype(int)
+    # train_sizes = np.arange(100,17000,1000)
     accuracies = []
     for train_size in train_sizes:
         # train_size = 1024
