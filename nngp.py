@@ -80,7 +80,10 @@ if __name__ == '__main__':
     print('Loading data.')
     train_dataset = torchvision.datasets.CIFAR10(root='~/dataset/cifar10/', train=True, transform=None, download=True)
     test_dataset = torchvision.datasets.CIFAR10(root='~/dataset/cifar10/', train=False, transform=None, download=True)
-    
+
+    use_raw_data = False
+    is_imbalanced = True
+
     vit_feature_file = 'cifar_vit.npz'
     if not os.path.isfile(vit_feature_file):
         model_flag = 'google/vit-base-patch16-224'
@@ -97,14 +100,16 @@ if __name__ == '__main__':
         y_train_full = vit_dct['y_train']
         x_test = vit_dct['x_test']
         y_test = vit_dct['y_test']
-    use_raw_data = False
+
     if use_raw_data:
         x_train_full, y_train_full = extract_raw(train_dataset)
         x_test, y_test = extract_raw(test_dataset)
-
-    x_train_full, y_train_full = make_dataset_imbalance(
-        x_train_full, y_train_full,
-        supressed_cls = [3, 5, 9], remove_ratio=0.9)
+    if is_imbalanced:
+        supressed_cls = [0, 2, 3, 5, 6, 9]
+        # supressed_cls = [3, 5, 9]
+        x_train_full, y_train_full = make_dataset_imbalance(
+            x_train_full, y_train_full,
+            supressed_cls = supressed_cls, remove_ratio=0.9)
 
     # train_sizes = (2**np.arange(4,15)).astype(int)
     train_sizes = np.arange(100,17000,1000)
@@ -145,7 +150,11 @@ if __name__ == '__main__':
         # util.print_summary('NNGP test', y_test, fx_test_nngp, None, loss)
         util.print_summary('NTK test', y_test, fx_test_ntk, None, loss)
         accuracies.append(util._accuracy(fx_test_ntk, y_test))
-    filename = 'nngp_imbalance.npz'
+
+    filename = 'nngp'
+    if is_imbalanced:
+        filename += '_imbalance%d'%len(supressed_cls)
+    filename += '.npz'
     if use_raw_data:
         filename = 'raw_' + filename
     np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))

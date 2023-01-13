@@ -54,34 +54,29 @@ def extract_raw(dataset, nclasses=10):
     # y_train = torchvision.transforms.functional.one_hot(torch.tensor(y_train), num_classes=10)
     return xvit_train, onehot_ytrain
 
-def plot_nngp_performance():
-    # expfiles = ['nngp.npz', 'act_nngp_entropy.npz', 'act_nngp_entropy_unsample.npz']
-    # labels = ['NTK w/ ViT', 'Active NTK w/ ViT entropy: Greedy', 'Active NTK w/ ViT entropy: Sample']
-    # plt.figure()
-    # for filename, label in zip(expfiles, labels):
-    #     plt.plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label=label)
-    # plt.legend()   
-    # plt.title('CIFAR-10')
-    # plt.xlabel('Number training sample')
-    # plt.ylabel('Accuracy')
-    # plt.xlim(XLIM)
 
+def set_axes_form(axis, title):
+    axis.set(title=title, xlim=XLIM, ylim=[0.2,1.0], 
+        xlabel='Number training sample', ylabel='Accuracy') 
+
+def plot_nngp_performance():
     fig, axes = plt.subplots(1,2, figsize=(12, 5))
     expfiles = ['nngp.npz', 'act_nngp.npz',]
     labels = ['NTK w/ ViT', 'Active NTK w/ ViT',]
-    # plt.figure()
     for filename, label in zip(expfiles, labels):
         axes[0].plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label=label)
-    axes[0].set(title='CIFAR-10', xlim=XLIM, ylim=[0.6,1.0],
-        xlabel='Number training sample', ylabel='Accuracy') 
+    set_axes_form(axes[0], title='CIFAR-10')
 
-    expfiles = ['nngp_imbalance.npz', 'act_nngp_imbalance.npz',]
-    labels = ['NTK w/ ViT', 'Active NTK w/ ViT',]
-    # plt.figure()
+    expfiles = ['nngp_imbalance3.npz', 'act_nngp_imbalance3.npz']
+    labels = ['NTK w/ ViT 3 cls-rm', 'Active NTK w/ ViT 3 cls-rm']
     for filename, label in zip(expfiles, labels):
         axes[1].plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label=label)
-    axes[1].set(title='Imbalanced CIFAR-10', xlim=XLIM, ylim=[0.6,1.0],
-        xlabel='Number training sample', ylabel='Accuracy')
+    expfiles = ['nngp_imbalance6.npz', 'act_nngp_imbalance6.npz']
+    labels = ['NTK w/ ViT 6 cls-rm', 'Active NTK w/ ViT 6 cls-rm']
+    for filename, label in zip(expfiles, labels):
+        axes[1].plot(np.load(filename)['train_sizes'], np.load(filename)['accuracies'], label=label)
+    set_axes_form(axes[1], title='Imbalanced CIFAR-10')
+
     for axis in axes:
         axis.yaxis.set_visible(True)
         axis.legend()
@@ -116,7 +111,7 @@ def make_dataset_imbalance(x, y, supressed_cls, remove_ratio=0.9):
     y_label = np.argmax(y, axis=-1)
     remain_idx = np.arange(len(x))
     remove_idx = []
-    # Remove 90% of data in class
+    # Remove data in supressed_cls
     for cls in supressed_cls:
         data_idx = np.nonzero(y_label == cls)[0]
         cls_number = len(data_idx)
@@ -128,6 +123,21 @@ def make_dataset_imbalance(x, y, supressed_cls, remove_ratio=0.9):
     class_number = np.sum(y, axis=0)
     print(class_number)
     return x, y
+
+def plot_ld_embedding(x, y):
+    y_label = np.argmax(y, axis=-1)
+    plt.figure()
+    # pca = PCA(n_components=2)
+    # x_ld = pca.fit_transform(x)
+    lda = LinearDiscriminantAnalysis(n_components=2)
+    x_ld = lda.fit_transform(x, y_label)
+    num_classes = np.max(y_label)
+    skip_cls = [0,1,2,4]
+    for cls in range(num_classes):
+        if any(cls == _cls for _cls in skip_cls):
+            continue
+        cls_idx = np.nonzero(y_label == cls)[0]
+        plt.scatter(x_ld[cls_idx, 0], x_ld[cls_idx, 1], label='cls %d'%cls)
 
 
 
@@ -142,7 +152,7 @@ XLIM=[0, 16000]
 if __name__ == '__main__':
     # Build data pipelines.
     plt.close()
-    plot_nngp_nn_performance()
+    # plot_nngp_nn_performance()
     plot_nngp_performance()
     plt.show()
     raise Exception
@@ -151,6 +161,10 @@ if __name__ == '__main__':
     train_dataset = torchvision.datasets.CIFAR10(root='~/dataset/cifar10/', train=True, transform=None, download=True)
     test_dataset = torchvision.datasets.CIFAR10(root='~/dataset/cifar10/', train=False, transform=None, download=True)
     
+    use_sample = False
+    use_raw_data = False
+    is_imbalanced = True
+
     vit_feature_file = 'cifar_vit.npz'
     if not os.path.isfile(vit_feature_file):
         model_flag = 'google/vit-base-patch16-224'
@@ -167,21 +181,24 @@ if __name__ == '__main__':
         y_train_full = vit_dct['y_train']
         x_test = vit_dct['x_test']
         y_test = vit_dct['y_test']
-    use_raw_data = False
+
     if use_raw_data:
         x_train_full, y_train_full = extract_raw(train_dataset)
         x_test, y_test = extract_raw(test_dataset)
+    if is_imbalanced:
+        supressed_cls = [0, 2, 3, 5, 6, 9]
+        # supressed_cls = [3, 5, 9]
+        x_train_full, y_train_full = make_dataset_imbalance(
+            x_train_full, y_train_full,
+            supressed_cls = supressed_cls, remove_ratio=0.9)
 
-    x_train_full, y_train_full = make_dataset_imbalance(
-        x_train_full, y_train_full,
-        supressed_cls = [3, 5, 9], remove_ratio=0.9)
-
-    train_sizes = (2**np.arange(4,15)).astype(int)
-    # train_sizes = np.arange(100,17000,1000)
+    # train_sizes = (2**np.arange(4,15)).astype(int)
+    train_sizes = np.arange(100,17000,1000)
+    # train_sizes = [2**9]
     accuracies = []
     remained_idx = np.arange(len(x_train_full))
     # Iterate over the array and pick data
-    use_sample = False
+
     for i, train_size in enumerate(train_sizes):
         # Pick the first index in the remained_idx list
         if i > 0:
@@ -243,14 +260,30 @@ if __name__ == '__main__':
         # exp_prob = exp_prob / exp_prob.sum(axis=1,keepdims=True)
         # entropy = (exp_prob * np.log(exp_prob + 1e-6)).sum(axis=1)
         # var = entropy
-        if train_size < 2000:
-            var = []
-            for x_rest in tqdm(x_train_rest):
-                _, fx_rest_ntk = predict_fn(x_test=x_rest[None], compute_cov=True)
-                var.append(fx_rest_ntk.covariance)
-            var = np.stack(var).ravel()
 
-    filename = 'act_nngp_imbalance.npz'
+        # if train_size > 2000:
+        #     continue
+        start = time.time()
+        kdd = kernel_fn(x_train, x_train).ntk
+        kdd_inv = np.linalg.inv(kdd)
+        ktd = kernel_fn(x_train_rest, x_train).ntk
+        ktt = np.stack([kernel_fn(x_rest[None], x_rest[None]).ntk for x_rest in x_train_rest]).ravel()
+        var = ktt - np.sum(np.dot(ktd, kdd_inv)*ktd, axis=1)
+        duration = time.time() - start
+        # var = []
+        # for x_rest in tqdm(x_train_rest):
+        #     fx_rest_nngp, fx_rest_ntk = predict_fn(x_test=x_rest[None], compute_cov=True)
+        #     var.append(fx_rest_ntk.covariance)
+        # var = np.stack(var).ravel()
+        print('Variance construction done in %s seconds.' % duration)
+
+    filename = 'act_nngp'
+    if is_imbalanced:
+        filename += '_imbalance%d'%len(supressed_cls)
+    if use_sample:
+        filename += '_unsample'
+    filename += '.npz'
+    
     if use_raw_data:
         filename = 'raw_' + filename
     np.savez(filename, train_sizes=train_sizes, accuracies=np.array(accuracies))
