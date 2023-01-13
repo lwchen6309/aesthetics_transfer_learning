@@ -82,7 +82,7 @@ if __name__ == '__main__':
     test_dataset = torchvision.datasets.CIFAR10(root='~/dataset/cifar10/', train=False, transform=None, download=True)
 
     use_raw_data = False
-    is_imbalanced = True
+    is_imbalanced = False
 
     vit_feature_file = 'cifar_vit.npz'
     if not os.path.isfile(vit_feature_file):
@@ -112,8 +112,8 @@ if __name__ == '__main__':
             supressed_cls = supressed_cls, remove_ratio=0.9)
 
     # train_sizes = (2**np.arange(4,15)).astype(int)
-    train_sizes = np.arange(100,17000,1000)
-    # train_sizes = [45000]
+    # train_sizes = np.arange(100,17000,1000)
+    train_sizes = [1000]
     accuracies = []
     for train_size in train_sizes:
         # train_size = 1024
@@ -150,7 +150,7 @@ if __name__ == '__main__':
         # util.print_summary('NNGP test', y_test, fx_test_nngp, None, loss)
         util.print_summary('NTK test', y_test, fx_test_ntk, None, loss)
         accuracies.append(util._accuracy(fx_test_ntk, y_test))
-
+        
     filename = 'nngp'
     if is_imbalanced:
         filename += '_imbalance%d'%len(supressed_cls)
