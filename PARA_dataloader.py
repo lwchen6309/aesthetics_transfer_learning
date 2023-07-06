@@ -5,6 +5,7 @@ import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import numpy as np
 
 
 class PARADataset(Dataset):
@@ -20,6 +21,20 @@ class PARADataset(Dataset):
                 random.seed(random_seed)
                 torch.manual_seed(random_seed)
 
+        self.attributes = [
+            'aestheticScore',
+            'qualityScore',
+            'compositionScore',
+            'colorScore',
+            'dofScore',
+            'lightScore',
+            'contentScore',
+            'contentPreference',
+            'willingnessToShare'
+        ]
+        self.mean_attributes = ['%s_mean'%x for x in self.attributes]
+        self.std_attributes = ['%s_std'%x for x in self.attributes]
+
     def __len__(self):
         return len(self.annotations)
 
@@ -27,9 +42,11 @@ class PARADataset(Dataset):
         annotations = self.annotations
         session_dir = annotations.iloc[idx]['sessionId']
         img_path = os.path.join(self.root_dir, 'imgs', session_dir, annotations.iloc[idx]['imageName'])
-        aesthetic_score_mean = annotations.iloc[idx]['aestheticScore_mean']
-        aesthetic_score_std = annotations.iloc[idx]['aestheticScore_std']
-
+        # aesthetic_score_mean = annotations.iloc[idx]['aestheticScore_mean']
+        # aesthetic_score_std = annotations.iloc[idx]['aestheticScore_std']
+        aesthetic_score_mean = np.array(annotations.iloc[idx][self.mean_attributes], dtype=np.float32)
+        aesthetic_score_std = np.array(annotations.iloc[idx][self.std_attributes], dtype=np.float32)
+                
         image = Image.open(img_path).convert('RGB')
 
         if self.transform:
@@ -67,6 +84,7 @@ if __name__ == '__main__':
     for images, mean_scores, std_scores in train_dataloader:
         # Perform training operations here
         print(mean_scores)
+        print(std_scores)
         raise Exception
 
     # Iterate over the test dataloader
