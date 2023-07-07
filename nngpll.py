@@ -81,16 +81,44 @@ def extract_vit_feature(dataset, model):
 
 
 learning_rate = 1
-train_size = 50000
-test_size = 10000
+# train_size = 50000
+# test_size = 10000
 _BATCH_SIZE = 0
 train_time = 2000
 root_dir = '/home/lwchen/datasets/PARA/'
 data_dir = './img224'
 
 
-def plot_nngp_performance():
-    # modelnames = ['clip', 'vit']
+def plot_nngp():
+    modelnames = ['resnet', 'resnet_ft', 'clip', 'vit']
+    fig, axis = plt.subplots(1)
+    for modelname in modelnames:
+        nngp_dct = jnp.load(os.path.join(data_dir, 'nngp_%s.npz'%modelname))
+        nngp_diag_dct = jnp.load(os.path.join(data_dir, 'nngp_%s_uncertainty.npz'%modelname))
+        train_sizes = nngp_dct['train_sizes']
+        if modelname == 'vit':
+            legend_name = 'ViT' 
+        elif modelname == 'clip':
+            legend_name = 'CLIP'
+        elif 'resnet' in modelname:
+            legend_name = modelname.replace('resnet', 'ResNet')
+        else:
+            legend_name = modelname
+        
+        axis.plot(train_sizes, nngp_dct['mse_mean'], label='%s'%legend_name)
+        # axis.plot(train_sizes, nngp_diag_dct['mse_mean'], label='%s_uncertainty'%legend_name)
+        axis.set_title('MSE of mean score')
+        # print(nngp_dct['mse_mean'].min())
+        print(nngp_diag_dct['mse_mean'].min())
+        
+    axis.legend()
+    axis.set_xlabel('Number training sample')
+    axis.set_ylabel('MSE')
+    # plt.legend()
+    plt.show()
+
+
+def plot_nngp_uncertainty():
     modelnames = ['resnet', 'resnet_ft']
     fig, axis = plt.subplots(1)
     for modelname in modelnames:
@@ -101,13 +129,15 @@ def plot_nngp_performance():
             legend_name = 'ViT' 
         elif modelname == 'clip':
             legend_name = 'CLIP'
+        elif 'resnet' in modelname:
+            legend_name = modelname.replace('resnet', 'ResNet')
         else:
             legend_name = modelname
         
         axis.plot(train_sizes, nngp_dct['mse_mean'], label='%s'%legend_name)
         axis.plot(train_sizes, nngp_diag_dct['mse_mean'], label='%s_uncertainty'%legend_name)
         axis.set_title('MSE of mean score')
-        
+    
     axis.legend()
     axis.set_xlabel('Number training sample')
     axis.set_ylabel('MSE')
@@ -117,9 +147,10 @@ def plot_nngp_performance():
 
 if __name__ == '__main__':
     # Build data pipelines.   
-    # plot_nngp_performance()
-    # plt.show()
-    # raise Exception
+    plot_nngp()
+    plot_nngp_uncertainty()
+    plt.show()
+    raise Exception
 
     print('Loading data.')
     random_seed = 42
@@ -136,12 +167,12 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, random_seed=random_seed)
+    train_dataset = PARADataset(root_dir, transform=test_transform, train=True, random_seed=random_seed)
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, random_seed=random_seed)
 
-    use_uncertainty = False
+    use_uncertainty = True
 
-    modelname = 'resnet_ft'
+    modelname = 'clip'
     vit_feature_file = 'para_%s.npz'%modelname
     vit_feature_file = os.path.join(data_dir,vit_feature_file)
     if not os.path.isfile(vit_feature_file):
@@ -203,7 +234,7 @@ if __name__ == '__main__':
     y_test_std = y_test_std / 5.0
 
     # Training
-    train_sizes = jnp.arange(100,17000,1000)
+    train_sizes = jnp.arange(100,10000,500)
     # train_sizes = [1000]
     mse_mean = []
     mse_std = []

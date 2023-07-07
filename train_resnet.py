@@ -67,7 +67,7 @@ if __name__ == '__main__':
     random.seed(random_seed)
 
     is_log = True
-    lr = 1e-3
+    lr = 5e-3
     batch_size = 32
     num_epochs = 50
     if is_log:
