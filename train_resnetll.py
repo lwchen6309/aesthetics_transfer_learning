@@ -84,7 +84,7 @@ if __name__ == '__main__':
     is_log = True
     lr = 5e-3
     batch_size = 32
-    num_epochs = 5
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA")
         wandb.config = {
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
 
     # Define the optimizer
-    optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
+    optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr, momentum=0.9)
 
     # Define a list to record the training and test losses
     train_loss_list = []
