@@ -28,7 +28,7 @@ def train(model, train_dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
 
         outputs = model(images)
-        mse_loss = criterion(outputs, mean_scores, std_scores)
+        mse_loss = criterion(outputs, mean_scores)
         custom_loss = custom_criterion(outputs, mean_scores, std_scores)
 
         loss = custom_loss
@@ -45,21 +45,33 @@ def train(model, train_dataloader, criterion, optimizer, device):
     return epoch_mse_loss, epoch_custom_loss
 
 
-def evaluate(model, dataloader, criterion, device):
-    model.eval()
+def evaluate(model, dataloader, criterion, device, num_samples=50):
+    model.train()
     running_mse_loss = 0.0
     running_custom_loss = 0.0
+    dropout_outputs = []
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
         for images, mean_scores, std_scores in progress_bar:
             images = images.to(device)
             mean_scores = mean_scores.to(device)
-            std_scores = std_scores.to(device)
 
-            outputs = model(images)
-            mse_loss = criterion(outputs, mean_scores, std_scores)
-            custom_loss = custom_criterion(outputs, mean_scores, std_scores)
+            batch_outputs = []
+            for _ in range(num_samples):
+                model.train()
+                outputs = model(images)
+                batch_outputs.append(outputs)
+
+            batch_outputs = torch.stack(batch_outputs)
+            batch_outputs_mean = torch.mean(batch_outputs, dim=0)
+            batch_outputs_std = torch.std(batch_outputs, dim=0)
+            batch_outputs = torch.stack([batch_outputs_mean, batch_outputs_std], dim=-1)
+
+            dropout_outputs.append(batch_outputs)
+
+            mse_loss = criterion(batch_outputs_mean, mean_scores)
+            custom_loss = custom_criterion(batch_outputs_mean, mean_scores, batch_outputs_std)
 
             running_mse_loss += mse_loss.item()
             running_custom_loss += custom_loss.item()
@@ -67,7 +79,11 @@ def evaluate(model, dataloader, criterion, device):
 
     epoch_mse_loss = running_mse_loss / len(dataloader)
     epoch_custom_loss = running_custom_loss / len(dataloader)
-    return epoch_mse_loss, epoch_custom_loss
+    dropout_outputs = torch.cat(dropout_outputs, dim=0)
+    dropout_mean = dropout_outputs[..., 0]
+    dropout_std = dropout_outputs[..., 1]
+    return epoch_mse_loss, epoch_custom_loss, dropout_mean, dropout_std
+
 
 
 if __name__ == '__main__':
@@ -79,16 +95,16 @@ if __name__ == '__main__':
     random.seed(random_seed)
 
     is_log = True
-    lr = 5e-3
+    lr = 1e-3
     batch_size = 32
-    num_epochs = 50
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA")
-        wandb.config = {
+        wandb.config.update({
             "learning_rate": lr,
             "batch_size": batch_size,
             "num_epochs": num_epochs
-        }
+        })
 
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
@@ -140,7 +156,7 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
 
     # Define the optimizer
-    optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
+    optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr, momentum=0.9)
 
     # Define a list to record the training and test losses
     train_mse_loss_list = []
@@ -155,38 +171,37 @@ if __name__ == '__main__':
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
-        train_mse_loss, train_custom_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
+        train_mse_loss, train_custom_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50,
+                                                  device)
         train_mse_loss_list.append(train_mse_loss)
         train_custom_loss_list.append(train_custom_loss)
         if is_log:
             wandb.log({"Train MSE Loss": train_mse_loss, "Train Custom Loss": train_custom_loss})
 
         # Testing
-        test_mse_loss, test_custom_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
+        test_mse_loss, test_custom_loss, dropout_mean, dropout_std = evaluate(model_resnet50, test_dataloader, criterion, device,
+                                                        num_samples=50)
         test_mse_loss_list.append(test_mse_loss)
         test_custom_loss_list.append(test_custom_loss)
         if is_log:
             wandb.log({"Test MSE Loss": test_mse_loss, "Test Custom Loss": test_custom_loss}, commit=False)
 
         # Print the epoch loss
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Train MSE Loss: {train_mse_loss}, Train Custom Loss: {train_custom_loss}, Test MSE Loss: {test_mse_loss}, Test Custom Loss: {test_custom_loss}")
+        print(
+            f"Epoch [{epoch + 1}/{num_epochs}], Train MSE Loss: {train_mse_loss}, Train Custom Loss: {train_custom_loss}, Test Loss: {test_mse_loss}")
 
         # Check if the current model has the best test loss so far
-        if test_custom_loss < best_test_loss:
-            best_test_loss = test_custom_loss
+        if test_mse_loss < best_test_loss:
+            best_test_loss = test_mse_loss
             best_model = model_resnet50.state_dict()
 
     # Save the best model
     torch.save(best_model, 'best_model_resnet50_lluc.pth')
 
-    # Record the training and test losses into a text file
+    # Record the training and test losses into a textfile
     lossrecords = {
         'Train MSE Loss': train_mse_loss_list,
         'Train Custom Loss': train_custom_loss_list,
         'Test MSE Loss': test_mse_loss_list,
         'Test Custom Loss': test_custom_loss_list
     }
-    pd.DataFrame(loss_records).to_csv('loss_records_lluc.txt', index=False)
-
-    # At this point, ResNet-50 has been fine-tuned on the PARA dataset, the best model has been saved,
-    # and the training and test losses have been recorded into a text file.

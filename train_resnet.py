@@ -66,10 +66,10 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    is_log = True
-    lr = 5e-3
+    is_log = False
+    lr = 1e-3
     batch_size = 32
-    num_epochs = 50
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA")
         wandb.config = {
@@ -113,6 +113,7 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
+    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_1e-3_30epoch.pth'))
 
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
