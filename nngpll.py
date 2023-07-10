@@ -101,7 +101,7 @@ def plot_nngp():
         elif modelname == 'clip':
             legend_name = 'CLIP'
         elif 'resnet' in modelname:
-            legend_name = modelname.replace('resnet', 'ResNet')
+            legend_name = modelname.replace('resnet', 'ResNet50')
         else:
             legend_name = modelname
         
@@ -109,6 +109,7 @@ def plot_nngp():
         # axis.plot(train_sizes, nngp_diag_dct['mse_mean'], label='%s_uncertainty'%legend_name)
         axis.set_title('MSE of mean score')
         # print(nngp_dct['mse_mean'].min())
+        print(nngp_dct['mse_mean'].min())
         print(nngp_diag_dct['mse_mean'].min())
         
     axis.legend()
@@ -146,7 +147,7 @@ def plot_nngp_uncertainty():
 
 
 if __name__ == '__main__':
-    # Build data pipelines.   
+    # Build data pipelines.
     plot_nngp()
     plot_nngp_uncertainty()
     plt.show()
@@ -172,7 +173,7 @@ if __name__ == '__main__':
 
     use_uncertainty = True
 
-    modelname = 'clip'
+    modelname = 'resnet_ft'
     vit_feature_file = 'para_%s.npz'%modelname
     vit_feature_file = os.path.join(data_dir,vit_feature_file)
     if not os.path.isfile(vit_feature_file):
@@ -197,7 +198,7 @@ if __name__ == '__main__':
             num_classes = 9
             num_features = model.fc.in_features
             model.fc = nn.Linear(num_features, num_classes)
-            model.load_state_dict(torch.load('best_model_resnet50_bak.pth'))
+            model.load_state_dict(torch.load(os.path.join('1e-3_30epoch','best_model_resnet50.pth')))
             model = model.to(device)
             model.eval()
             # Remove the last fully connected layer to get the feature extractor
@@ -235,7 +236,7 @@ if __name__ == '__main__':
 
     # Training
     train_sizes = jnp.arange(100,10000,500)
-    # train_sizes = [1000]
+    # train_sizes = [9600]
     mse_mean = []
     mse_std = []
     x_test = jnp.array(x_test)
@@ -253,11 +254,10 @@ if __name__ == '__main__':
 
         # Build the infinite network.
         _, _, kernel_fn = stax.serial(
-            stax.Dense(1, 2., 0.05),
+            stax.Dense(1, 1., 0.05),
             stax.Relu(),
-            stax.Dense(1, 2., 0.05)
+            stax.Dense(1, 1., 0.05)
         )
-
         # Optionally, compute the kernel in batches, in parallel.
         kernel_fn = nt.batch(kernel_fn,
                             device_count=0,
@@ -289,16 +289,7 @@ if __name__ == '__main__':
 
     filename = 'nngp_%s'%modelname
     filename = os.path.join(data_dir,filename)
-    # filename += '.npz'
-    # if use_raw_data:
-    #     filename = 'raw_' + filename
     if use_uncertainty:
         filename += '_uncertainty'
     jnp.savez(filename, train_sizes=train_sizes, mse_mean=mse_mean)
-    # fig, axes = plt.subplot(2)
-    # axes[0].plot(train_sizes, mse_mean)
-    # axes[1].plot(train_sizes, mse_std)
-    # plt.title('PARA')
-    # plt.xlabel('Number training sample')
-    # plt.ylabel('MSE')
-    # plt.show()
+    

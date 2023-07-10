@@ -141,7 +141,7 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
-        nn.Dropout(p=0.1),
+        # nn.Dropout(p=0.1),
         nn.Linear(num_features, num_classes)
     )
 
@@ -180,7 +180,7 @@ if __name__ == '__main__':
 
         # Testing
         test_mse_loss, test_custom_loss, dropout_mean, dropout_std = evaluate(model_resnet50, test_dataloader, criterion, device,
-                                                        num_samples=50)
+                                                        num_samples=5)
         test_mse_loss_list.append(test_mse_loss)
         test_custom_loss_list.append(test_custom_loss)
         if is_log:
@@ -196,7 +196,7 @@ if __name__ == '__main__':
             best_model = model_resnet50.state_dict()
 
     # Save the best model
-    torch.save(best_model, 'best_model_resnet50_lluc.pth')
+    torch.save(best_model, 'best_model_resnet50_ll.pth')
 
     # Record the training and test losses into a textfile
     lossrecords = {

@@ -9,9 +9,10 @@ import numpy as np
 
 
 class PARADataset(Dataset):
-    def __init__(self, root_dir, transform=None, train=True, random_seed=None):
+    def __init__(self, root_dir, transform=None, train=True, random_seed=None, use_attr=True):
         self.root_dir = root_dir
         self.transform = transform
+        self.use_attr = use_attr
         self.train = train
         if self.train:
             self.annotations = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTrain.csv'))
@@ -32,6 +33,8 @@ class PARADataset(Dataset):
             'contentPreference',
             'willingnessToShare'
         ]
+        if not self.use_attr:
+            self.attributes = [self.attributes[0]]
         self.mean_attributes = ['%s_mean'%x for x in self.attributes]
         self.std_attributes = ['%s_std'%x for x in self.attributes]
 
@@ -46,7 +49,7 @@ class PARADataset(Dataset):
         # aesthetic_score_std = annotations.iloc[idx]['aestheticScore_std']
         aesthetic_score_mean = np.array(annotations.iloc[idx][self.mean_attributes], dtype=np.float32)
         aesthetic_score_std = np.array(annotations.iloc[idx][self.std_attributes], dtype=np.float32)
-                
+        
         image = Image.open(img_path).convert('RGB')
 
         if self.transform:
@@ -73,8 +76,8 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=train_transform, train=True)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, random_seed=random_seed)
+    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=False)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=False, random_seed=random_seed)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)

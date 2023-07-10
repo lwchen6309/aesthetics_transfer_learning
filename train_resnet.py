@@ -22,7 +22,6 @@ def train(model, train_dataloader, criterion, optimizer, device):
     for images, mean_scores, std_scores in progress_bar:
         images = images.to(device)
         mean_scores = mean_scores.to(device)
-
         optimizer.zero_grad()
 
         outputs = model(images)
@@ -33,7 +32,7 @@ def train(model, train_dataloader, criterion, optimizer, device):
 
         running_loss += loss.item()
         progress_bar.set_postfix({'Train Loss': loss.item()})
-
+        
     epoch_loss = running_loss / len(train_dataloader)
     return epoch_loss
 
@@ -67,9 +66,10 @@ if __name__ == '__main__':
     random.seed(random_seed)
 
     is_log = False
+    use_attr = False
     lr = 1e-3
     batch_size = 32
-    num_epochs = 30
+    num_epochs = 1
     if is_log:
         wandb.init(project="resnet_PARA")
         wandb.config = {
@@ -94,15 +94,18 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, random_seed=random_seed)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, random_seed=random_seed)
+    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=use_attr, random_seed=random_seed)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, random_seed=random_seed)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # Define the number of classes in your dataset
-    num_classes = 9  # Replace with the actual number of classes
+    if use_attr:
+        num_classes = 9
+    else:
+        num_classes = 1
 
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -131,7 +134,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-
+        
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
@@ -153,9 +156,13 @@ if __name__ == '__main__':
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             best_model = model_resnet50.state_dict()
-
+    
     # Save the best model
-    torch.save(best_model, 'best_model_resnet50.pth')
+    best_modelname = 'best_model_resnet50'
+    if not use_attr:
+        best_modelname += '_noattr'
+    best_modelname += '.pth'
+    torch.save(best_model, best_modelname)
 
     # Record the training and test losses into a text file
     loss_records = {'Train Loss': train_loss_list, 'Test Loss': test_loss_list}
