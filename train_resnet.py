@@ -69,7 +69,7 @@ if __name__ == '__main__':
     use_attr = False
     lr = 1e-3
     batch_size = 32
-    num_epochs = 1
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA")
         wandb.config = {
