@@ -89,7 +89,7 @@ if __name__ == '__main__':
     is_log = True
     use_attr = False
     use_hist = True
-    lr = 1e-3
+    lr = 1e-4
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss functions
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor(train_dataset.aesthetic_score_hist_prob, device=device))
     mse_criterion = nn.MSELoss()
 
     # Define the optimizer

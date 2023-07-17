@@ -6,6 +6,7 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import numpy as np
+from tqdm import tqdm 
 
 
 class PARADataset(Dataset):
@@ -23,7 +24,7 @@ class PARADataset(Dataset):
             if random_seed is not None:
                 random.seed(random_seed)
                 torch.manual_seed(random_seed)
-        
+
         self.attributes = [
             'aestheticScore',
             'qualityScore',
@@ -49,6 +50,10 @@ class PARADataset(Dataset):
             for attr in self.attributes[1:]:
                 scale = np.arange(1, 5.5, 1.0)
                 self.score_hist.append(['%s_%d'%(attr, i) for i in scale])
+        
+        self.aesthetic_score_hist_prob = self._compute_aesthetic_score_hist_prob()
+        if not self.use_attr:
+            self.aesthetic_score_hist_prob = self.aesthetic_score_hist_prob[:9]
 
     def __len__(self):
         return len(self.annotations)
@@ -75,6 +80,19 @@ class PARADataset(Dataset):
             image = self.transform(image)
 
         return image, aesthetic_score_mean, aesthetic_score_std, aesthetic_score_hist
+    
+    def _compute_aesthetic_score_hist_prob(self):
+        tag = 'train' if self.train else 'test'
+        cache_file = 'aesthetic_score_hist_prob_%s.npz'%tag
+        if os.path.exists(cache_file):
+            return np.load(cache_file)['aesthetic_score_hist_prob']
+        else:
+            summed_hist = 0
+            for _, _, _, aesthetic_score_hist in tqdm(self):
+                summed_hist += aesthetic_score_hist
+            aesthetic_score_hist_prob = summed_hist / len(self)
+            np.savez(cache_file, aesthetic_score_hist_prob=aesthetic_score_hist_prob)
+            return aesthetic_score_hist_prob
 
 
 if __name__ == '__main__':
@@ -96,7 +114,9 @@ if __name__ == '__main__':
 
     # Create datasets with the appropriate transformations
     train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=True, use_hist=True)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=True, random_seed=random_seed)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=True, use_hist=True, random_seed=random_seed)
+
+    print(train_dataset.aesthetic_score_hist_prob)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
