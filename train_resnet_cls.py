@@ -2,6 +2,7 @@ import os
 import random
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import pandas as pd
 from PIL import Image
@@ -19,19 +20,26 @@ def train(model, train_dataloader, criterion, optimizer, device):
     running_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
-    for images, mean_scores, std_scores in progress_bar:
+    for images, mean_scores, std_scores, score_prob in progress_bar:
         images = images.to(device)
         mean_scores = mean_scores.to(device)
+        score_prob = score_prob.to(device)
         optimizer.zero_grad()
 
         outputs = model(images)
-        loss = criterion(outputs, mean_scores)
+        outputs = F.softmax(outputs, dim=1)
+        loss = criterion(outputs, score_prob)
+
+        outputs_score = torch.sum(outputs * torch.arange(1, 5.5, 0.5).to(device), dim=1, keepdim=True)
+        mse_loss = mse_criterion(outputs_score, mean_scores)
 
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
-        progress_bar.set_postfix({'Train Loss': loss.item()})
+        progress_bar.set_postfix({
+            'Train Loss': loss.item(), 
+            'Train MSE Loss':mse_loss.item()})
         
     epoch_loss = running_loss / len(train_dataloader)
     return epoch_loss
@@ -43,16 +51,23 @@ def evaluate(model, dataloader, criterion, device):
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
-        for images, mean_scores, std_scores in progress_bar:
+        for images, mean_scores, std_scores, score_hist in progress_bar:            
             images = images.to(device)
             mean_scores = mean_scores.to(device)
+            score_hist = score_hist.to(device)
 
             outputs = model(images)
-            loss = criterion(outputs, mean_scores)
+            outputs = F.softmax(outputs, dim=1)
+            loss = criterion(outputs, score_hist)
+
+            outputs_score = torch.sum(outputs * torch.arange(1, 5.5, 0.5).to(device), dim=1, keepdim=True)
+            mse_loss = mse_criterion(outputs_score, mean_scores)
 
             running_loss += loss.item()
-            progress_bar.set_postfix({'Eval Loss': loss.item()})
-
+            progress_bar.set_postfix({
+                'Eval Loss': loss.item(), 
+                'Eval MSE Loss':mse_loss.item()})
+    
     epoch_loss = running_loss / len(dataloader)
     return epoch_loss
 
@@ -65,9 +80,10 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    is_log = True
+    is_log = False
     use_attr = False
-    lr = 1e-4
+    use_hist = True
+    lr = 1e-3
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -94,8 +110,8 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=use_attr, random_seed=random_seed)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, random_seed=random_seed)
+    train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=use_attr, use_hist=use_hist, random_seed=random_seed)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, use_hist=use_hist, random_seed=random_seed)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -103,9 +119,10 @@ if __name__ == '__main__':
 
     # Define the number of classes in your dataset
     if use_attr:
-        num_classes = 9
+        num_classes = 9 + 5 * 7
     else:
-        num_classes = 1
+        num_classes = 9
+    
 
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -116,13 +133,14 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    # model_resnet50.load_state_dict(torch.load('best_model_resnet50.pth'))
 
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss function
     criterion = nn.MSELoss()
+    mse_criterion = nn.MSELoss()
+    # criterion = nn.CrossEntropyLoss()
 
     # Define the optimizer
     optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
@@ -163,10 +181,3 @@ if __name__ == '__main__':
         best_modelname += '_noattr'
     best_modelname += '.pth'
     torch.save(best_model, best_modelname)
-
-    # Record the training and test losses into a text file
-    loss_records = {'Train Loss': train_loss_list, 'Test Loss': test_loss_list}
-    pd.DataFrame(loss_records).to_csv('loss_records.txt', index=False)
-
-    # At this point, ResNet-50 has been fine-tuned on the PARA dataset, the best model has been saved,
-    # and the training and test losses have been recorded into a text file.

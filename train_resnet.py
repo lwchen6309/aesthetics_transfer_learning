@@ -19,7 +19,7 @@ def train(model, train_dataloader, criterion, optimizer, device):
     running_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
-    for images, mean_scores, std_scores in progress_bar:
+    for images, mean_scores, std_scores, score_hist in progress_bar:
         images = images.to(device)
         mean_scores = mean_scores.to(device)
         optimizer.zero_grad()
@@ -43,7 +43,7 @@ def evaluate(model, dataloader, criterion, device):
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
-        for images, mean_scores, std_scores in progress_bar:
+        for images, mean_scores, std_scores, score_hist in progress_bar:
             images = images.to(device)
             mean_scores = mean_scores.to(device)
 
