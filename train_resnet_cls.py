@@ -18,6 +18,7 @@ import wandb
 def train(model, train_dataloader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
+    running_mse_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
     for images, mean_scores, std_scores, score_prob in progress_bar:
@@ -37,17 +38,20 @@ def train(model, train_dataloader, criterion, optimizer, device):
         optimizer.step()
 
         running_loss += loss.item()
+        running_mse_loss += mse_loss.item()
         progress_bar.set_postfix({
             'Train Loss': loss.item(), 
-            'Train MSE Loss':mse_loss.item()})
+            'Train MSE Loss': mse_loss.item()})
         
     epoch_loss = running_loss / len(train_dataloader)
-    return epoch_loss
+    epoch_mse_loss = running_mse_loss / len(train_dataloader)
+    return epoch_loss, epoch_mse_loss
 
 
 def evaluate(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
+    running_mse_loss = 0.0
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
@@ -64,12 +68,14 @@ def evaluate(model, dataloader, criterion, device):
             mse_loss = mse_criterion(outputs_score, mean_scores)
 
             running_loss += loss.item()
+            running_mse_loss += mse_loss.item()
             progress_bar.set_postfix({
                 'Eval Loss': loss.item(), 
-                'Eval MSE Loss':mse_loss.item()})
+                'Eval MSE Loss': mse_loss.item()})
     
     epoch_loss = running_loss / len(dataloader)
-    return epoch_loss
+    epoch_mse_loss = running_mse_loss / len(dataloader)
+    return epoch_loss, epoch_mse_loss
 
 
 if __name__ == '__main__':
@@ -137,17 +143,18 @@ if __name__ == '__main__':
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
-    # Define the loss function
-    # criterion = nn.CrossEntropyLoss()
-    criterion = nn.MSELoss()
+    # Define the loss functions
+    criterion = nn.CrossEntropyLoss()
     mse_criterion = nn.MSELoss()
 
     # Define the optimizer
     optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
 
-    # Define a list to record the training and test losses
+    # Define lists to record the training and test losses
     train_loss_list = []
+    train_mse_loss_list = []
     test_loss_list = []
+    test_mse_loss_list = []
 
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
@@ -156,19 +163,21 @@ if __name__ == '__main__':
     # Training loop
     for epoch in range(num_epochs):
         # Training
-        train_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
+        train_loss, train_mse_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
         train_loss_list.append(train_loss)
+        train_mse_loss_list.append(train_mse_loss)
         if is_log:
-            wandb.log({"Train Loss": train_loss})
+            wandb.log({"Train Prob Loss": train_loss, "Train MSE Loss": train_mse_loss})
 
         # Testing
-        test_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
+        test_loss, test_mse_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
         test_loss_list.append(test_loss)
+        test_mse_loss_list.append(test_mse_loss)
         if is_log:
-            wandb.log({"Test Loss": test_loss}, commit=False)
+            wandb.log({"Test Prob Loss": test_loss, "Test MSE Loss": test_mse_loss}, commit=False)
 
         # Print the epoch loss
-        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}")
+        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Train MSE Loss: {train_mse_loss}, Test Loss: {test_loss}, Test MSE Loss: {test_mse_loss}")
 
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:

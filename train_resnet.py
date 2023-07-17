@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     is_log = True
     use_attr = False
-    lr = 1e-4
+    lr = 1e-5
     batch_size = 32
     num_epochs = 30
     if is_log:
