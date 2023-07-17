@@ -80,7 +80,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    is_log = False
+    is_log = True
     use_attr = False
     use_hist = True
     lr = 1e-3
@@ -138,9 +138,9 @@ if __name__ == '__main__':
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss function
+    # criterion = nn.CrossEntropyLoss()
     criterion = nn.MSELoss()
     mse_criterion = nn.MSELoss()
-    # criterion = nn.CrossEntropyLoss()
 
     # Define the optimizer
     optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
@@ -152,8 +152,8 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-        
-    # Training loop for ResNet-50
+    
+    # Training loop
     for epoch in range(num_epochs):
         # Training
         train_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
             best_model = model_resnet50.state_dict()
     
     # Save the best model
-    best_modelname = 'best_model_resnet50'
+    best_modelname = 'best_model_resnet50_cls'
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'
