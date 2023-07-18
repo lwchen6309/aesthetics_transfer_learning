@@ -141,13 +141,13 @@ if __name__ == '__main__':
         train_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
         train_loss_list.append(train_loss)
         if is_log:
-            wandb.log({"Train Loss": train_loss}, commit=False)
+            wandb.log({"Train MSE Mean Loss": train_loss}, commit=False)
 
         # Testing
         test_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
         test_loss_list.append(test_loss)
         if is_log:
-            wandb.log({"Test Loss": test_loss})
+            wandb.log({"Test MSE Mean Loss": test_loss})
 
         # Print the epoch loss
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}")
