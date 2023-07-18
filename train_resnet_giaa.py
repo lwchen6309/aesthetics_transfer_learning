@@ -19,7 +19,7 @@ def train(model, train_dataloader, criterion, optimizer, device):
     running_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
-    for images, mean_scores, std_scores in progress_bar:
+    for images, mean_scores, std_scores, _ in progress_bar:
         images = images.to(device)
         mean_scores = mean_scores.to(device)
         optimizer.zero_grad()
@@ -43,13 +43,13 @@ def evaluate(model, dataloader, criterion, device):
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
-        for images, mean_scores, std_scores in progress_bar:
+        for images, mean_scores, std_scores, _ in progress_bar:
             images = images.to(device)
             mean_scores = mean_scores.to(device)
 
             outputs = model(images)
-            loss = criterion(outputs[:,0][:,None], mean_scores[:,0][:,None])
-            # loss = criterion(outputs, mean_scores)
+            # loss = criterion(outputs[:,0][:,None], mean_scores[:,0][:,None])
+            loss = criterion(outputs, mean_scores)
 
             running_loss += loss.item()
             progress_bar.set_postfix({'Eval Loss': loss.item()})
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     random.seed(random_seed)
 
     is_log = False
-    use_attr = True
+    use_attr = False
     lr = 1e-3
     batch_size = 32
     num_epochs = 30
@@ -117,9 +117,10 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load(
-        os.path.join('./1e-3_30epoch', 'best_model_resnet50.pth')))
-
+    # model_resnet50.load_state_dict(torch.load(
+    #     os.path.join('./1e-3_30epoch', 'best_model_resnet50.pth')))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
+    
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 

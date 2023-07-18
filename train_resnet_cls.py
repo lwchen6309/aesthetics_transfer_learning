@@ -86,7 +86,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    is_log = True
+    is_log = False
     use_attr = False
     use_hist = True
     lr = 1e-4
@@ -167,14 +167,14 @@ if __name__ == '__main__':
         train_loss_list.append(train_loss)
         train_mse_loss_list.append(train_mse_loss)
         if is_log:
-            wandb.log({"Train Prob Loss": train_loss, "Train MSE Loss": train_mse_loss})
+            wandb.log({"Train Prob Loss": train_loss, "Train MSE Loss": train_mse_loss}, commit=False)
 
         # Testing
         test_loss, test_mse_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
         test_loss_list.append(test_loss)
         test_mse_loss_list.append(test_mse_loss)
         if is_log:
-            wandb.log({"Test Prob Loss": test_loss, "Test MSE Loss": test_mse_loss}, commit=False)
+            wandb.log({"Test Prob Loss": test_loss, "Test MSE Loss": test_mse_loss})
 
         # Print the epoch loss
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Train MSE Loss: {train_mse_loss}, Test Loss: {test_loss}, Test MSE Loss: {test_mse_loss}")

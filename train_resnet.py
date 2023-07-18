@@ -67,11 +67,11 @@ if __name__ == '__main__':
 
     is_log = True
     use_attr = False
-    lr = 1e-5
+    lr = 1e-3
     batch_size = 32
     num_epochs = 30
     if is_log:
-        wandb.init(project="resnet_PARA")
+        wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
         "learning_rate": lr,
         "batch_size": batch_size,
@@ -134,20 +134,20 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-        
+    
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
         train_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
         train_loss_list.append(train_loss)
         if is_log:
-            wandb.log({"Train Loss": train_loss})
+            wandb.log({"Train Loss": train_loss}, commit=False)
 
         # Testing
         test_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
         test_loss_list.append(test_loss)
         if is_log:
-            wandb.log({"Test Loss": test_loss}, commit=False)
+            wandb.log({"Test Loss": test_loss})
 
         # Print the epoch loss
         print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}")
@@ -163,10 +163,3 @@ if __name__ == '__main__':
         best_modelname += '_noattr'
     best_modelname += '.pth'
     torch.save(best_model, best_modelname)
-
-    # Record the training and test losses into a text file
-    loss_records = {'Train Loss': train_loss_list, 'Test Loss': test_loss_list}
-    pd.DataFrame(loss_records).to_csv('loss_records.txt', index=False)
-
-    # At this point, ResNet-50 has been fine-tuned on the PARA dataset, the best model has been saved,
-    # and the training and test losses have been recorded into a text file.

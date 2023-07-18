@@ -80,7 +80,28 @@ class PARADataset(Dataset):
             image = self.transform(image)
 
         return image, aesthetic_score_mean, aesthetic_score_std, aesthetic_score_hist
-    
+
+    def normalize_histogram(self):
+        backup_annotations = self.annotations.copy()
+
+        for idx in tqdm(range(len(self))):
+            aesthetic_score_hist = []
+            for attr in self.score_hist:
+                hist = np.array(self.annotations.iloc[idx][attr], dtype=np.float32)
+                hist = hist / hist.sum()
+                self.annotations.loc[idx, attr] = hist
+        
+        # Backup the normalized annotations to a new CSV file
+        if self.train:
+            backup_filename = 'PARA-GiaaTrain_normalized.csv'
+        else:
+            backup_filename = 'PARA-GiaaTest_normalized.csv'
+        backup_filepath = os.path.join(self.root_dir, 'annotation', backup_filename)
+        self.annotations.to_csv(backup_filepath, index=False)
+
+        # Restore the original annotations
+        self.annotations = backup_annotations
+
     def _compute_aesthetic_score_hist_prob(self):
         tag = 'train' if self.train else 'test'
         cache_file = 'aesthetic_score_hist_prob_%s.npz'%tag
@@ -116,7 +137,9 @@ if __name__ == '__main__':
     train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=True, use_hist=True)
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=True, use_hist=True, random_seed=random_seed)
 
-    print(train_dataset.aesthetic_score_hist_prob)
+    # Normalize the histograms and backup the annotations to a new CSV file
+    train_dataset.normalize_histogram()
+    test_dataset.normalize_histogram()
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
