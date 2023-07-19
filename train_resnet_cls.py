@@ -58,7 +58,7 @@ def train(model, train_dataloader, criterion_ce, criterion_mse, criterion_emd, o
         outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
         mse_std_loss = criterion_mse(outputs_std, std_scores)
 
-        loss = emd_loss
+        loss = ce_loss
         loss.backward()
         optimizer.step()
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     is_log = True
     use_attr = False
     use_hist = True
-    lr = 1e-3
+    lr = 1e-4
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -156,7 +156,7 @@ if __name__ == '__main__':
             "batch_size": batch_size,
             "num_epochs": num_epochs
         }
-    
+
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
 
@@ -202,7 +202,9 @@ if __name__ == '__main__':
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss functions
-    criterion_ce = nn.CrossEntropyLoss(weight=torch.tensor(train_dataset.aesthetic_score_hist_prob, device=device))
+    ce_weight = 1/train_dataset.aesthetic_score_hist_prob
+    ce_weight = ce_weight / np.sum(ce_weight)
+    criterion_ce = nn.CrossEntropyLoss(weight=torch.tensor(ce_weight, device=device))
     criterion_mse = nn.MSELoss()
     criterion_emd = earth_mover_distance
 
