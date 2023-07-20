@@ -58,7 +58,10 @@ def train(model, train_dataloader, criterion_ce, criterion_mse, criterion_emd, o
         outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
         mse_std_loss = criterion_mse(outputs_std, std_scores)
 
-        loss = ce_loss
+        if use_ce:
+            loss = ce_loss
+        else:
+            loss = emd_loss
         loss.backward()
         optimizer.step()
 
@@ -135,6 +138,11 @@ def evaluate(model, dataloader, criterion_ce, criterion_mse, criterion_emd, devi
     return epoch_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss
 
 
+is_log = True
+use_attr = False
+use_hist = True
+use_ce = False
+
 if __name__ == '__main__':
     # Set random seed for reproducibility
     random_seed = 42
@@ -143,10 +151,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    is_log = True
-    use_attr = False
-    use_hist = True
-    lr = 1e-4
+    lr = 1e-3
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -197,12 +202,12 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-
+    
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss functions
-    ce_weight = 1/train_dataset.aesthetic_score_hist_prob
+    ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight)
     criterion_ce = nn.CrossEntropyLoss(weight=torch.tensor(ce_weight, device=device))
     criterion_mse = nn.MSELoss()
@@ -224,6 +229,12 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
+    best_modelname = 'best_model_resnet50_cls_lr%1.0e_%depoch'%(lr, num_epochs)
+    if not use_attr:
+        best_modelname += '_noattr'
+    if use_ce:
+        best_modelname += '_ce'
+    best_modelname += '.pth'
 
     # Training loop
     for epoch in range(num_epochs):
@@ -268,13 +279,7 @@ if __name__ == '__main__':
               f"Test EMD Loss: {test_emd_loss:.4f}")
 
         # Check if the current model has the best test loss so far
-        if test_ce_loss < best_test_loss:
-            best_test_loss = test_ce_loss
-            best_model = model_resnet50.state_dict()
-
-    # Save the best model
-    best_modelname = 'best_model_resnet50_cls'
-    if not use_attr:
-        best_modelname += '_noattr'
-    best_modelname += '.pth'
-    torch.save(best_model, best_modelname)
+        test_loss = test_ce_loss if use_ce else test_emd_loss
+        if test_loss < best_test_loss:
+            best_test_loss = test_loss
+            torch.save(model_resnet50.state_dict(), best_modelname)
