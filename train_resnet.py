@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     is_log = True
     use_attr = False
-    lr = 5e-4
+    lr = 1e-3
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -134,7 +134,11 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    
+    best_modelname = 'best_model_resnet50_reg_lr%1.0e_%depoch' % (lr, num_epochs)
+    if not use_attr:
+        best_modelname += '_noattr'
+    best_modelname += '.pth'
+
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
@@ -155,11 +159,5 @@ if __name__ == '__main__':
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            best_model = model_resnet50.state_dict()
-    
-    # Save the best model
-    best_modelname = 'best_model_resnet50'
-    if not use_attr:
-        best_modelname += '_noattr'
-    best_modelname += '.pth'
-    torch.save(best_model, best_modelname)
+            torch.save(model_resnet50.state_dict(), best_modelname)    
+

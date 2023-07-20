@@ -175,7 +175,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 1e-3
+    lr = 1e-2
     batch_size = 32
     num_epochs = 30
     if is_log:
