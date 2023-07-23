@@ -32,7 +32,10 @@ def train(model, train_dataloader, criterion, optimizer, device):
         mse_loss = criterion(outputs, mean_scores)
         custom_loss = custom_criterion(outputs, mean_scores, std_scores)
 
-        loss = custom_loss
+        if use_uc:
+            loss = custom_loss
+        else:
+            loss = mse_loss
 
         loss.backward()
         optimizer.step()
@@ -77,8 +80,12 @@ def evaluate(model, dataloader, criterion, criterion_raw_ce, criterion_emd, devi
 
             prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
             prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            raw_ce_loss = criterion_raw_ce(prob, score_prob)
-            ce_loss = criterion_weight_ce(prob, score_prob)
+            logit = torch.log(prob)
+            # raw_ce_loss = criterion_raw_ce(prob, score_prob)
+            # ce_loss = criterion_weight_ce(prob, score_prob)
+            ce_loss = -torch.mean(logit * score_prob * ce_weight)
+            raw_ce_loss = -torch.mean(logit * score_prob)
+
             emd_loss = criterion_emd(prob, score_prob)
 
             mse_mean_loss = criterion(batch_outputs_mean, mean_scores)
@@ -102,13 +109,15 @@ def evaluate(model, dataloader, criterion, criterion_raw_ce, criterion_emd, devi
 is_log = True
 use_attr = False
 use_hist = True
+use_uc = True
 
 if __name__ == '__main__':
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
 
     lr = 1e-3
     batch_size = 32
@@ -162,7 +171,8 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
-    criterion_weight_ce = nn.CrossEntropyLoss(weight=torch.tensor(ce_weight, device=device))
+    ce_weight = torch.tensor(ce_weight, device=device)
+    criterion_weight_ce = nn.CrossEntropyLoss(weight=ce_weight)
     criterion_raw_ce = nn.CrossEntropyLoss()
     criterion_emd = earth_mover_distance
 
@@ -170,7 +180,7 @@ if __name__ == '__main__':
 
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_lluc_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_lluc1_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'

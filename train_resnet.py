@@ -59,11 +59,12 @@ def evaluate(model, dataloader, criterion, device):
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
 
     is_log = True
     use_attr = False
@@ -134,7 +135,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_reg_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_reg1_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'

@@ -34,7 +34,6 @@ def train(model, train_dataloader, optimizer, device):
         score_prob = score_prob.to(device)
         optimizer.zero_grad()
         
-
         outputs = model(images)
         num_classes = outputs.shape[1] // 2
         output_mean_score = outputs[:, :num_classes]
@@ -43,13 +42,20 @@ def train(model, train_dataloader, optimizer, device):
         loss_std = criterion(output_std_score, std_scores)
         prob = torch.exp(-0.5*((output_mean_score - scale) / output_std_score)**2) / output_std_score / sqrt_2pi
         prob = prob / torch.sum(prob, dim=1, keepdim=True)
-        raw_ce_loss = criterion_raw_ce(prob, score_prob)
-        ce_loss = criterion_weight_ce(prob, score_prob)
+        logit = torch.log(prob)
+        # raw_ce_loss = criterion_raw_ce(logit, score_prob)
+        # ce_loss = criterion_weight_ce(logit, score_prob)
+        ce_loss = -torch.mean(logit * score_prob * ce_weight)
+        raw_ce_loss = -torch.mean(logit * score_prob)
         emd_loss = criterion_emd(prob, score_prob)
 
-        # loss = loss_mean + loss_std
-        loss = emd_loss
-
+        if loss_func == 'ce':
+            loss = ce_loss
+        elif loss_func == 'emd':
+            loss = emd_loss
+        else:
+            loss = loss_mean + loss_std
+        
         loss.backward()
         optimizer.step()
 
@@ -98,13 +104,22 @@ def evaluate(model, dataloader, device):
             output_std_score = outputs[:, num_classes:]
             prob = torch.exp(-0.5*((output_mean_score - scale) / output_std_score)**2) / output_std_score / sqrt_2pi
             prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            raw_ce_loss = criterion_raw_ce(prob, score_prob)
-            ce_loss = criterion_weight_ce(prob, score_prob)
+            logit = torch.log(prob)
+            # raw_ce_loss = criterion_raw_ce(logit, score_prob)
+            # ce_loss = criterion_weight_ce(logit, score_prob)
+            ce_loss = -torch.mean(logit * score_prob * ce_weight)
+            raw_ce_loss = -torch.mean(logit * score_prob)
+            
             emd_loss = criterion_emd(prob, score_prob)
             loss_mean = criterion(output_mean_score, mean_scores)
             loss_std = criterion(output_std_score, std_scores)
 
-            loss = loss_mean + loss_std
+            if loss_func == 'ce':
+                loss = ce_loss
+            elif loss_func == 'emd':
+                loss = emd_loss
+            else:
+                loss = loss_mean + loss_std
 
             running_loss += loss.item()
             running_loss_mean += loss_mean.item()
@@ -129,6 +144,7 @@ def evaluate(model, dataloader, device):
 is_log = True
 use_attr = False
 use_hist = True
+loss_func = 'ce' # mse / emd / ce
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
@@ -190,16 +206,15 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_lr1e-03_30epoch_noattr.pth'))
-
+    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
     # Define the loss function
     criterion = nn.MSELoss()
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
-    ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
-    criterion_weight_ce = nn.CrossEntropyLoss(weight=torch.tensor(ce_weight, device=device))
+    ce_weight = torch.tensor(ce_weight / np.sum(ce_weight) * len(ce_weight), device=device)
+    criterion_weight_ce = nn.CrossEntropyLoss(weight=ce_weight)
     criterion_raw_ce = nn.CrossEntropyLoss()
     criterion_emd = earth_mover_distance
 
@@ -209,7 +224,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_dup_emd_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_dup_%s_lr%1.0e_%depoch' % (loss_func, lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'
@@ -237,9 +252,9 @@ if __name__ == '__main__':
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}, Train Loss Mean: {train_loss_mean}, "
-              f"Train Loss Std: {train_loss_std}, Train Raw CE Loss: {train_loss_raw_ce}, "
+              f"Train Loss Std: {train_loss_std}, Train Raw CE Loss: {train_loss_raw_ce}, Train CE Loss: {train_loss_ce}"
               f"Train EMD Loss: {train_loss_emd}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}, "
-              f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, "
+              f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, Test CE Loss: {test_loss_ce}, "
               f"Test EMD Loss: {test_loss_emd}")
         
         # Check if the current model has the best test loss so far
