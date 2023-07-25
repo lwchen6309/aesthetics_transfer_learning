@@ -57,22 +57,22 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
 
         # Forward pass
         logits = model(images)
-        outputs = F.softmax(logits, dim=1)
+        prob = F.softmax(logits, dim=1)
 
         # Cross-entropy loss
-        ce_loss = criterion_weight_ce(outputs, score_prob)
-        raw_ce_loss = criterion_raw_ce(outputs, score_prob)
-
-        # Earth Mover's Distance (EMD) loss
-        emd_loss = criterion_emd(outputs, score_prob)
+        ce_loss = criterion_weight_ce(logits, score_prob)
+        raw_ce_loss = criterion_raw_ce(logits, score_prob)
 
         # MSE loss for mean
-        outputs_mean = torch.sum(outputs * scale, dim=1, keepdim=True)
+        outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
         mse_mean_loss = criterion_mse(outputs_mean, mean_scores)
 
         # MSE loss for std
-        outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
+        outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
         mse_std_loss = criterion_mse(outputs_std, std_scores)
+
+        # Earth Mover's Distance (EMD) loss
+        emd_loss = criterion_emd(prob, score_prob)
 
         if use_ce:
             loss = ce_loss
@@ -123,22 +123,22 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
 
             # Forward pass
             logits = model(images)
-            outputs = F.softmax(logits, dim=1)
+            prob = F.softmax(logits, dim=1)
 
             # Cross-entropy loss
-            ce_loss = criterion_weight_ce(outputs, score_prob)
-            raw_ce_loss = criterion_raw_ce(outputs, score_prob)
+            ce_loss = criterion_weight_ce(logits, score_prob)
+            raw_ce_loss = criterion_raw_ce(logits, score_prob)
 
             # MSE loss for mean
-            outputs_mean = torch.sum(outputs * scale, dim=1, keepdim=True)
+            outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
             mse_mean_loss = criterion_mse(outputs_mean, mean_scores)
 
             # MSE loss for std
-            outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
+            outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
             mse_std_loss = criterion_mse(outputs_std, std_scores)
 
             # Earth Mover's Distance (EMD) loss
-            emd_loss = criterion_emd(outputs, score_prob)
+            emd_loss = criterion_emd(prob, score_prob)
 
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()

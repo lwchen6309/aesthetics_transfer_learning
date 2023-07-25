@@ -30,8 +30,7 @@ def extract_clip_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
-    for datum in tqdm(dataset):
-        x, mean_score, std_score = datum
+    for x, mean_score, std_score, score_prob in tqdm(dataset):
         inputs = processor(images=x, return_tensors="pt").to(device)
         outputs = model(**inputs)
         pooled_output = outputs.pooler_output  # pooled CLS states
@@ -47,8 +46,7 @@ def extract_resnet_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
-    for datum in tqdm(dataset):
-        x, mean_score, std_score = datum
+    for x, mean_score, std_score, score_prob in tqdm(dataset):
         x = x.to(device)
         outputs = model(x[None])
         # Remove the last FC layer to get the features
@@ -66,8 +64,7 @@ def extract_vit_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
-    for datum in tqdm(dataset):
-        x, mean_score, std_score = datum
+    for x, mean_score, std_score, score_prob in tqdm(dataset):    
         inputs = feature_extractor(images=x, return_tensors="pt").to(device)
         outputs = model(**inputs)
         logits = outputs.logits
@@ -86,7 +83,7 @@ learning_rate = 1
 _BATCH_SIZE = 0
 train_time = 2000
 root_dir = '/home/lwchen/datasets/PARA/'
-data_dir = './img224'
+data_dir = './img224_notattr'
 
 
 def plot_nngp():
@@ -146,12 +143,16 @@ def plot_nngp_uncertainty():
     plt.show()
 
 
+use_uncertainty = True
+use_attr = False
+
+
 if __name__ == '__main__':
     # Build data pipelines.
-    plot_nngp()
-    plot_nngp_uncertainty()
-    plt.show()
-    raise Exception
+    # plot_nngp()
+    # plot_nngp_uncertainty()
+    # plt.show()
+    # raise Exception
 
     print('Loading data.')
     random_seed = 42
@@ -168,10 +169,8 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=test_transform, train=True, random_seed=random_seed)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, random_seed=random_seed)
-
-    use_uncertainty = True
+    train_dataset = PARADataset(root_dir, transform=test_transform, train=True, use_attr=use_attr, random_seed=random_seed)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, random_seed=random_seed)
 
     modelname = 'resnet_ft'
     vit_feature_file = 'para_%s.npz'%modelname
@@ -195,10 +194,12 @@ if __name__ == '__main__':
         elif modelname == 'resnet_ft':
             model = resnet50(pretrained=False)
             # Modify the last fully connected layer to match the number of classes
-            num_classes = 9
+            # num_classes = 9
+            num_classes = 1
             num_features = model.fc.in_features
             model.fc = nn.Linear(num_features, num_classes)
-            model.load_state_dict(torch.load(os.path.join('1e-3_30epoch','best_model_resnet50.pth')))
+            # model.load_state_dict(torch.load(os.path.join('1e-3_30epoch','best_model_resnet50.pth')))
+            model.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
             model = model.to(device)
             model.eval()
             # Remove the last fully connected layer to get the feature extractor
@@ -235,8 +236,8 @@ if __name__ == '__main__':
     y_test_std = y_test_std / 5.0
 
     # Training
-    train_sizes = jnp.arange(100,10000,500)
-    # train_sizes = [9600]
+    # train_sizes = jnp.arange(100,10000,500)
+    train_sizes = [9600]
     mse_mean = []
     mse_std = []
     x_test = jnp.array(x_test)

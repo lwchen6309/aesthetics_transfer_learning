@@ -58,21 +58,21 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
 
         # Forward pass
         logits = model(images)
-        outputs = F.softmax(logits, dim=1)
+        prob = F.softmax(logits, dim=1)
 
         # Cross-entropy loss
-        ce_loss = criterion_weight_ce(outputs, score_prob)
-        raw_ce_loss = criterion_raw_ce(outputs, score_prob)
+        ce_loss = criterion_weight_ce(logits, score_prob)
+        raw_ce_loss = criterion_raw_ce(logits, score_prob)
 
         # Earth Mover's Distance (EMD) loss
-        emd_loss = criterion_emd(outputs, score_prob)
+        emd_loss = criterion_emd(prob, score_prob)
 
         # MSE loss for mean
-        outputs_mean = torch.sum(outputs * scale, dim=1, keepdim=True)
+        outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
         mse_mean_loss = criterion_mse(outputs_mean, mean_scores)
 
         # MSE loss for std
-        outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
+        outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
         mse_std_loss = criterion_mse(outputs_std, std_scores)
 
         if use_ce:
@@ -124,22 +124,22 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
 
             # Forward pass
             logits = model(images)
-            outputs = F.softmax(logits, dim=1)
+            prob = F.softmax(logits, dim=1)
 
             # Cross-entropy loss
-            ce_loss = criterion_weight_ce(outputs, score_prob)
-            raw_ce_loss = criterion_raw_ce(outputs, score_prob)
+            ce_loss = criterion_weight_ce(logits, score_prob)
+            raw_ce_loss = criterion_raw_ce(logits, score_prob)
 
             # MSE loss for mean
-            outputs_mean = torch.sum(outputs * scale, dim=1, keepdim=True)
+            outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
             mse_mean_loss = criterion_mse(outputs_mean, mean_scores)
 
             # MSE loss for std
-            outputs_std = torch.sqrt(torch.sum(score_prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
+            outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))
             mse_std_loss = criterion_mse(outputs_std, std_scores)
 
             # Earth Mover's Distance (EMD) loss
-            emd_loss = criterion_emd(outputs, score_prob)
+            emd_loss = criterion_emd(prob, score_prob)
 
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()
@@ -237,18 +237,6 @@ if __name__ == '__main__':
     # Define the optimizer
     optimizer_clip = optim.SGD(model_clip.parameters(), lr=lr, momentum=0.9)
 
-    # Define lists to record the training and test losses
-    train_ce_loss_list = []
-    train_raw_ce_loss_list = []
-    train_mse_mean_loss_list = []
-    train_mse_std_loss_list = []
-    train_emd_loss_list = []
-    test_ce_loss_list = []
-    test_raw_ce_loss_list = []
-    test_mse_mean_loss_list = []
-    test_mse_std_loss_list = []
-    test_emd_loss_list = []
-
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
@@ -265,11 +253,6 @@ if __name__ == '__main__':
         train_ce_loss, train_raw_ce_loss, train_mse_mean_loss, train_mse_std_loss, train_emd_loss = train(
             model_clip, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             optimizer_clip, device)
-        train_ce_loss_list.append(train_ce_loss)
-        train_raw_ce_loss_list.append(train_raw_ce_loss)
-        train_mse_mean_loss_list.append(train_mse_mean_loss)
-        train_mse_std_loss_list.append(train_mse_std_loss)
-        train_emd_loss_list.append(train_emd_loss)
         if is_log:
             wandb.log({"Train CE Loss": train_ce_loss,
                        "Train Raw CE Loss": train_raw_ce_loss,
@@ -281,11 +264,6 @@ if __name__ == '__main__':
         test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss = evaluate(
             model_clip, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
-        test_ce_loss_list.append(test_ce_loss)
-        test_raw_ce_loss_list.append(test_raw_ce_loss)
-        test_mse_mean_loss_list.append(test_mse_mean_loss)
-        test_mse_std_loss_list.append(test_mse_std_loss)
-        test_emd_loss_list.append(test_emd_loss)
         if is_log:
             wandb.log({"Test CE Loss": test_ce_loss,
                        "Test Raw CE Loss": test_raw_ce_loss,
