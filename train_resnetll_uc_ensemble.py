@@ -106,18 +106,70 @@ def evaluate(model, dataloader, criterion, criterion_raw_ce, criterion_emd, devi
     return epoch_mse_loss, epoch_mse_std_loss, epoch_custom_loss, dropout_mean, dropout_std, ce_loss, raw_ce_loss, emd_loss
 
 
+def evaluate_ensemble(dataloader, criterion, criterion_raw_ce, criterion_emd, device, ensemble_mean, ensemble_std):
+    running_mse_loss = 0.0
+    running_custom_loss = 0.0
+    running_mse_std_loss = 0.0
+    dropout_outputs = []
+
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+    sqrt_2pi = np.sqrt(2 * np.pi)
+    progress_bar = tqdm(dataloader, leave=False)
+    with torch.no_grad():
+        for i, (images, mean_scores, std_scores, score_prob) in enumerate(progress_bar):
+            images = images.to(device)
+            mean_scores = mean_scores.to(device)
+            std_scores = std_scores.to(device)
+            score_prob = score_prob.to(device)
+
+            # batch_outputs_mean = torch.mean(batch_outputs, dim=0)
+            # batch_outputs_std = torch.std(batch_outputs, dim=0)
+            batch_outputs_mean = ensemble_mean[batch_size*i:batch_size*(i+1)]
+            batch_outputs_std = ensemble_std[batch_size*i:batch_size*(i+1)]
+            batch_outputs = torch.stack([batch_outputs_mean, batch_outputs_std], dim=-1)
+            dropout_outputs.append(batch_outputs)
+
+            prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
+            prob = prob / torch.sum(prob, dim=1, keepdim=True)
+            logit = torch.log(prob + 1e-6)
+            # raw_ce_loss = criterion_raw_ce(prob, score_prob)
+            # ce_loss = criterion_weight_ce(prob, score_prob)
+            ce_loss = -torch.mean(logit * score_prob * ce_weight)
+            raw_ce_loss = -torch.mean(logit * score_prob)
+
+            emd_loss = criterion_emd(prob, score_prob)
+
+            mse_mean_loss = criterion(batch_outputs_mean, mean_scores)
+            mse_std_loss = criterion(batch_outputs_std, std_scores)
+            custom_loss = custom_criterion(batch_outputs_mean, mean_scores, batch_outputs_std)
+
+            running_mse_loss += mse_mean_loss.item()
+            running_mse_std_loss += mse_std_loss.item()
+            running_custom_loss += custom_loss.item()
+            progress_bar.set_postfix({'MSE Loss': mse_mean_loss.item(), 'Custom Loss': custom_loss.item()})
+
+    epoch_mse_loss = running_mse_loss / len(dataloader)
+    epoch_mse_std_loss = running_mse_std_loss / len(dataloader)
+    epoch_custom_loss = running_custom_loss / len(dataloader)
+    dropout_outputs = torch.cat(dropout_outputs, dim=0)
+    dropout_mean = dropout_outputs[..., 0]
+    dropout_std = dropout_outputs[..., 1]
+    return epoch_mse_loss, epoch_mse_std_loss, epoch_custom_loss, dropout_mean, dropout_std, ce_loss, raw_ce_loss, emd_loss
+
+
+
 is_log = False
 use_attr = False
 use_hist = True
 use_uc = True
 
 if __name__ == '__main__':
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    # random_seed = None
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
 
     lr = 5e-4
     batch_size = 32
@@ -180,36 +232,48 @@ if __name__ == '__main__':
 
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_lluc_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_lluc0_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'
 
-    for epoch in range(num_epochs):
-        train_mse_loss, train_custom_loss = train(model_resnet50, train_dataloader, criterion, optimizer_resnet50, device)
-        if is_log:
-            wandb.log({"Train MSE Loss": train_mse_loss, "Train Custom Loss": train_custom_loss}, commit=False)
+    # Load pretrained models and compute the ensemble mean and variance
+    num_models = 8
+    ensemble_mean = 0.0
+    ensemble_var = 0.0
+
+    for i in range(num_models):
+        model_resnet50 = resnet50(pretrained=True)
+        num_features = model_resnet50.fc.in_features
+        model_resnet50.fc = nn.Sequential(
+            nn.Dropout(0.1),
+            nn.Linear(num_features, num_classes)
+        )
+        model_resnet50.load_state_dict(torch.load("best_model_resnet50_lluc%d_lr5e-04_10epoch_noattr.pth" % i), strict=False)
+        model_resnet50 = model_resnet50.to(device)
+
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         test_mse_loss, test_mse_std_loss, test_custom_loss, dropout_mean, dropout_std, ce_loss, raw_ce_loss, emd_loss = evaluate(
             model_resnet50, test_dataloader, criterion, criterion_raw_ce, criterion_emd, device, num_samples=50
         )
-        if is_log:
-            wandb.log({
-                "Test MSE Mean Loss": test_mse_loss,
-                "Test MSE Std Loss": test_mse_std_loss,
-                "Test Custom Loss": test_custom_loss,
-                "Test CE Loss": ce_loss,
-                "Test Raw CE Loss": raw_ce_loss,
-                "Test EMD Loss": emd_loss,
-            })
 
-        print(
-            f"Epoch [{epoch + 1}/{num_epochs}], Train MSE Loss: {train_mse_loss}, Train Custom Loss: {train_custom_loss}, "
-            f"Test MSE Loss: {test_mse_loss}, Test MSE Std Loss: {test_mse_std_loss}, "
-            f"Test CE Loss: {ce_loss}, Test Raw CE Loss: {raw_ce_loss}, Test EMD Loss: {emd_loss}"
-        )
+        print(f"Model {i}: Test MSE Mean Loss: {test_mse_loss}, Test MSE Std Loss: {test_mse_std_loss}, "
+              f"Test Custom Loss: {test_custom_loss}, Test CE Loss: {ce_loss}, "
+              f"Test Raw CE Loss: {raw_ce_loss}, Test EMD Loss: {emd_loss}")
         
-        if test_mse_loss < best_test_loss:
-            test_custom_loss = test_mse_loss
-            torch.save(model_resnet50.state_dict(), best_modelname)
+        ensemble_mean += dropout_mean
+        ensemble_var += (dropout_std ** 2 + dropout_mean**2)
+
+    ensemble_mean /= num_models
+    ensemble_var /= num_models
+    ensemble_var -= ensemble_mean**2
+    ensemble_std = torch.sqrt(ensemble_var)
+
+    test_mse_loss, test_mse_std_loss, test_custom_loss, dropout_mean, dropout_std, ce_loss, raw_ce_loss, emd_loss = evaluate_ensemble(
+        test_dataloader, criterion, criterion_raw_ce, criterion_emd, device, ensemble_mean, ensemble_std)
+    
+    print(f"Ensemble Model: Test MSE Mean Loss: {test_mse_loss}, Test MSE Std Loss: {test_mse_std_loss}, "
+            f"Test Custom Loss: {test_custom_loss}, Test CE Loss: {ce_loss}, "
+            f"Test Raw CE Loss: {raw_ce_loss}, Test EMD Loss: {emd_loss}")
     

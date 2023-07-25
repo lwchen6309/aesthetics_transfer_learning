@@ -42,7 +42,7 @@ def train(model, train_dataloader, optimizer, device):
         loss_std = criterion(output_std_score, std_scores)
         prob = torch.exp(-0.5*((output_mean_score - scale) / output_std_score)**2) / output_std_score / sqrt_2pi
         prob = prob / torch.sum(prob, dim=1, keepdim=True)
-        logit = torch.log(prob)
+        logit = torch.log(prob + 1e-6)
         # raw_ce_loss = criterion_raw_ce(logit, score_prob)
         # ce_loss = criterion_weight_ce(logit, score_prob)
         ce_loss = -torch.mean(logit * score_prob * ce_weight)
@@ -104,7 +104,7 @@ def evaluate(model, dataloader, device):
             output_std_score = outputs[:, num_classes:]
             prob = torch.exp(-0.5*((output_mean_score - scale) / output_std_score)**2) / output_std_score / sqrt_2pi
             prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            logit = torch.log(prob)
+            logit = torch.log(prob + 1e-6)
             # raw_ce_loss = criterion_raw_ce(logit, score_prob)
             # ce_loss = criterion_weight_ce(logit, score_prob)
             ce_loss = -torch.mean(logit * score_prob * ce_weight)
@@ -141,7 +141,7 @@ def evaluate(model, dataloader, device):
     return epoch_loss, epoch_loss_mean, epoch_loss_std, epoch_loss_ce, epoch_loss_raw_ce, epoch_loss_emd
 
 
-is_log = True
+is_log = False
 use_attr = False
 use_hist = True
 loss_func = 'ce' # mse / emd / ce
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
@@ -256,7 +256,7 @@ if __name__ == '__main__':
               f"Train EMD Loss: {train_loss_emd}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}, "
               f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, Test CE Loss: {test_loss_ce}, "
               f"Test EMD Loss: {test_loss_emd}")
-        
+        raise Exception
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss
