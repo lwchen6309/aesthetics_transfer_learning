@@ -13,6 +13,24 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from train_resnet_cls import earth_mover_distance
+from scipy.stats import norm
+
+
+def earth_mover_distance_to_cdf(scale, mu, sigma, y):
+    """
+    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
+    """
+    half_res = (scale[1] - scale[0]) * 0.5
+    x1 = (scale + half_res).cpu().numpy()
+    x0 = (scale - half_res).cpu().numpy()
+    mu = mu.cpu().numpy()
+    sigma = sigma.cpu().numpy()
+    cdf_x = torch.tensor(np.array([norm.cdf(x1, loc=_mu, scale=_sigma) - norm.cdf(x0, loc=_mu, scale=_sigma) for _mu, _sigma in zip(mu, sigma)])).to(y.device)
+    cdf_x = torch.cumsum(cdf_x, dim=1)
+    cdf_x = cdf_x / cdf_x[:,-1][...,None]
+    cdf_y = torch.cumsum(y, dim=1)
+    emd = torch.norm(cdf_x - cdf_y, p=2, dim=1)
+    return torch.mean(emd)
 
 
 def train(model, train_dataloader, optimizer, device):
@@ -103,17 +121,24 @@ def evaluate(model, dataloader, device):
             output_mean_score = outputs[:, :num_classes]
             output_std_score = outputs[:, num_classes:]
             prob = torch.exp(-0.5*((output_mean_score - scale) / output_std_score)**2) / output_std_score / sqrt_2pi
-            prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            logit = torch.log(prob + 1e-6)
-            # raw_ce_loss = criterion_raw_ce(logit, score_prob)
-            # ce_loss = criterion_weight_ce(logit, score_prob)
+            
+            # Discrete
+            # norm_prob = prob / torch.sum(prob, dim=1, keepdim=True)
+            # logit = torch.log(norm_prob + 1e-6)
+            # ce_loss = -torch.mean(logit * score_prob * ce_weight)
+            # raw_ce_loss = -torch.mean(logit * score_prob)
+            # emd_loss = criterion_emd(norm_prob, score_prob)
+            
+            # Continuous
+            ce_offset = -(torch.log(output_std_score) + 0.5 * np.log(2*np.pi)) * 4.5
+            logit = - 0.5 * ((scale + 0.25 - output_mean_score)**3 - (scale - 0.25 - output_mean_score)**3) / 3 / output_std_score**2 + ce_offset
             ce_loss = -torch.mean(logit * score_prob * ce_weight)
             raw_ce_loss = -torch.mean(logit * score_prob)
-            
-            emd_loss = criterion_emd(prob, score_prob)
+            emd_loss = earth_mover_distance_to_cdf(scale, output_mean_score, output_std_score, score_prob)
+
             loss_mean = criterion(output_mean_score, mean_scores)
             loss_std = criterion(output_std_score, std_scores)
-
+            
             if loss_func == 'ce':
                 loss = ce_loss
             elif loss_func == 'emd':
@@ -206,7 +231,8 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_emd_lr1e-03_30epoch_noattr.pth'))
+    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
@@ -256,7 +282,7 @@ if __name__ == '__main__':
               f"Train EMD Loss: {train_loss_emd}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}, "
               f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, Test CE Loss: {test_loss_ce}, "
               f"Test EMD Loss: {test_loss_emd}")
-        raise Exception
+        
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss

@@ -31,6 +31,7 @@ class VAEAdapter(nn.Module):
         super(VAEAdapter, self).__init__()
         self.vae = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
         self.adapter = nn.Linear(self.vae.config.latent_channels, num_classes)
+        self.vae.decoder = None
 
     def forward(self, images):
         encoded = self.vae.encode(images).latent_dist.sample()
@@ -221,10 +222,10 @@ if __name__ == '__main__':
 
     # Create the model with CLIP as the backbone and an adapter linear layer
     model_vae = VAEAdapter(num_classes)
-
+    model_vae.load_state_dict(torch.load('best_model_vae_cls_lr1e-01_100epoch_noattr.pth'))
     # Move the model to the device
     model_vae = model_vae.to(device)
-
+    
     # Define the loss functions
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)

@@ -83,7 +83,7 @@ learning_rate = 1
 _BATCH_SIZE = 0
 train_time = 2000
 root_dir = '/home/lwchen/datasets/PARA/'
-data_dir = './img224_notattr'
+data_dir = './img224_noattr'
 
 
 def plot_nngp():
@@ -169,8 +169,8 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARADataset(root_dir, transform=test_transform, train=True, use_attr=use_attr, random_seed=random_seed)
-    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, random_seed=random_seed)
+    train_dataset = PARADataset(root_dir, transform=test_transform, train=True, use_attr=use_attr, use_hist=True, random_seed=random_seed)
+    test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, use_hist=True, random_seed=random_seed)
 
     modelname = 'resnet_ft'
     vit_feature_file = 'para_%s.npz'%modelname
@@ -243,7 +243,13 @@ if __name__ == '__main__':
     x_test = jnp.array(x_test)
     # Print out accuracy and loss for infinite network predictions.
     loss = lambda fx, y_hat: jnp.mean((fx - y_hat) ** 2)
-    
+
+    ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
+    ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
+    score_prob = np.stack([score_prob for images, mean_scores, std_scores, score_prob in test_dataset])
+    scale = np.arange(1, 5.5, 0.5)
+    sqrt_2pi = np.sqrt(2 * np.pi)
+
     for train_size in train_sizes:
         # train_size = 1024
         x_train = jnp.array(x_train_full[:train_size])
@@ -275,18 +281,33 @@ if __name__ == '__main__':
         kdd = kernel_fn(x_train,x_train).nngp
         ktd = kernel_fn(x_train,x_test).nngp
         ktt = kernel_fn(x_test,x_test).nngp
-        reg = (y_train_std**2).mean(-1) if use_uncertainty else 1e-2
+        reg = np.sqrt((y_train_std**2).mean(-1)) if use_uncertainty else 1e-1
         kdd_inv = jnp.linalg.inv(kdd + jnp.eye(len(kdd)) * reg)
         fx_test_ntk = ktd.T @ kdd_inv @ y_train
         sigma_test_ntk = jnp.diag(ktt) - jnp.diag(ktd.T @ kdd_inv @ ktd)
 
         duration = time.time() - start
         print('Kernel construction and inference done in %s seconds.' % duration)
-        
+
+        batch_outputs_mean = 5 * np.array(fx_test_ntk)
+        batch_outputs_std = 5 * np.abs(np.array(sigma_test_ntk)[:,None])
+        prob = np.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
+        prob = prob / np.sum(prob, axis=1)[:,None]
+        logit = np.log(prob + 1e-6)
+        ce_loss = -np.mean(logit * score_prob * ce_weight, axis=1)
+        raw_ce_loss = -np.mean(logit * score_prob, axis=1)
+        emd_loss = np.sqrt(np.mean((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2, axis=1))
+
         mse_mean.append(loss(5.0*fx_test_ntk, 5.0*y_test))
-        # mse_std.append(loss(5.0*sigma_test_ntk, 5.0*y_test_std))
+        mse_std.append(loss(5.0*sigma_test_ntk, 5.0*y_test_std))
     mse_mean = np.array(mse_mean)
-    # mse_std = np.array(mse_std)
+    mse_std = np.array(mse_std)
+
+    print(mse_mean)
+    print(mse_std)
+    print(ce_loss)
+    print(raw_ce_loss)
+    print(emd_loss)
 
     filename = 'nngp_%s'%modelname
     filename = os.path.join(data_dir,filename)
