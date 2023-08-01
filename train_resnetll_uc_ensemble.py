@@ -84,7 +84,7 @@ def evaluate_ensemble(dataloader, criterion, criterion_raw_ce, criterion_emd, de
 is_log = False
 use_attr = False
 use_hist = True
-use_uc = True
+use_uc = False
 
 if __name__ == '__main__':
     # random_seed = 42
@@ -155,10 +155,12 @@ if __name__ == '__main__':
     best_modelname = 'best_model_resnet50_lluc_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
+    if not use_uc:
+        best_modelname += '_nouc'        
     best_modelname += '.pth'
 
     # Load pretrained models and compute the ensemble mean and variance
-    num_models = 8
+    num_models = 5
     ensemble_mean = 0.0
     ensemble_var = 0.0
 
@@ -169,7 +171,15 @@ if __name__ == '__main__':
             nn.Dropout(0.1),
             nn.Linear(num_features, num_classes)
         )
-        model_resnet50.load_state_dict(torch.load("best_model_resnet50_lluc%d_lr5e-04_10epoch_noattr.pth" % i), strict=False)
+
+        best_modelname = 'best_model_resnet50_lluc%d_lr%1.0e_%depoch' % (i, lr, num_epochs)
+        if not use_attr:
+            best_modelname += '_noattr'
+        if not use_uc:
+            best_modelname += '_nouc'
+        best_modelname += '.pth'
+        
+        model_resnet50.load_state_dict(torch.load(best_modelname), strict=False)
         model_resnet50 = model_resnet50.to(device)
 
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)

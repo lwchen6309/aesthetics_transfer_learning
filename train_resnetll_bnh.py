@@ -142,7 +142,7 @@ if __name__ == '__main__':
 
     lr = 5e-4
     batch_size = 32
-    num_epochs = 10
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config.update({
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
     model_resnet50.load_state_dict(torch.load("best_model_resnet50_noattr.pth"), strict=False)
-    model_resnet50.fc = ToyNN(units=[4, 8, 16])
+    model_resnet50.fc = ToyNN(units=[16, 32, 64])
     # model_resnet50.load_state_dict(torch.load("best_model_resnet50_lluc0_lr5e-04_10epoch_noattr.pth"))
     model_resnet50 = model_resnet50.to(device)
 

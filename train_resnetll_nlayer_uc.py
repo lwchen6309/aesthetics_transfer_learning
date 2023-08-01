@@ -128,7 +128,7 @@ def custom_criterion(outputs, mean_scores, std_scores):
 is_log = True
 use_attr = False
 use_hist = True
-use_uc = True
+use_uc = False
 
 
 if __name__ == '__main__':
@@ -184,16 +184,12 @@ if __name__ == '__main__':
         nn.Linear(num_features, ll_dims),
         nn.LeakyReLU(),
         nn.Dropout(0.1),
-        nn.Linear(ll_dims, ll_dims),
-        nn.LeakyReLU(),
-        nn.Dropout(0.1),
         nn.Linear(ll_dims, num_classes)
     )
     model_resnet50.load_state_dict(torch.load("best_model_resnet50_noattr.pth"), strict=False)
     # model_resnet50.load_state_dict(torch.load("best_model_resnet50_lluc0_lr5e-04_10epoch_noattr.pth"))
     model_resnet50 = model_resnet50.to(device)
-
-
+    
     criterion = nn.MSELoss()
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
