@@ -21,8 +21,7 @@ from torch.distributions import Categorical
 def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet, optimizer_flow, device):
     model_resnet.eval()
     model_flow.train()
-    running_loss_resnet = 0.0
-    running_loss_flow = 0.0
+    running_kld_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
@@ -42,22 +41,21 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         optimizer_flow.zero_grad()
         x = scale[torch.multinomial(score_prob, 1)]
         # Compute loss
-        loss_flow = model_flow.forward_kld(x, context)
+        kld_loss = model_flow.forward_kld(x, context)
         
-        loss_flow.backward()
+        kld_loss.backward()
         optimizer_flow.step()
 
-        running_loss_flow += loss_flow.item()
+        running_kld_loss += kld_loss.item()
 
         progress_bar.set_postfix(
             {
-                "Train Loss Flow": loss_flow.item(),
+                "Train KLD Loss": kld_loss.item(),
             }
         )
-        break
 
-    epoch_loss_flow = running_loss_flow / len(train_dataloader)
-    return epoch_loss_flow
+    epoch_kld_loss = running_kld_loss / len(train_dataloader)
+    return epoch_kld_loss
 
 
 def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
@@ -73,8 +71,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     scale = torch.arange(1, 5.5, 0.5).to(device)
     sqrt_2pi = np.sqrt(2 * np.pi)
     progress_bar = tqdm(dataloader, leave=False)
-    batch_scale = scale.repeat(batch_size, 1).view(-1,1)
-    
+
     with torch.no_grad():
         for images, mean_scores, std_scores, score_prob in progress_bar:
             images = images.to(device)
@@ -88,6 +85,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
                 context_dims = context.shape[-1]
            
             # Evaluate Normalizing Flow model for score_prob
+            batch_scale = scale.repeat(len(images), 1).view(-1,1)
             batch_context = context.repeat(1,len(scale)).view(-1,context_dims)
             log_prob_score_prob = model_flow.log_prob(batch_scale, batch_context) # Use features as context for score_prob prediction
             log_prob_score_prob = log_prob_score_prob.view(-1,len(scale))
@@ -106,8 +104,10 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             emd_loss = criterion_emd(prob, score_prob)
 
             # Cross-entropy loss
-            ce_loss = criterion_weight_ce(log_prob_score_prob, score_prob)
-            raw_ce_loss = criterion_raw_ce(log_prob_score_prob, score_prob)
+            # ce_loss = criterion_weight_ce(log_prob_score_prob, score_prob)
+            # raw_ce_loss = criterion_raw_ce(log_prob_score_prob, score_prob)
+            ce_loss = -torch.mean(log_prob_score_prob * score_prob * ce_weight)
+            raw_ce_loss = -torch.mean(log_prob_score_prob * score_prob)
 
             running_kld_loss += kld_loss.item()
             running_emd_loss += emd_loss.item()
@@ -134,7 +134,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     return epoch_kld_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_ce_loss, epoch_raw_ce_loss, epoch_emd_loss
 
 
-is_log = False
+is_log = True
 use_attr = False
 use_hist = True
 
@@ -146,9 +146,10 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(random_seed)
     np.random.seed(random_seed)
     random.seed(random_seed)
+
     lr = 1e-3
     batch_size = 32
-    num_epochs = 30
+    num_epochs = 50
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -193,7 +194,6 @@ if __name__ == '__main__':
 
     # Load the pre-trained ResNet model
     model_resnet50 = resnet50(pretrained=True)
-
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
@@ -234,7 +234,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_dup_%s_lr%1.0e_%depoch' % (loss_func, lr, num_epochs)
+    best_modelname = 'best_model_resnet50_flow_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'
@@ -244,12 +244,12 @@ if __name__ == '__main__':
         # Training
         train_loss = train_with_flow(model_resnet50, model_flow, train_dataloader, optimizer_resnet50, optimizer_flow, device)
         if is_log:
-            wandb.log({"Train MSE Loss": train_loss}, commit=False)
+            wandb.log({"Train KLD Loss": train_loss}, commit=False)
 
         # Testing
         test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, device)
         if is_log:
-            wandb.log({"Test MSE Loss": test_loss, "Test MSE Mean Loss": test_loss_mean,
+            wandb.log({"Test KLD Loss": test_loss, "Test MSE Mean Loss": test_loss_mean,
                        "Test MSE Std Loss": test_loss_std, "Test Raw CE Loss": test_loss_raw_ce,
                        "Test CE Loss": test_loss_ce, "Test EMD Loss": test_loss_emd})
 
@@ -260,4 +260,5 @@ if __name__ == '__main__':
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model_resnet50.state_dict(), best_modelname)
+            torch.save(model_flow.state_dict(), best_modelname)
+
