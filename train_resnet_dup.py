@@ -25,12 +25,15 @@ def earth_mover_distance_to_cdf(scale, mu, sigma, y):
     x0 = (scale - half_res).cpu().numpy()
     mu = mu.cpu().numpy()
     sigma = sigma.cpu().numpy()
-    cdf_x = torch.tensor(np.array([norm.cdf(x1, loc=_mu, scale=_sigma) - norm.cdf(x0, loc=_mu, scale=_sigma) for _mu, _sigma in zip(mu, sigma)])).to(y.device)
-    cdf_x = torch.cumsum(cdf_x, dim=1)
-    cdf_x = cdf_x / cdf_x[:,-1][...,None]
+    x = torch.tensor(np.array([norm.cdf(x1, loc=_mu, scale=_sigma) - norm.cdf(x0, loc=_mu, scale=_sigma) for _mu, _sigma in zip(mu, sigma)])).to(y.device)
+    cdf_x = torch.cumsum(x, dim=1)
+    x_norm = cdf_x[:,-1][...,None]
+    cdf_x = cdf_x / x_norm
+    x = x / x_norm
     cdf_y = torch.cumsum(y, dim=1)
-    emd = torch.norm(cdf_x - cdf_y, p=2, dim=1)
-    return torch.mean(emd)
+    emd = torch.mean(torch.norm(cdf_x - cdf_y, p=2, dim=1))
+    brier_score = torch.mean((x - y)**2)
+    return emd, brier_score
 
 
 def train(model, train_dataloader, optimizer, device):
@@ -46,6 +49,8 @@ def train(model, train_dataloader, optimizer, device):
     scale = torch.arange(1, 5.5, 0.5).to(device)
     sqrt_2pi = np.sqrt(2*np.pi)
     for images, mean_scores, std_scores, score_prob in progress_bar:
+        if is_eval:
+            break
         images = images.to(device)
         mean_scores = mean_scores.to(device)
         std_scores = std_scores.to(device)
@@ -105,6 +110,7 @@ def evaluate(model, dataloader, device):
     running_loss_raw_ce = 0.0
     running_loss_ce = 0.0
     running_loss_emd = 0.0
+    running_brier_score = 0.0
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
     sqrt_2pi = np.sqrt(2*np.pi)
@@ -134,7 +140,7 @@ def evaluate(model, dataloader, device):
             logit = - 0.5 * ((scale + 0.25 - output_mean_score)**3 - (scale - 0.25 - output_mean_score)**3) / 3 / output_std_score**2 + ce_offset
             ce_loss = -torch.mean(logit * score_prob * ce_weight)
             raw_ce_loss = -torch.mean(logit * score_prob)
-            emd_loss = earth_mover_distance_to_cdf(scale, output_mean_score, output_std_score, score_prob)
+            emd_loss, brier_score = earth_mover_distance_to_cdf(scale, output_mean_score, output_std_score, score_prob)
 
             loss_mean = criterion(output_mean_score, mean_scores)
             loss_std = criterion(output_std_score, std_scores)
@@ -152,6 +158,7 @@ def evaluate(model, dataloader, device):
             running_loss_raw_ce += raw_ce_loss.item()
             running_loss_ce += ce_loss.item()
             running_loss_emd += emd_loss.item()
+            running_brier_score += brier_score.item()
 
             progress_bar.set_postfix({'Eval Loss': loss.item(), 'Eval Loss Mean': loss_mean.item(),
                                       'Eval Loss Std': loss_std.item(), 'Eval Raw CE Loss': raw_ce_loss.item(),
@@ -163,9 +170,11 @@ def evaluate(model, dataloader, device):
     epoch_loss_raw_ce = running_loss_raw_ce / len(dataloader)
     epoch_loss_ce = running_loss_ce / len(dataloader)
     epoch_loss_emd = running_loss_emd / len(dataloader)
-    return epoch_loss, epoch_loss_mean, epoch_loss_std, epoch_loss_ce, epoch_loss_raw_ce, epoch_loss_emd
+    epoch_brier_score = running_brier_score / len(dataloader)
+    return epoch_loss, epoch_loss_mean, epoch_loss_std, epoch_loss_ce, epoch_loss_raw_ce, epoch_loss_emd, epoch_brier_score
 
 
+is_eval = True
 is_log = False
 use_attr = False
 use_hist = True
@@ -231,8 +240,8 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_emd_lr1e-03_30epoch_noattr.pth'))
-    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
+    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_emd_lr1e-03_30epoch_noattr.pth'))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_dup_mse_lr1e-03_30epoch_noattr.pth'))
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
@@ -268,21 +277,22 @@ if __name__ == '__main__':
                        "Train CE Loss": train_loss_ce, "Train EMD Loss": train_loss_emd}, commit=False)
 
         # Testing
-        test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd = evaluate(model_resnet50,
+        test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd, test_brier_score = evaluate(model_resnet50,
                                                                                             test_dataloader,
                                                                                             device)
         if is_log:
             wandb.log({"Test MSE Loss": test_loss, "Test MSE Mean Loss": test_loss_mean,
                        "Test MSE Std Loss": test_loss_std, "Test Raw CE Loss": test_loss_raw_ce,
-                       "Test CE Loss": test_loss_ce, "Test EMD Loss": test_loss_emd})
+                       "Test CE Loss": test_loss_ce, "Test EMD Loss": test_loss_emd, "Test Brier Score": test_brier_score})
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}, Train Loss Mean: {train_loss_mean}, "
               f"Train Loss Std: {train_loss_std}, Train Raw CE Loss: {train_loss_raw_ce}, Train CE Loss: {train_loss_ce}"
               f"Train EMD Loss: {train_loss_emd}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}, "
               f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, Test CE Loss: {test_loss_ce}, "
-              f"Test EMD Loss: {test_loss_emd}")
-        
+              f"Test EMD Loss: {test_loss_emd}, Test Brier Score: {test_brier_score}")
+        if is_eval:
+            raise Exception
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss

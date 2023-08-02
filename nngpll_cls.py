@@ -13,6 +13,7 @@ from transformers import AutoProcessor, CLIPVisionModel
 from torchvision.models import resnet50
 import torch.nn as nn
 
+
 from PIL import Image
 import numpy as np
 import torchvision
@@ -21,71 +22,13 @@ from tqdm import tqdm
 import os
 import matplotlib.pyplot as plt
 from act_nngp import make_dataset_imbalance
+from nngpll import extract_vit_feature, extract_clip_feature, extract_resnet_feature
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 plt.rcParams.update({'font.size': 18})
 
 
-def extract_clip_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    for x, mean_score, std_score, score_prob in tqdm(dataset):
-        inputs = processor(images=x, return_tensors="pt").to(device)
-        outputs = model(**inputs)
-        pooled_output = outputs.pooler_output  # pooled CLS states
-        xclip.append(pooled_output[0].detach().cpu().numpy())
-        mean_y.append(mean_score)
-        std_y.append(std_score)
-        prob_y.append(score_prob)
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    return xclip, mean_y, std_y, prob_y
-
-def extract_resnet_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    model.eval()
-    for x, mean_score, std_score, score_prob in tqdm(dataset):
-        x = x.to(device)
-        with torch.no_grad():
-            outputs = model(x[None])
-        # Remove the last FC layer to get the features
-        # features = outputs.reshape(outputs.size(0), -1)
-        xclip.append(outputs.detach().cpu().numpy()[0])
-        mean_y.append(mean_score)
-        std_y.append(std_score)
-        prob_y.append(score_prob)
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    print(xclip.shape)
-    return xclip, mean_y, std_y, prob_y
-
-def extract_vit_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    for x, mean_score, std_score, score_prob in tqdm(dataset):    
-        inputs = feature_extractor(images=x, return_tensors="pt").to(device)
-        outputs = model(**inputs)
-        logits = outputs.logits
-        xclip.append(logits[0].detach().cpu().numpy())
-        mean_y.append(mean_score)
-        std_y.append(std_score) 
-        prob_y.append(score_prob)  # Add the prob_score for each sample
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    return xclip, mean_y, std_y, prob_y
 
 
 learning_rate = 1
@@ -198,8 +141,6 @@ if __name__ == '__main__':
             model = resnet50(pretrained=True)
             model = model.to(device)
             model.eval()
-            # Remove the last fully connected layer to get the feature extractor
-            # model = torch.nn.Sequential(*(list(model.children())[:-1]))
             x_test, y_test, y_test_std, y_test_prob = extract_resnet_feature(test_dataset, model)
             x_train_full, y_train_full, y_train_std_full, y_train_prob_full = extract_resnet_feature(train_dataset, model)
         elif modelname == 'resnet_ft':
@@ -209,7 +150,6 @@ if __name__ == '__main__':
             num_classes = 1
             num_features = model.fc.in_features
             model.fc = nn.Linear(num_features, num_classes)
-            # model.load_state_dict(torch.load(os.path.join('1e-3_30epoch','best_model_resnet50.pth')))
             model.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
             model = model.to(device)
             model.eval()
@@ -305,9 +245,8 @@ if __name__ == '__main__':
         duration = time.time() - start
         print('Kernel construction and inference done in %s seconds.' % duration)
 
-        prob = fx_test_ntk
-        prob = prob / np.sum(prob, axis=1)[:,None]
-
+        prob = fx_test_ntk.clip(min=0)
+        prob = prob / prob.sum(axis=1)[...,None]
         scale = np.arange(1, 5.5, 0.5)   
         # MSE loss for mean
         outputs_mean = np.sum(prob * scale, axis=1)[...,None]
@@ -318,11 +257,14 @@ if __name__ == '__main__':
         mse_std_loss = loss(outputs_std, 5.0 * y_test_std)
 
         logit = np.log(prob + 1e-6)
-        ce_loss = -np.mean(logit * score_prob * ce_weight, axis=1)
-        raw_ce_loss = -np.mean(logit * score_prob, axis=1)
-        emd_loss = np.sqrt(np.mean((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2, axis=1))
+        ce_loss = -np.mean(np.ravel(logit * score_prob * ce_weight))
+        raw_ce_loss = -np.mean(np.ravel(logit * score_prob))
+        emd_loss = np.sqrt(np.mean(np.ravel((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2)))
+        brier_score = np.mean(np.ravel((prob - score_prob)**2))
 
-        print(f"MSE Mean Loss: {mse_mean_loss}, MSE Std Loss: {mse_std_loss}, CE Loss: {ce_loss}, , Raw CE Loss: {raw_ce_loss}, EMD Loss: {emd_loss}")
+        print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
+        print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")
+        print(f"Test EMD loss: {emd_loss}, Test Brier Score: {brier_score}")
     
     # filename = 'nngp_%s'%modelname
     # filename = os.path.join(data_dir,filename)

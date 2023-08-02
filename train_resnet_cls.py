@@ -36,6 +36,8 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
     for images, mean_scores, std_scores, score_prob in progress_bar:
+        if is_eval:
+            break
         images = images.to(device)
         mean_scores = mean_scores.to(device)
         std_scores = std_scores.to(device)
@@ -99,6 +101,7 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     running_mse_mean_loss = 0.0
     running_mse_std_loss = 0.0
     running_emd_loss = 0.0
+    running_brier_score = 0.0
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
     progress_bar = tqdm(dataloader, leave=False)
@@ -126,19 +129,22 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
 
             # Earth Mover's Distance (EMD) loss
             emd_loss = criterion_emd(prob, score_prob)
+            brier_score = criterion_mse(prob, score_prob)
 
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()
             running_mse_mean_loss += mse_mean_loss.item()
             running_mse_std_loss += mse_std_loss.item()
             running_emd_loss += emd_loss.item()
-
+            running_brier_score += brier_score.item()
+            
             progress_bar.set_postfix({
                 'Eval CE Loss': ce_loss.item(),
                 'Eval Raw CE Loss': raw_ce_loss.item(),
                 # 'Eval MSE Mean Loss': mse_mean_loss.item(),
                 # 'Eval MSE Std Loss': mse_std_loss.item(),
-                'Eval EMD Loss': emd_loss.item()
+                'Eval EMD Loss': emd_loss.item(),
+                'Eval Brier Score': brier_score.item()
             })
 
     epoch_ce_loss = running_ce_loss / len(dataloader)
@@ -146,10 +152,12 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     epoch_mse_mean_loss = running_mse_mean_loss / len(dataloader)
     epoch_mse_std_loss = running_mse_std_loss / len(dataloader)
     epoch_emd_loss = running_emd_loss / len(dataloader)
+    epoch_brier_score = running_brier_score / len(dataloader)
+    
+    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score
 
-    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss
 
-
+is_eval = False
 is_log = True
 use_attr = False
 use_hist = True
@@ -215,8 +223,11 @@ if __name__ == '__main__':
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
 
+    # model_resnet50.load_state_dict(torch.load("best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth"))
+    
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
+    
 
     # Define the loss functions
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
@@ -235,11 +246,13 @@ if __name__ == '__main__':
     train_mse_mean_loss_list = []
     train_mse_std_loss_list = []
     train_emd_loss_list = []
+    train_brier_score_list = []
     test_ce_loss_list = []
     test_raw_ce_loss_list = []
     test_mse_mean_loss_list = []
     test_mse_std_loss_list = []
     test_emd_loss_list = []
+    test_brier_score_list = []
 
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
@@ -270,7 +283,7 @@ if __name__ == '__main__':
                        "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
-        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss = evaluate(
+        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score = evaluate(
             model_resnet50, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
         test_ce_loss_list.append(test_ce_loss)
@@ -278,12 +291,14 @@ if __name__ == '__main__':
         test_mse_mean_loss_list.append(test_mse_mean_loss)
         test_mse_std_loss_list.append(test_mse_std_loss)
         test_emd_loss_list.append(test_emd_loss)
+        test_brier_score_list.append(test_brier_score)
         if is_log:
             wandb.log({"Test CE Loss": test_ce_loss,
                        "Test Raw CE Loss": test_raw_ce_loss,
                        "Test MSE Mean Loss": test_mse_mean_loss,
                        "Test MSE Std Loss": test_mse_std_loss,
-                       "Test EMD Loss": test_emd_loss})
+                       "Test EMD Loss": test_emd_loss,
+                       "Test Brier Score": test_brier_score})
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
@@ -296,7 +311,10 @@ if __name__ == '__main__':
               f"Test Raw CE Loss: {test_raw_ce_loss:.4f}, "
               f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
               f"Test MSE Std Loss: {test_mse_std_loss:.4f}, "
-              f"Test EMD Loss: {test_emd_loss:.4f}")
+              f"Test EMD Loss: {test_emd_loss:.4f}, "
+              f"Test Brier Score: {test_brier_score:.4f}")
+        if is_eval:
+            raise Exception
 
         # Check if the current model has the best test loss so far
         test_loss = test_ce_loss if use_ce else test_emd_loss

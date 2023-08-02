@@ -59,6 +59,7 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
     running_ce_loss = 0.0
     running_raw_ce_loss = 0.0
     running_emd_loss = 0.0
+    running_brier_score = 0.0
     dropout_outputs = []
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
@@ -95,7 +96,7 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
             logit = - 0.5 * ((scale + 0.25 - batch_outputs_mean)**3 - (scale - 0.25 - batch_outputs_mean)**3) / 3 / batch_outputs_std**2 + ce_offset
             ce_loss = -torch.mean(logit * score_prob * ce_weight)
             raw_ce_loss = -torch.mean(logit * score_prob)
-            emd_loss = earth_mover_distance_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob)
+            emd_loss, brier_score = earth_mover_distance_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob)
 
             mse_mean_loss = criterion(batch_outputs_mean, mean_scores)
             mse_std_loss = criterion(batch_outputs_std, std_scores)
@@ -107,6 +108,7 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()
             running_emd_loss += emd_loss.item()
+            running_brier_score += brier_score.item()
             progress_bar.set_postfix({'MSE Loss': mse_mean_loss.item(), 'Custom Loss': custom_loss.item()})
 
     epoch_mse_loss = running_mse_loss / len(dataloader)
@@ -115,10 +117,12 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
     epoch_ce_loss = running_ce_loss / len(dataloader)
     epoch_raw_ce_loss = running_raw_ce_loss / len(dataloader)
     epoch_emd_loss = running_emd_loss / len(dataloader)
+    epoch_brier_score = running_brier_score / len(dataloader)
+    
     dropout_outputs = torch.cat(dropout_outputs, dim=0)
     dropout_mean = dropout_outputs[..., 0]
     dropout_std = dropout_outputs[..., 1]
-    return epoch_mse_loss, epoch_mse_std_loss, epoch_custom_loss, epoch_ce_loss, epoch_raw_ce_loss, epoch_emd_loss, dropout_mean, dropout_std
+    return epoch_mse_loss, epoch_mse_std_loss, epoch_custom_loss, epoch_ce_loss, epoch_raw_ce_loss, epoch_emd_loss, epoch_brier_score, dropout_mean, dropout_std
 
 def custom_criterion(outputs, mean_scores, std_scores):
     return 0.5 * torch.mean(((torch.abs(outputs - mean_scores) + 1e-6) / (std_scores + 1e-6)) ** 2)
@@ -211,7 +215,7 @@ if __name__ == '__main__':
         if is_log:
             wandb.log({"Train MSE Loss": train_mse_loss, "Train Custom Loss": train_custom_loss}, commit=False)
 
-        test_mse_loss, test_mse_std_loss, test_custom_loss, test_ce_loss, test_raw_ce_loss, test_emd_loss, dropout_mean, dropout_std = evaluate(
+        test_mse_loss, test_mse_std_loss, test_custom_loss, test_ce_loss, test_raw_ce_loss, test_emd_loss, test_brier_score, dropout_mean, dropout_std = evaluate(
             model_resnet50, test_dataloader, criterion, ce_weight, device, num_samples=50)
         if is_log:
             wandb.log({
@@ -221,12 +225,13 @@ if __name__ == '__main__':
                 "Test CE Loss": test_ce_loss,
                 "Test Raw CE Loss": test_raw_ce_loss,
                 "Test EMD Loss": test_emd_loss,
+                "Test Brier Score": test_brier_score
             })
 
         print(
             f"Epoch [{epoch + 1}/{num_epochs}], Train MSE Loss: {train_mse_loss}, Train Custom Loss: {train_custom_loss}, "
             f"Test MSE Loss: {test_mse_loss}, Test MSE Std Loss: {test_mse_std_loss}, "
-            f"Test CE Loss: {test_ce_loss}, Test Raw CE Loss: {test_raw_ce_loss}, Test EMD Loss: {test_emd_loss}"
+            f"Test CE Loss: {test_ce_loss}, Test Raw CE Loss: {test_raw_ce_loss}, Test EMD Loss: {test_emd_loss}, Test Brier Score: {test_brier_score}"
         )
              
         if test_mse_loss < best_test_loss:

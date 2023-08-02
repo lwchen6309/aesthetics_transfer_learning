@@ -22,10 +22,11 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
     model_resnet.eval()
     model_flow.train()
     running_kld_loss = 0.0
+    running_emd_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
-    sqrt_2pi = np.sqrt(2 * np.pi)
+    sqrt_2pi = np.sqrt(2 * np.pi)    
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
 
     for images, mean_scores, std_scores, score_prob in progress_bar:
@@ -42,23 +43,33 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
 
         # Train Normalizing Flow model for score_prob
         optimizer_flow.zero_grad()
-        x = scale[torch.multinomial(score_prob, 1)]
+        # x = scale[torch.multinomial(score_prob, 1)]
+        x = scale.repeat(len(images), 1).view(-1,1)
+        context = context.repeat(1,len(scale)).view(-1,context.shape[-1])
         # Compute loss
         kld_loss = model_flow.forward_kld(x, context)
+        log_prob_score_prob = model_flow.log_prob(x, context) # Use features as context for score_prob prediction
+        log_prob_score_prob = log_prob_score_prob.view(-1,len(scale))
+        prob = torch.exp(log_prob_score_prob)
+        emd_loss = criterion_emd(prob, score_prob)
         
-        kld_loss.backward()
+        # kld_loss.backward()
+        emd_loss.backward()
         optimizer_flow.step()
 
         running_kld_loss += kld_loss.item()
+        running_emd_loss += emd_loss.item()
 
         progress_bar.set_postfix(
             {
                 "Train KLD Loss": kld_loss.item(),
+                "Train EMD Loss": emd_loss.item(),
             }
         )
 
     epoch_kld_loss = running_kld_loss / len(train_dataloader)
-    return epoch_kld_loss
+    epoch_emd_loss = running_emd_loss / len(train_dataloader)
+    return epoch_kld_loss, epoch_emd_loss
 
 
 def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
@@ -85,7 +96,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
 
             # Extract features from ResNet for conditional flow
             with torch.no_grad():
-                context = model_resnet(images)
+                # context = model_resnet(images)
                 context = feature_extractor(images)['layer4']
                 context = F.adaptive_avg_pool2d(context, (1,1))[:,:,0,0]
 
@@ -246,7 +257,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_flow_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_flow_emd_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if is_resume:
@@ -256,9 +267,10 @@ if __name__ == '__main__':
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
-        train_loss = train_with_flow(model_resnet50, model_flow, train_dataloader, optimizer_resnet50, optimizer_flow, device)
+        train_loss, train_emd_loss = train_with_flow(model_resnet50, model_flow, train_dataloader, optimizer_resnet50, optimizer_flow, device)
         if is_log:
-            wandb.log({"Train KLD Loss": train_loss}, commit=False)
+            wandb.log({"Train KLD Loss": train_loss,
+                       "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
         test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd, test_brier_score = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, device)

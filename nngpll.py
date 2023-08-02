@@ -12,6 +12,8 @@ from transformers import ViTFeatureExtractor, ViTForImageClassification
 from transformers import AutoProcessor, CLIPVisionModel
 from torchvision.models import resnet50
 import torch.nn as nn
+from torchvision.models.feature_extraction import create_feature_extractor
+
 
 from PIL import Image
 import numpy as np
@@ -30,40 +32,59 @@ def extract_clip_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
+    prob_y = []
     for x, mean_score, std_score, score_prob in tqdm(dataset):
         inputs = processor(images=x, return_tensors="pt").to(device)
         outputs = model(**inputs)
         pooled_output = outputs.pooler_output  # pooled CLS states
         xclip.append(pooled_output[0].detach().cpu().numpy())
         mean_y.append(mean_score)
-        std_y.append(std_score) 
+        std_y.append(std_score)
+        prob_y.append(score_prob)
     xclip = np.stack(xclip)
     mean_y = np.stack(mean_y)
     std_y = np.stack(std_y)
-    return xclip, mean_y, std_y
+    prob_y = np.stack(prob_y)
+    return xclip, mean_y, std_y, prob_y
 
 def extract_resnet_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
+    prob_y = []
+    model.eval()
+
+    # Define the feature extractor with the desired nodes to return
+    return_nodes = {
+        'layer4': 'layer4',
+    }
+    feature_extractor = create_feature_extractor(model, return_nodes=return_nodes)
+
     for x, mean_score, std_score, score_prob in tqdm(dataset):
         x = x.to(device)
-        outputs = model(x[None])
-        # Remove the last FC layer to get the features
-        # features = outputs.reshape(outputs.size(0), -1)
-        xclip.append(outputs.detach().cpu().numpy()[0])
+        with torch.no_grad():
+            # Extract features from the desired nodes
+            output = feature_extractor(x[None])
+        # Append the features to the corresponding lists
+        features = output['layer4'].detach().cpu().numpy()
+        features = features.mean(-1).mean(-1)[0]
+        xclip.append(features)
         mean_y.append(mean_score)
         std_y.append(std_score)
+        prob_y.append(score_prob)
+
     xclip = np.stack(xclip)
     mean_y = np.stack(mean_y)
     std_y = np.stack(std_y)
+    prob_y = np.stack(prob_y)
     print(xclip.shape)
-    return xclip, mean_y, std_y
+    return xclip, mean_y, std_y, prob_y
 
 def extract_vit_feature(dataset, model):
     xclip = []
     mean_y = []
     std_y = []
+    prob_y = []
     for x, mean_score, std_score, score_prob in tqdm(dataset):    
         inputs = feature_extractor(images=x, return_tensors="pt").to(device)
         outputs = model(**inputs)
@@ -71,10 +92,12 @@ def extract_vit_feature(dataset, model):
         xclip.append(logits[0].detach().cpu().numpy())
         mean_y.append(mean_score)
         std_y.append(std_score) 
+        prob_y.append(score_prob)  # Add the prob_score for each sample
     xclip = np.stack(xclip)
     mean_y = np.stack(mean_y)
     std_y = np.stack(std_y)
-    return xclip, mean_y, std_y
+    prob_y = np.stack(prob_y)
+    return xclip, mean_y, std_y, prob_y
 
 
 learning_rate = 1
@@ -143,7 +166,7 @@ def plot_nngp_uncertainty():
     plt.show()
 
 
-use_uncertainty = True
+use_uncertainty = False
 use_attr = False
 
 
@@ -173,24 +196,22 @@ if __name__ == '__main__':
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr, use_hist=True, random_seed=random_seed)
 
     modelname = 'resnet_ft'
-    vit_feature_file = 'para_%s.npz'%modelname
-    vit_feature_file = os.path.join(data_dir,vit_feature_file)
+    vit_feature_file = 'para_%s.npz' % modelname
+    vit_feature_file = os.path.join(data_dir, vit_feature_file)
     if not os.path.isfile(vit_feature_file):
         if modelname == 'vit':
             # Model flag for ViT
             model_flag = 'google/vit-base-patch16-224'
             feature_extractor = ViTFeatureExtractor.from_pretrained(model_flag)
             model = ViTForImageClassification.from_pretrained(model_flag).to(device)
-            x_test, y_test, y_test_std = extract_vit_feature(test_dataset, model)
-            x_train_full, y_train_full, y_train_std_full = extract_vit_feature(train_dataset, model)
+            x_test, y_test, y_test_std, y_test_prob = extract_vit_feature(test_dataset, model)
+            x_train_full, y_train_full, y_train_std_full, y_train_prob_full = extract_vit_feature(train_dataset, model)
         elif modelname == 'resnet':
             model = resnet50(pretrained=True)
             model = model.to(device)
             model.eval()
-            # Remove the last fully connected layer to get the feature extractor
-            # model = torch.nn.Sequential(*(list(model.children())[:-1]))
-            x_test, y_test, y_test_std = extract_resnet_feature(test_dataset, model)
-            x_train_full, y_train_full, y_train_std_full = extract_resnet_feature(train_dataset, model)
+            x_test, y_test, y_test_std, y_test_prob = extract_resnet_feature(test_dataset, model)
+            x_train_full, y_train_full, y_train_std_full, y_train_prob_full = extract_resnet_feature(train_dataset, model)
         elif modelname == 'resnet_ft':
             model = resnet50(pretrained=False)
             # Modify the last fully connected layer to match the number of classes
@@ -198,33 +219,34 @@ if __name__ == '__main__':
             num_classes = 1
             num_features = model.fc.in_features
             model.fc = nn.Linear(num_features, num_classes)
-            # model.load_state_dict(torch.load(os.path.join('1e-3_30epoch','best_model_resnet50.pth')))
             model.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
             model = model.to(device)
             model.eval()
             # Remove the last fully connected layer to get the feature extractor
             # model = torch.nn.Sequential(*(list(model.children())[:-1]))
-            x_test, y_test, y_test_std = extract_resnet_feature(test_dataset, model)
-            x_train_full, y_train_full, y_train_std_full = extract_resnet_feature(train_dataset, model)
+            x_test, y_test, y_test_std, y_test_prob = extract_resnet_feature(test_dataset, model)
+            x_train_full, y_train_full, y_train_std_full, y_train_prob_full = extract_resnet_feature(train_dataset, model)
         else:
             # Model flag for CLIP
             model_flag = 'openai/clip-vit-base-patch32'
             processor = AutoProcessor.from_pretrained(model_flag)
             model = CLIPVisionModel.from_pretrained(model_flag).to(device)
-            x_test, y_test, y_test_std = extract_clip_feature(test_dataset, model)
-            x_train_full, y_train_full, y_train_std_full = extract_clip_feature(train_dataset, model)
+            x_test, y_test, y_test_std, y_test_prob = extract_clip_feature(test_dataset, model)
+            x_train_full, y_train_full, y_train_std_full, y_train_prob_full = extract_clip_feature(train_dataset, model)
 
         jnp.savez(vit_feature_file, 
-                 x_train=x_train_full, y_train=y_train_full, y_train_std=y_train_std_full, 
-                 x_test=x_test, y_test=y_test, y_test_std=y_test_std)
+                x_train=x_train_full, y_train=y_train_full, y_train_std=y_train_std_full, y_train_prob=y_train_prob_full,
+                x_test=x_test, y_test=y_test, y_test_std=y_test_std, y_test_prob=y_test_prob)
     else:
         vit_dct = jnp.load(vit_feature_file)
         x_train_full = vit_dct['x_train']
         y_train_full = vit_dct['y_train']
         y_train_std_full = vit_dct['y_train_std']
+        y_train_prob_full = vit_dct['y_train_prob']
         x_test = vit_dct['x_test']
         y_test = vit_dct['y_test']
         y_test_std = vit_dct['y_test_std']
+        y_test_prob = vit_dct['y_test_prob']
 
     # Preprocess
     mu, sigma = x_train_full.mean(axis=0,keepdims=True), x_train_full.std(axis=0,keepdims=True)
@@ -246,7 +268,8 @@ if __name__ == '__main__':
 
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
-    score_prob = np.stack([score_prob for images, mean_scores, std_scores, score_prob in test_dataset])
+    # score_prob = np.stack([score_prob for images, mean_scores, std_scores, score_prob in test_dataset])
+    score_prob = y_test_prob
     scale = np.arange(1, 5.5, 0.5)
     sqrt_2pi = np.sqrt(2 * np.pi)
 
@@ -294,20 +317,18 @@ if __name__ == '__main__':
         prob = np.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
         prob = prob / np.sum(prob, axis=1)[:,None]
         logit = np.log(prob + 1e-6)
-        ce_loss = -np.mean(logit * score_prob * ce_weight, axis=1)
-        raw_ce_loss = -np.mean(logit * score_prob, axis=1)
-        emd_loss = np.sqrt(np.mean((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2, axis=1))
 
-        mse_mean.append(loss(5.0*fx_test_ntk, 5.0*y_test))
-        mse_std.append(loss(5.0*sigma_test_ntk, 5.0*y_test_std))
-    mse_mean = np.array(mse_mean)
-    mse_std = np.array(mse_std)
+        ce_loss = -np.mean(np.ravel(logit * score_prob * ce_weight))
+        raw_ce_loss = -np.mean(np.ravel(logit * score_prob))
+        emd_loss = np.sqrt(np.mean(np.ravel((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2)))
+        brier_score = np.mean(np.ravel((prob - score_prob)**2))
 
-    print(mse_mean)
-    print(mse_std)
-    print(ce_loss)
-    print(raw_ce_loss)
-    print(emd_loss)
+        mse_mean_loss = loss(5.0*fx_test_ntk, 5.0*y_test)
+        mse_std_loss = loss(5.0*sigma_test_ntk, 5.0*y_test_std)
+
+    print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
+    print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")
+    print(f"Test EMD loss: {emd_loss}, Test Brier Score: {brier_score}")
 
     filename = 'nngp_%s'%modelname
     filename = os.path.join(data_dir,filename)

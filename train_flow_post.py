@@ -15,7 +15,9 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from train_resnet_cls import earth_mover_distance
+from scipy.stats import norm
 import normflows as nf
+from torch.distributions import Categorical
 
 
 def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet, optimizer_flow, device):
@@ -42,10 +44,12 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
 
         # Train Normalizing Flow model for score_prob
         optimizer_flow.zero_grad()
-        x = scale[torch.multinomial(score_prob, 1)]
+        # x = scale[torch.multinomial(score_prob, 1)]
+        x = scale.repeat(len(images), 1).view(-1,1)
+        context = context.repeat(1,len(scale)).view(-1,context.shape[-1])
         # Compute loss
         kld_loss = model_flow.forward_kld(x, context)
-        
+
         kld_loss.backward()
         optimizer_flow.step()
 
@@ -76,6 +80,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     sqrt_2pi = np.sqrt(2 * np.pi)
     progress_bar = tqdm(dataloader, leave=False)
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
+
     with torch.no_grad():
         for images, mean_scores, std_scores, score_prob in progress_bar:
             images = images.to(device)
@@ -85,7 +90,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
 
             # Extract features from ResNet for conditional flow
             with torch.no_grad():
-                context = model_resnet(images)
+                # context = model_resnet(images)
                 context = feature_extractor(images)['layer4']
                 context = F.adaptive_avg_pool2d(context, (1,1))[:,:,0,0]
 
@@ -246,7 +251,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_flow_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_flow_post_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if is_resume:
