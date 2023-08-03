@@ -43,7 +43,7 @@ def metric_to_cdf(scale, mu, sigma, py, ce_weight=None, debug=False):
     if ce_weight is not None:
         ce = - torch.mean(torch.sum(logprob * py * ce_weight, dim=1))
     else:
-        raw_ce = ce
+        ce = raw_ce
 
     return emd, brier_score, ce, raw_ce
 

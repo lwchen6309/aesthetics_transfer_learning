@@ -10,90 +10,19 @@ from transformers import AutoProcessor, CLIPVisionModel
 from torchvision.models import resnet50
 import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
+from nngpll import extract_vit_feature, extract_clip_feature, extract_resnet_feature, metric_to_cdf
 
 import numpy as np
 import torch
 from tqdm import tqdm
 import os
 import matplotlib.pyplot as plt
-from act_nngp import make_dataset_imbalance
+# from act_nngp import make_dataset_imbalance
 from scipy.stats import norm
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 plt.rcParams.update({'font.size': 18})
-
-
-def extract_clip_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    for x, mean_score, std_score, score_prob in tqdm(dataset):
-        inputs = processor(images=x, return_tensors="pt").to(device)
-        outputs = model(**inputs)
-        pooled_output = outputs.pooler_output  # pooled CLS states
-        xclip.append(pooled_output[0].detach().cpu().numpy())
-        mean_y.append(mean_score)
-        std_y.append(std_score)
-        prob_y.append(score_prob)
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    return xclip, mean_y, std_y, prob_y
-
-def extract_resnet_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    model.eval()
-
-    # Define the feature extractor with the desired nodes to return
-    return_nodes = {
-        'layer4': 'layer4',
-    }
-    feature_extractor = create_feature_extractor(model, return_nodes=return_nodes)
-
-    for x, mean_score, std_score, score_prob in tqdm(dataset):
-        x = x.to(device)
-        with torch.no_grad():
-            # Extract features from the desired nodes
-            output = feature_extractor(x[None])
-        # Append the features to the corresponding lists
-        features = output['layer4'].detach().cpu().numpy()
-        features = features.mean(-1).mean(-1)[0]
-        xclip.append(features)
-        mean_y.append(mean_score)
-        std_y.append(std_score)
-        prob_y.append(score_prob)
-
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    print(xclip.shape)
-    return xclip, mean_y, std_y, prob_y
-
-def extract_vit_feature(dataset, model):
-    xclip = []
-    mean_y = []
-    std_y = []
-    prob_y = []
-    for x, mean_score, std_score, score_prob in tqdm(dataset):    
-        inputs = feature_extractor(images=x, return_tensors="pt").to(device)
-        outputs = model(**inputs)
-        logits = outputs.logits
-        xclip.append(logits[0].detach().cpu().numpy())
-        mean_y.append(mean_score)
-        std_y.append(std_score) 
-        prob_y.append(score_prob)  # Add the prob_score for each sample
-    xclip = np.stack(xclip)
-    mean_y = np.stack(mean_y)
-    std_y = np.stack(std_y)
-    prob_y = np.stack(prob_y)
-    return xclip, mean_y, std_y, prob_y
 
 
 learning_rate = 1
@@ -162,33 +91,11 @@ def plot_nngp_uncertainty():
     plt.show()
 
 
-def metric_to_cdf(scale, mu, sigma, py, ce_weight=None):
-    """
-    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
-    """
-    half_res = ((scale[1] - scale[0]) * 0.5)
-    x1 = scale + half_res
-    x0 = scale - half_res
-    # mu = mu.cpu().numpy()
-    # sigma = sigma.cpu().numpy()
-    px = np.array([norm.cdf(x1, loc=_mu, scale=_sigma) - norm.cdf(x0, loc=_mu, scale=_sigma) for _mu, _sigma in zip(mu, sigma)])
-    cdf_px = np.cumsum(px, axis=1)
-    cdf_py = np.cumsum(py, axis=1)
-    emd = np.mean(np.linalg.norm(cdf_px - cdf_py, ord=2, axis=1))
-    brier_score = np.mean((px - py)**2)
-    
-    logprob = np.log(px + 1e-6)
-    raw_ce = - np.mean(np.sum(logprob * py, axis=1))
-    if ce_weight is not None:
-        ce = - np.mean(np.sum(logprob * py * ce_weight, axis=1))
-    else:
-        ce = raw_ce
-
-    return emd, brier_score, ce, raw_ce
-
 
 use_uncertainty = False
 use_attr = False
+
+
 
 
 if __name__ == '__main__':
@@ -315,12 +222,6 @@ if __name__ == '__main__':
                             batch_size=_BATCH_SIZE)
 
         start = time.time()
-        # Bayesian and infinite-time gradient descent inference with infinite network.
-        # predict_fn = nt.predict.gradient_descent_mse_ensemble(kernel_fn, x_train,
-        #                                                     y_train, diag_reg=1e-3)
-        # fx_test_nngp, fx_test_ntk = predict_fn(x_test=x_test)
-        # fx_test_nngp.block_until_ready()
-        # fx_test_ntk.block_until_ready()
 
         kdd = kernel_fn(x_train,x_train).nngp
         ktd = kernel_fn(x_train,x_test).nngp
@@ -328,13 +229,14 @@ if __name__ == '__main__':
         reg = np.sqrt((y_train_std**2).mean(-1)) if use_uncertainty else 1e-2
         kdd_inv = jnp.linalg.inv(kdd + jnp.eye(len(kdd)) * reg)
         fx_test_ntk = ktd.T @ kdd_inv @ y_train
+        fx_std_test_ntk = ktd.T @ kdd_inv @ y_train_std
         sigma_test_ntk = jnp.diag(ktt) - jnp.diag(ktd.T @ kdd_inv @ ktd)
 
         duration = time.time() - start
         print('Kernel construction and inference done in %s seconds.' % duration)
 
         batch_outputs_mean = 5 * np.array(fx_test_ntk)
-        batch_outputs_std = 5 * np.abs(np.array(sigma_test_ntk)[:,None])
+        batch_outputs_std = 5 * np.abs(np.array(fx_std_test_ntk))
         # prob = np.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
         # prob = prob / np.sum(prob, axis=1)[:,None]
         # logit = np.log(prob + 1e-6)
@@ -345,16 +247,16 @@ if __name__ == '__main__':
         # brier_score = np.mean(np.ravel((prob - score_prob)**2))
         emd_loss, brier_score, ce_loss, raw_ce_loss = metric_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob, ce_weight=ce_weight)
 
-        mse_mean_loss = loss(5.0*fx_test_ntk, 5.0*y_test)
-        mse_std_loss = loss(5.0*sigma_test_ntk, 5.0*y_test_std)
+        mse_mean_loss = loss(batch_outputs_mean, 5.0*y_test)
+        mse_std_loss = loss(batch_outputs_std, 5.0*y_test_std)
 
     print(f"Test EMD loss: {emd_loss}, Test Brier Score: {brier_score}")
     print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")
     print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
-
-    filename = 'nngp_%s'%modelname
-    filename = os.path.join(data_dir,filename)
-    if use_uncertainty:
-        filename += '_uncertainty'
-    jnp.savez(filename, train_sizes=train_sizes, mse_mean=mse_mean)
+    
+    # filename = 'nngp_%s'%modelname
+    # filename = os.path.join(data_dir,filename)
+    # if use_uncertainty:
+    #     filename += '_uncertainty'
+    # jnp.savez(filename, train_sizes=train_sizes, mse_mean=mse_mean)
     

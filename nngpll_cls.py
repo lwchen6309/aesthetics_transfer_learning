@@ -237,7 +237,7 @@ if __name__ == '__main__':
         kdd = kernel_fn(x_train,x_train).nngp
         ktd = kernel_fn(x_train,x_test).nngp
         ktt = kernel_fn(x_test,x_test).nngp
-        reg = np.sqrt((y_train_std**2).mean(-1)) if use_uncertainty else 1e-1
+        reg = np.sqrt((y_train_std**2).mean(-1)) if use_uncertainty else 1e-2
         kdd_inv = jnp.linalg.inv(kdd + jnp.eye(len(kdd)) * reg)
         fx_test_ntk = ktd.T @ kdd_inv @ y_train
         sigma_test_ntk = jnp.diag(ktt) - jnp.diag(ktd.T @ kdd_inv @ ktd)
@@ -262,9 +262,10 @@ if __name__ == '__main__':
         emd_loss = np.mean(np.linalg.norm(np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1), ord=2, axis=1))
         brier_score = np.mean(np.mean((prob - score_prob)**2, axis=1))
 
-        print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
-        print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")
         print(f"Test EMD loss: {emd_loss}, Test Brier Score: {brier_score}")
+        print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")
+        print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
+        
     
     # filename = 'nngp_%s'%modelname
     # filename = os.path.join(data_dir,filename)
