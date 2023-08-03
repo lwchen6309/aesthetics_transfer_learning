@@ -13,7 +13,7 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from train_resnet_cls import earth_mover_distance
-from train_resnet_dup import earth_mover_distance_to_cdf
+from train_resnet_dup import metric_to_cdf
 
 
 def train(model, train_dataloader, criterion, optimizer, device):
@@ -83,20 +83,7 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
             batch_outputs_std = torch.std(batch_outputs, dim=0)
             batch_outputs = torch.stack([batch_outputs_mean, batch_outputs_std], dim=-1)
             dropout_outputs.append(batch_outputs)
-
-            # prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
-            # prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            # logit = torch.log(prob + 1e-6)
-            # ce_loss = -torch.mean(logit * score_prob * ce_weight)
-            # raw_ce_loss = -torch.mean(logit * score_prob)
-            # emd_loss = criterion_emd(prob, score_prob)
-
-            # Continuous
-            ce_offset = -(torch.log(batch_outputs_std) + 0.5 * np.log(2*np.pi)) * 4.5
-            logit = - 0.5 * ((scale + 0.25 - batch_outputs_mean)**3 - (scale - 0.25 - batch_outputs_mean)**3) / 3 / batch_outputs_std**2 + ce_offset
-            ce_loss = -torch.mean(logit * score_prob * ce_weight)
-            raw_ce_loss = -torch.mean(logit * score_prob)
-            emd_loss, brier_score = earth_mover_distance_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob)
+            emd_loss, brier_score, ce_loss, raw_ce_loss = metric_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob, ce_weight=ce_weight)
 
             mse_mean_loss = criterion(batch_outputs_mean, mean_scores)
             mse_std_loss = criterion(batch_outputs_std, std_scores)
@@ -195,9 +182,9 @@ if __name__ == '__main__':
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
     ce_weight = torch.tensor(ce_weight, device=device)
-    criterion_weight_ce = nn.CrossEntropyLoss(weight=ce_weight)
-    criterion_raw_ce = nn.CrossEntropyLoss()
-    criterion_emd = earth_mover_distance
+    # criterion_weight_ce = nn.CrossEntropyLoss(weight=ce_weight)
+    # criterion_raw_ce = nn.CrossEntropyLoss()
+    # criterion_emd = earth_mover_distance
 
     optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr, momentum=0.9)
 

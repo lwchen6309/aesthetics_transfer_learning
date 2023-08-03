@@ -255,12 +255,12 @@ if __name__ == '__main__':
         # MSE loss for std
         outputs_std = np.sqrt(np.sum(prob * (scale - outputs_mean) ** 2, axis=1))
         mse_std_loss = loss(outputs_std, 5.0 * y_test_std)
-
+        
         logit = np.log(prob + 1e-6)
-        ce_loss = -np.mean(np.ravel(logit * score_prob * ce_weight))
-        raw_ce_loss = -np.mean(np.ravel(logit * score_prob))
-        emd_loss = np.sqrt(np.mean(np.ravel((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2)))
-        brier_score = np.mean(np.ravel((prob - score_prob)**2))
+        ce_loss = -np.mean(np.sum(logit * score_prob * ce_weight, axis=1))
+        raw_ce_loss = -np.mean(np.sum(logit * score_prob, axis=1))
+        emd_loss = np.mean(np.linalg.norm(np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1), ord=2, axis=1))
+        brier_score = np.mean(np.mean((prob - score_prob)**2, axis=1))
 
         print(f"Test MSE Mean loss: {mse_mean_loss}, Test MSE Std loss: {mse_std_loss}")
         print(f"Test CE loss: {ce_loss}, Test Raw CE loss: {raw_ce_loss}")

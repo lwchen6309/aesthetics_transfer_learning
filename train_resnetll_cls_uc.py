@@ -14,7 +14,7 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from train_resnet_cls import earth_mover_distance
-from train_resnet_dup import earth_mover_distance_to_cdf
+from train_resnet_dup import metric_to_cdf
 
 
 def train(model, train_dataloader, criterion, optimizer, device):
@@ -82,8 +82,8 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
             # prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
             # prob = prob / torch.sum(prob, dim=1, keepdim=True)
             # logit = torch.log(prob + 1e-6)
-            ce_loss = -torch.mean(logit * score_prob * ce_weight)
-            raw_ce_loss = -torch.mean(logit * score_prob)
+            ce_loss = criterion_weight_ce(logit, score_prob)
+            raw_ce_loss = criterion_raw_ce(logit, score_prob)
             emd_loss = criterion_emd(prob, score_prob)
             brier_score = criterion(prob, score_prob)
 
@@ -130,9 +130,9 @@ if __name__ == '__main__':
     random.seed(random_seed)
     # random_seed = None
 
-    lr = 5e-4
+    lr = 1e-3
     batch_size = 32
-    num_epochs = 10
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config.update({

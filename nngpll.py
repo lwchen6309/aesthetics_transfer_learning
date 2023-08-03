@@ -1,10 +1,7 @@
 import time
-from absl import app
 import jax.numpy as jnp
 import neural_tangents as nt
 from neural_tangents import stax
-# from examples import datasets
-from examples import util
 
 from torchvision import transforms
 from PARA_dataloader import PARADataset
@@ -14,15 +11,14 @@ from torchvision.models import resnet50
 import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
 
-
-from PIL import Image
 import numpy as np
-import torchvision
 import torch
 from tqdm import tqdm
 import os
 import matplotlib.pyplot as plt
 from act_nngp import make_dataset_imbalance
+from scipy.stats import norm
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 plt.rcParams.update({'font.size': 18})
@@ -164,6 +160,31 @@ def plot_nngp_uncertainty():
     axis.set_ylabel('MSE')
     # plt.legend()
     plt.show()
+
+
+def metric_to_cdf(scale, mu, sigma, py, ce_weight=None):
+    """
+    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
+    """
+    half_res = ((scale[1] - scale[0]) * 0.5)
+    x1 = scale + half_res
+    x0 = scale - half_res
+    # mu = mu.cpu().numpy()
+    # sigma = sigma.cpu().numpy()
+    px = np.array([norm.cdf(x1, loc=_mu, scale=_sigma) - norm.cdf(x0, loc=_mu, scale=_sigma) for _mu, _sigma in zip(mu, sigma)])
+    cdf_px = np.cumsum(px, axis=1)
+    cdf_py = np.cumsum(py, axis=1)
+    emd = np.mean(np.linalg.norm(cdf_px - cdf_py, ord=2, axis=1))
+    brier_score = np.mean((px - py)**2)
+    
+    logprob = np.log(px + 1e-6)
+    raw_ce = - np.mean(np.sum(logprob * py, axis=1))
+    if ce_weight is not None:
+        ce = - np.mean(np.sum(logprob * py * ce_weight, axis=1))
+    else:
+        raw_ce = ce
+
+    return emd, brier_score, ce, raw_ce
 
 
 use_uncertainty = False
@@ -314,14 +335,16 @@ if __name__ == '__main__':
 
         batch_outputs_mean = 5 * np.array(fx_test_ntk)
         batch_outputs_std = 5 * np.abs(np.array(sigma_test_ntk)[:,None])
-        prob = np.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
-        prob = prob / np.sum(prob, axis=1)[:,None]
-        logit = np.log(prob + 1e-6)
+        # prob = np.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
+        # prob = prob / np.sum(prob, axis=1)[:,None]
+        # logit = np.log(prob + 1e-6)
 
-        ce_loss = -np.mean(np.ravel(logit * score_prob * ce_weight))
-        raw_ce_loss = -np.mean(np.ravel(logit * score_prob))
-        emd_loss = np.sqrt(np.mean(np.ravel((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2)))
-        brier_score = np.mean(np.ravel((prob - score_prob)**2))
+        # ce_loss = -np.mean(np.ravel(logit * score_prob * ce_weight))
+        # raw_ce_loss = -np.mean(np.ravel(logit * score_prob))
+        # emd_loss = np.sqrt(np.mean(np.ravel((np.cumsum(prob,axis=1) - np.cumsum(score_prob,axis=1))**2)))
+        # brier_score = np.mean(np.ravel((prob - score_prob)**2))
+        emd_loss, brier_score, ce_loss, raw_ce_loss = metric_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob, ce_weight=ce_weight)
+
 
         mse_mean_loss = loss(5.0*fx_test_ntk, 5.0*y_test)
         mse_std_loss = loss(5.0*sigma_test_ntk, 5.0*y_test_std)

@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import pandas as pd
-from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
@@ -25,7 +23,6 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
 
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
-    sqrt_2pi = np.sqrt(2 * np.pi)
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
 
     for images, mean_scores, std_scores, score_prob in progress_bar:
@@ -73,7 +70,6 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     running_brier_score = 0.0
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
-    sqrt_2pi = np.sqrt(2 * np.pi)
     progress_bar = tqdm(dataloader, leave=False)
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
     with torch.no_grad():
@@ -92,9 +88,9 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             # Evaluate Normalizing Flow model for score_prob
             batch_scale = scale.repeat(len(images), 1).view(-1,1)
             batch_context = context.repeat(1,len(scale)).view(-1,context.shape[-1])
-            log_prob_score_prob = model_flow.log_prob(batch_scale, batch_context) # Use features as context for score_prob prediction
-            log_prob_score_prob = log_prob_score_prob.view(-1,len(scale))
-            prob = torch.exp(log_prob_score_prob)
+            log_prob = model_flow.log_prob(batch_scale, batch_context) # Use features as context for score_prob prediction
+            log_prob = log_prob.view(-1,len(scale))
+            prob = torch.exp(log_prob)
             kld_loss = model_flow.forward_kld(batch_scale, batch_context)
             
             # MSE loss for mean
@@ -111,10 +107,8 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             emd_loss = criterion_emd(prob, score_prob)
 
             # Cross-entropy loss
-            # ce_loss = criterion_weight_ce(log_prob_score_prob, score_prob)
-            # raw_ce_loss = criterion_raw_ce(log_prob_score_prob, score_prob)
-            ce_loss = -torch.mean(log_prob_score_prob * score_prob * ce_weight)
-            raw_ce_loss = -torch.mean(log_prob_score_prob * score_prob)
+            ce_loss = -torch.mean(torch.sum(log_prob * score_prob * ce_weight, dim=1))
+            raw_ce_loss = -torch.mean(torch.sum(log_prob * score_prob, dim=1))
 
             running_kld_loss += kld_loss.item()
             running_emd_loss += emd_loss.item()
@@ -148,6 +142,7 @@ use_attr = False
 use_hist = True
 is_resume = False
 
+
 if __name__ == '__main__':
     # Set random seed for reproducibility
     random_seed = 42
@@ -158,7 +153,7 @@ if __name__ == '__main__':
 
     lr = 5e-4
     batch_size = 32
-    num_epochs = 50
+    num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -194,10 +189,10 @@ if __name__ == '__main__':
 
     # Define the number of classes in your dataset
     if use_attr:
-        num_classes = 9 + 5 * 7
-    else:
         num_classes = 9
-
+    else:
+        num_classes = 1
+    
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -206,7 +201,7 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_cls_lr1e-03_100epoch_noattr_ce.pth'))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
@@ -228,7 +223,7 @@ if __name__ == '__main__':
     model_flow = nf.ConditionalNormalizingFlow(q0, flows)
     # FLAG
     if is_resume:
-        model_flow.load_state_dict(torch.load('best_model_resnet50_flow_lr5e-04_50epoch_noattr.pth'))
+        model_flow.load_state_dict(torch.load('best_model_flow_lr5e-04_50epoch_noattr.pth'))
     model_flow = model_flow.to(device)
     
     # Define the loss function
@@ -246,7 +241,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_flow_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_flow_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if is_resume:

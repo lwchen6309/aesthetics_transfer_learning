@@ -13,7 +13,7 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from train_resnet_cls import earth_mover_distance
-from train_resnet_dup import earth_mover_distance_to_cdf
+from train_resnet_dup import metric_to_cdf
 from train_resnetll_uc import evaluate, custom_criterion
 
 
@@ -44,19 +44,7 @@ def evaluate_ensemble(dataloader, criterion, criterion_raw_ce, criterion_emd, de
             batch_outputs = torch.stack([batch_outputs_mean, batch_outputs_std], dim=-1)
             dropout_outputs.append(batch_outputs)
 
-            # prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
-            # prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            # logit = torch.log(prob + 1e-6)
-            # ce_loss = -torch.mean(logit * score_prob * ce_weight)
-            # raw_ce_loss = -torch.mean(logit * score_prob)
-            # emd_loss = criterion_emd(prob, score_prob)
-
-            # Continuous
-            ce_offset = -(torch.log(batch_outputs_std) + 0.5 * np.log(2*np.pi)) * 4.5
-            logit = - 0.5 * ((scale + 0.25 - batch_outputs_mean)**3 - (scale - 0.25 - batch_outputs_mean)**3) / 3 / batch_outputs_std**2 + ce_offset
-            ce_loss = -torch.mean(logit * score_prob * ce_weight)
-            raw_ce_loss = -torch.mean(logit * score_prob)
-            emd_loss, brier_score = earth_mover_distance_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob)
+            emd_loss, brier_score, ce_loss, raw_ce_loss = metric_to_cdf(scale, batch_outputs_mean, batch_outputs_std, score_prob, ce_weight=ce_weight)
 
             mse_mean_loss = criterion(batch_outputs_mean, mean_scores)
             mse_std_loss = criterion(batch_outputs_std, std_scores)
@@ -110,7 +98,7 @@ if __name__ == '__main__':
         })
 
     root_dir = '/home/lwchen/datasets/PARA/'
-
+    mcdo_dir = 'mcdo_exp'
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
@@ -182,10 +170,10 @@ if __name__ == '__main__':
         if not use_uc:
             best_modelname += '_nouc'
         best_modelname += '.pth'
-        
+        best_modelname = os.path.join(mcdo_dir, best_modelname)
         model_resnet50.load_state_dict(torch.load(best_modelname), strict=False)
         model_resnet50 = model_resnet50.to(device)
-
+        
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         test_mse_loss, test_mse_std_loss, test_custom_loss, test_ce_loss, test_raw_ce_loss, test_emd_loss, test_brier_score, dropout_mean, dropout_std = evaluate(

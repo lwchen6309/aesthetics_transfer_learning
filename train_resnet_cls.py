@@ -222,7 +222,7 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-
+    model_resnet50.load_state_dict(torch.load("best_model_resnet50_noattr.pth"))
     # model_resnet50.load_state_dict(torch.load("best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth"))
     
     # Move the model to the device
