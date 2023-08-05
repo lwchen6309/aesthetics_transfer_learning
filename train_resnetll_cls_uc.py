@@ -79,9 +79,6 @@ def evaluate(model, dataloader, criterion, ce_weight, device, num_samples=50):
 
             logit = batch_outputs_mean
             prob = F.softmax(logit, dim=1)
-            # prob = torch.exp(-0.5 * ((batch_outputs_mean - scale) / batch_outputs_std) ** 2) / batch_outputs_std / sqrt_2pi
-            # prob = prob / torch.sum(prob, dim=1, keepdim=True)
-            # logit = torch.log(prob + 1e-6)
             ce_loss = criterion_weight_ce(logit, score_prob)
             raw_ce_loss = criterion_raw_ce(logit, score_prob)
             emd_loss = criterion_emd(prob, score_prob)

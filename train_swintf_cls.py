@@ -10,20 +10,22 @@ import numpy as np
 from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
-from diffusers.models import AutoencoderKL
+from transformers import AutoImageProcessor, Swinv2Model
 from train_resnet_cls import earth_mover_distance
 
 
-class VAEAdapter(nn.Module):
+class SwinTFAdapter(nn.Module):
     def __init__(self, num_classes):
-        super(VAEAdapter, self).__init__()
-        self.vae = AutoencoderKL.from_pretrained("stabilityai/sdxl-vae")
-        self.adapter = nn.Linear(self.vae.config.latent_channels, num_classes)
-        self.vae.decoder = None
+        super(SwinTFAdapter, self).__init__()
+        self.image_processor = AutoImageProcessor.from_pretrained("microsoft/swinv2-tiny-patch4-window8-256")
+        self.model = Swinv2Model.from_pretrained("microsoft/swinv2-tiny-patch4-window8-256")
+        self.adapter = nn.Linear(self.model.num_features, num_classes)
 
     def forward(self, images):
-        encoded = self.vae.encode(images).latent_dist.sample()
-        logits = self.adapter(torch.mean(encoded, dim=(2, 3)))
+        inputs = self.image_processor(images, return_tensors="pt").to(images.device)
+        outputs = self.model(**inputs)
+        last_hidden_states = outputs.last_hidden_state
+        logits = self.adapter(torch.mean(last_hidden_states, dim=1))
         return logits
 
 
@@ -163,8 +165,8 @@ use_attr = False
 use_hist = True
 use_ce = False
 # resume = 'best_model_vae_cls_lr1e-01_100epoch_noattr.pth'
-resume = 'best_model_vae_cls_lr1e-03_30epoch_noattr_ft.pth'
-is_eval = True
+resume = None
+is_eval = False
 
 
 if __name__ == '__main__':
@@ -175,7 +177,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 5e-4
+    lr = 1e-3
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -221,7 +223,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Create the model with CLIP as the backbone and an adapter linear layer
-    model_vae = VAEAdapter(num_classes)
+    model_vae = SwinTFAdapter(num_classes)
     if resume is not None:
         model_vae.load_state_dict(torch.load(resume))
     # Move the model to the device
@@ -241,7 +243,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_vae_cls_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_swintf_cls_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if use_ce:

@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import pandas as pd
-from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
@@ -240,20 +238,6 @@ if __name__ == '__main__':
     # Define the optimizer
     optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
 
-    # Define lists to record the training and test losses
-    train_ce_loss_list = []
-    train_raw_ce_loss_list = []
-    train_mse_mean_loss_list = []
-    train_mse_std_loss_list = []
-    train_emd_loss_list = []
-    train_brier_score_list = []
-    test_ce_loss_list = []
-    test_raw_ce_loss_list = []
-    test_mse_mean_loss_list = []
-    test_mse_std_loss_list = []
-    test_emd_loss_list = []
-    test_brier_score_list = []
-
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
@@ -270,11 +254,6 @@ if __name__ == '__main__':
         train_ce_loss, train_raw_ce_loss, train_mse_mean_loss, train_mse_std_loss, train_emd_loss = train(
             model_resnet50, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             optimizer_resnet50, device)
-        train_ce_loss_list.append(train_ce_loss)
-        train_raw_ce_loss_list.append(train_raw_ce_loss)
-        train_mse_mean_loss_list.append(train_mse_mean_loss)
-        train_mse_std_loss_list.append(train_mse_std_loss)
-        train_emd_loss_list.append(train_emd_loss)
         if is_log:
             wandb.log({"Train CE Loss": train_ce_loss,
                        "Train Raw CE Loss": train_raw_ce_loss,
@@ -286,12 +265,6 @@ if __name__ == '__main__':
         test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score = evaluate(
             model_resnet50, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
-        test_ce_loss_list.append(test_ce_loss)
-        test_raw_ce_loss_list.append(test_raw_ce_loss)
-        test_mse_mean_loss_list.append(test_mse_mean_loss)
-        test_mse_std_loss_list.append(test_mse_std_loss)
-        test_emd_loss_list.append(test_emd_loss)
-        test_brier_score_list.append(test_brier_score)
         if is_log:
             wandb.log({"Test CE Loss": test_ce_loss,
                        "Test Raw CE Loss": test_raw_ce_loss,
