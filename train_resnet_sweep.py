@@ -65,8 +65,36 @@ use_attr = False
 resume = None
 is_eval = False
 
+# Define sweep config
+sweep_configuration = {
+    'method': 'bayes',
+    'name': 'sweep',
+    'metric': {'goal': 'minimize', 'name': 'Test MSE Mean Loss'},
+    'parameters': 
+    {
+        'batch_size': {'values': [16, 32, 64]},
+        'epochs': {'values': [200]},
+        'lr': {'max': 1e-2, 'min': 1e-5},
+        'lr_decay':{'value':0.9},
+        'adam_weight_decay':{'max':1e-2, 'min':0.},
+     }
+}
 
-if __name__ == '__main__':
+# Initialize sweep by passing in config. 
+# (Optional) Provide a name of the project.
+sweep_id = wandb.sweep(
+  sweep=sweep_configuration, 
+  project='resnet_PARA_GIAA_sweep'
+  )
+
+# config = {
+#     'lr' : 1e-4,
+#     'bs' : 32,
+#     'epochs': 200,
+#     'lr_decay':0.9,
+# }
+
+def main():
     # Set random seed for reproducibility
     random_seed = 42
     torch.manual_seed(random_seed)
@@ -75,16 +103,22 @@ if __name__ == '__main__':
     random.seed(random_seed)
     # random_seed = None
 
-    lr = 1e-4
-    batch_size = 32
-    num_epochs = 200
-    if is_log:
-        wandb.init(project="resnet_PARA_GIAA")
-        wandb.config = {
-        "learning_rate": lr,
-        "batch_size": batch_size,
-        "num_epochs": num_epochs
-        }
+    run = wandb.init()
+    # note that we define values from `wandb.config`  
+    # instead of defining hard values
+    lr  =  wandb.config.lr
+    batch_size = wandb.config.batch_size
+    num_epochs = wandb.config.epochs
+    lr_decay_factor = wandb.config.lr_decay
+    adam_weight_decay = wandb.config.adam_weight_decay
+
+    # if is_log:
+    #     wandb.init(project="resnet_PARA_GIAA_sweep")
+    #     wandb.config = {
+    #     "learning_rate": lr,
+    #     "batch_size": batch_size,
+    #     "num_epochs": num_epochs
+    #     }
 
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
@@ -124,8 +158,8 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 1024),
-        nn.Linear(1024, num_classes),
+        nn.Linear(num_features, 256),
+        nn.Linear(256, num_classes),
         # nn.Linear(num_features, num_classes)
     )
     # model_resnet50.load_state_dict(torch.load('best_model_resnet50.pth'))
@@ -139,7 +173,7 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
 
     # Define the optimizer
-    optimizer_resnet50 = optim.Adam(model_resnet50.parameters(), lr=lr)
+    optimizer_resnet50 = optim.Adam(model_resnet50.parameters(), lr=lr, weight_decay=adam_weight_decay)
 
     # Define a list to record the training and test losses
     train_loss_list = []
@@ -148,14 +182,14 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_resnet50_hidden1024_adam_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_sweep_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     best_modelname += '.pth'
 
     # Training loop
     lr_schedule_epochs = 1
-    lr_decay_factor = 0.9
+    # lr_decay_factor = 0.9
     max_patience_epochs = 10
     num_patience_epochs = 0
     best_test_loss = float('inf') 
@@ -193,3 +227,8 @@ if __name__ == '__main__':
             if num_patience_epochs >= max_patience_epochs:
                 print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
                 break
+
+
+if __name__ == '__main__':    
+    # Start sweep job.
+    wandb.agent(sweep_id, function=main, count=4)

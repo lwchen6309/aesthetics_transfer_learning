@@ -28,6 +28,8 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
 
     for images, mean_scores, std_scores, score_prob in progress_bar:
+        if is_eval:
+            break
         images = images.to(device)
         mean_scores = mean_scores.to(device)
         std_scores = std_scores.to(device)
@@ -104,6 +106,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             log_prob = model_flow.log_prob(batch_scale, batch_context) # Use features as context for score_prob prediction
             log_prob = log_prob.view(-1,len(scale))
             prob = torch.exp(log_prob)
+            prob = prob / torch.sum(prob, dim=1, keepdim=True)
             kld_loss = model_flow.forward_kld(batch_scale, batch_context)
             
             # MSE loss for mean
@@ -150,10 +153,11 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     return epoch_kld_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_ce_loss, epoch_raw_ce_loss, epoch_emd_loss, epoch_brier_score
 
 
-is_log = True
+is_log = False
 use_attr = False
 use_hist = True
-is_resume = False
+is_eval = True
+resume = 'best_model_flow_hidden8_emd_lr5e-04_30epoch_noattr.pth'
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
@@ -163,7 +167,7 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 5e-4
+    lr = 5e-5
     batch_size = 32
     num_epochs = 30
     if is_log:
@@ -221,7 +225,7 @@ if __name__ == '__main__':
     K = 4
     latent_size = 1
     hidden_units = 128
-    hidden_layers = 2
+    hidden_layers = 8
     context_size = 2048
 
     flows = []
@@ -234,8 +238,8 @@ if __name__ == '__main__':
     # Construct flow model
     model_flow = nf.ConditionalNormalizingFlow(q0, flows)
     # FLAG
-    if is_resume:
-        model_flow.load_state_dict(torch.load('best_model_resnet50_flow_lr5e-04_50epoch_noattr.pth'))
+    if resume is not None:
+        model_flow.load_state_dict(torch.load(resume))
     model_flow = model_flow.to(device)
     
     # Define the loss function
@@ -253,11 +257,11 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_flow_emd_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_flow_emd_K%d_h%d_unit%d_lr%1.0e_%depoch' % (K, hidden_layers, hidden_units, lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
-    if is_resume:
-        best_modelname += '_resume'
+    if resume is not None:
+        best_modelname += '_ft'
     best_modelname += '.pth'
 
     # Training loop for ResNet-50
@@ -269,16 +273,18 @@ if __name__ == '__main__':
                        "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
-        test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd, test_brier_score = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, device)
+        test_kld_loss, test_loss_mean, test_loss_std, test_ce_loss, test_raw_ce_loss, test_emd_loss, test_brier_score = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, device)
+        test_loss = test_emd_loss
         if is_log:
             wandb.log({"Test KLD Loss": test_loss, "Test MSE Mean Loss": test_loss_mean,
-                       "Test MSE Std Loss": test_loss_std, "Test Raw CE Loss": test_loss_raw_ce,
-                       "Test CE Loss": test_loss_ce, "Test EMD Loss": test_loss_emd, "Test Brier Score": test_brier_score})
+                       "Test MSE Std Loss": test_loss_std, "Test Raw CE Loss": test_raw_ce_loss,
+                       "Test CE Loss": test_ce_loss, "Test EMD Loss": test_emd_loss, "Test Brier Score": test_brier_score})
 
         # Print the epoch loss
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}"
-              f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_loss_raw_ce}, Test CE Loss: {test_loss_ce}, Test EMD Loss: {test_loss_emd}, Test Brier Score: {test_brier_score}")
-        
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}, Test Loss Mean: {test_loss_mean}, "
+              f"Test Loss Std: {test_loss_std}, Test Raw CE Loss: {test_raw_ce_loss}, Test CE Loss: {test_ce_loss}, Test EMD Loss: {test_emd_loss}, Test Brier Score: {test_brier_score}")
+        if is_eval:
+            raise Exception
         # Check if the current model has the best test loss so far
         if test_loss < best_test_loss:
             best_test_loss = test_loss

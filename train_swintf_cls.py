@@ -176,10 +176,10 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(random_seed)
     np.random.seed(random_seed)
     random.seed(random_seed)
-
-    lr = 1e-3
+    
+    lr = 1e-5
     batch_size = 32
-    num_epochs = 30
+    num_epochs = 100
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -223,11 +223,11 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Create the model with CLIP as the backbone and an adapter linear layer
-    model_vae = SwinTFAdapter(num_classes)
+    model = SwinTFAdapter(num_classes)
     if resume is not None:
-        model_vae.load_state_dict(torch.load(resume))
+        model.load_state_dict(torch.load(resume))
     # Move the model to the device
-    model_vae = model_vae.to(device)
+    model = model.to(device)
     
     # Define the loss functions
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
@@ -238,12 +238,12 @@ if __name__ == '__main__':
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    optimizer_clip = optim.SGD(model_vae.parameters(), lr=lr, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True)
 
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_swintf_cls_lr%1.0e_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_swintf_cls_nesterov_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if use_ce:
@@ -252,12 +252,23 @@ if __name__ == '__main__':
         best_modelname += '_ft'
     best_modelname += '.pth'
 
+
     # Training loop
+    lr_schedule_epochs = 10
+    lr_decay_factor = 0.95
+    max_patience_epochs = 10
+    num_patience_epochs = 0
+    best_test_loss = float('inf')
     for epoch in range(num_epochs):
+        # Learning rate schedule
+        if (epoch + 1) % lr_schedule_epochs == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= lr_decay_factor
+
         # Training
         train_ce_loss, train_raw_ce_loss, train_mse_mean_loss, train_mse_std_loss, train_emd_loss = train(
-            model_vae, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
-            optimizer_clip, device)
+            model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
+            optimizer, device)
         if is_log:
             wandb.log({"Train CE Loss": train_ce_loss,
                        "Train Raw CE Loss": train_raw_ce_loss,
@@ -267,7 +278,7 @@ if __name__ == '__main__':
 
         # Testing
         test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score = evaluate(
-            model_vae, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
+            model, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
         if is_log:
             wandb.log({"Test CE Loss": test_ce_loss,
@@ -295,6 +306,13 @@ if __name__ == '__main__':
 
         # Check if the current model has the best test loss so far
         test_loss = test_ce_loss if use_ce else test_emd_loss
+        # Early stopping check
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model_vae.state_dict(), best_modelname)
+            num_patience_epochs = 0
+            torch.save(model.state_dict(), best_modelname)
+        else:
+            num_patience_epochs += 1
+            if num_patience_epochs >= max_patience_epochs:
+                print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
+                break

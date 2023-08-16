@@ -136,7 +136,7 @@ if __name__ == '__main__':
     # Create datasets with the appropriate transformations
     train_dataset = PARADataset(root_dir, transform=train_transform, train=True, use_attr=True, use_hist=True)
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=True, use_hist=True, random_seed=random_seed)
-
+    
     # Normalize the histograms and backup the annotations to a new CSV file
     train_dataset.normalize_histogram()
     test_dataset.normalize_histogram()

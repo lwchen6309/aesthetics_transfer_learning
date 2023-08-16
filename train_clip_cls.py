@@ -177,7 +177,7 @@ if __name__ == '__main__':
     
     lr = 1e-3
     batch_size = 32
-    num_epochs = 30
+    num_epochs = 100
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -235,7 +235,8 @@ if __name__ == '__main__':
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    optimizer_clip = optim.SGD(model_clip.parameters(), lr=lr, momentum=0.9)
+    # optimizer_clip = optim.SGD(model_clip.parameters(), lr=lr, momentum=0.9)
+    optimizer_clip = optim.AdamW(model_clip.parameters(), lr=lr)
 
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')

@@ -116,10 +116,11 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
+    # Define the number of classes in your dataset
     if use_attr:
-        num_classes = 9
+        num_classes = 9 + 5 * 7
     else:
-        num_classes = 1
+        num_classes = 9
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
