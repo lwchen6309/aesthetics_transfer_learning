@@ -24,8 +24,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
 
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
-    sqrt_2pi = np.sqrt(2 * np.pi)
-    feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
+    feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4', 'fc': 'fc'})
 
     for images, mean_scores, std_scores, score_prob in progress_bar:
         if is_eval:
@@ -39,41 +38,48 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         # Extract features from ResNet for conditional flow
         with torch.no_grad():
             # context = model_resnet(images)
-            context = feature_extractor(images)['layer4']
+            output_dict = feature_extractor(images)
+            context = output_dict['layer4']
             context = F.adaptive_avg_pool2d(context, (1,1))[:,:,0,0]
+            logit = output_dict['fc']
 
         # Train Normalizing Flow model for score_prob
         optimizer_flow.zero_grad()
-        # x = scale[torch.multinomial(score_prob, 1)]
-        x = scale.repeat(batch_size, 1).view(-1,1)
-        context = context.repeat(1,len(scale)).view(-1,context.shape[-1])
-        
-        w = (torch.linalg.pinv(context) @ x).T
-        w = w.repeat(batch_size, 1)
-        print(context.shape)
-        print(w.shape)
-        
+
+        # Forward of score prob
+        z = model_flow.q0.sample(batch_size)
+        weights = model_flow(z, context=context)
+        log_prob_q = model_flow.log_prob(weights, context)
+
+        reshape_weights = weights.view(batch_size, num_classes, (num_classes+1))
+        weight = reshape_weights[...,:-1]
+        bias = reshape_weights[...,-1]
+        new_logit = torch.stack([_w @ _l + _b for _w, _l, _b in zip(weight, logit, bias)])
+
         # Compute loss
-        kld_loss = model_flow.forward_kld(w, context)
-        log_prob_score_prob = model_flow.log_prob(w, context) # Use features as context for score_prob prediction
-        # log_prob_score_prob = log_prob_score_prob.view(-1,len(scale))
-        prob = torch.exp(log_prob_score_prob)
-        emd_loss = criterion_emd(prob, score_prob)
+        log_prob = F.log_softmax(new_logit, dim=1)
+        prob = torch.exp(log_prob).clip(min=0.001, max=0.999)
+        # KL(weight, N(0,1*weight_penalty))
+        log_prob_normal = -0.5 * torch.sum(weights**2, dim=1) / weight_penalty**2
+        weight_kld_loss = torch.mean(log_prob_q - log_prob_normal)
         
+        emd_loss = criterion_emd(prob, score_prob)
+        loss = emd_loss + kld_factor * weight_kld_loss
+
         # kld_loss.backward()
-        emd_loss.backward()
+        loss.backward()
         optimizer_flow.step()
 
-        running_kld_loss += kld_loss.item()
+        # running_kld_loss += kld_loss.item()
         running_emd_loss += emd_loss.item()
 
         progress_bar.set_postfix(
             {
-                "Train KLD Loss": kld_loss.item(),
+                # "Train KLD Loss": kld_loss.item(),
+                "Train LKD Loss": weight_kld_loss.item(),
                 "Train EMD Loss": emd_loss.item(),
             }
         )
-
     epoch_kld_loss = running_kld_loss / len(train_dataloader)
     epoch_emd_loss = running_emd_loss / len(train_dataloader)
     return epoch_kld_loss, epoch_emd_loss
@@ -93,27 +99,36 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     scale = torch.arange(1, 5.5, 0.5).to(device)
     sqrt_2pi = np.sqrt(2 * np.pi)
     progress_bar = tqdm(dataloader, leave=False)
-    feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4'})
+    feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4', 'fc': 'fc'})
     with torch.no_grad():
         for images, mean_scores, std_scores, score_prob in progress_bar:
             images = images.to(device)
             mean_scores = mean_scores.to(device)
             std_scores = std_scores.to(device)
             score_prob = score_prob.to(device)
+            batch_size = len(images)
 
             # Extract features from ResNet for conditional flow
-            with torch.no_grad():
-                # context = model_resnet(images)
-                context = feature_extractor(images)['layer4']
-                context = F.adaptive_avg_pool2d(context, (1,1))[:,:,0,0]
+            # context = model_resnet(images)
+            output_dict = feature_extractor(images)
+            context = output_dict['layer4']
+            context = F.adaptive_avg_pool2d(context, (1,1))[:,:,0,0]
+            logit = output_dict['fc']
 
-            # Evaluate Normalizing Flow model for score_prob
-            batch_scale = scale.repeat(len(images), 1).view(-1,1)
-            batch_context = context.repeat(1,len(scale)).view(-1,context.shape[-1])
-            log_prob = model_flow.log_prob(batch_scale, batch_context) # Use features as context for score_prob prediction
-            log_prob = log_prob.view(-1,len(scale))
+            # Train Normalizing Flow model for score_prob
+            optimizer_flow.zero_grad()
+
+            # Forward of score prob
+            z = model_flow.q0.sample(batch_size)
+            weights = model_flow(z, context=context)
+            weights = weights.view(batch_size, num_classes, (num_classes+1))
+            weight = weights[...,:-1]
+            bias = weights[...,-1]
+            new_logit = torch.stack([_w @ _l + _b for _w, _l, _b in zip(weight, logit, bias)])
+
+            # Compute loss
+            log_prob = F.log_softmax(new_logit, dim=1)
             prob = torch.exp(log_prob)
-            kld_loss = model_flow.forward_kld(batch_scale, batch_context)
             
             # MSE loss for mean
             outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
@@ -132,7 +147,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             ce_loss = -torch.mean(torch.sum(log_prob * score_prob * ce_weight, dim=1))
             raw_ce_loss = -torch.mean(torch.sum(log_prob * score_prob, dim=1))
 
-            running_kld_loss += kld_loss.item()
+            # running_kld_loss += kld_loss.item()
             running_emd_loss += emd_loss.item()
             running_mse_mean_loss += mse_mean_loss.item()
             running_mse_std_loss += mse_std_loss.item()
@@ -159,12 +174,20 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
     return epoch_kld_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_ce_loss, epoch_raw_ce_loss, epoch_emd_loss, epoch_brier_score
 
 
-is_log = False
+is_log = True
 use_attr = False
 use_hist = True
 # resume = 'best_model_flow_emd_K4_h8_unit128_lr5e-04_30epoch_noattr.pth'
 resume = None
 is_eval = False
+
+# Define the number of classes in your dataset
+if use_attr:
+    num_classes = 9 + 5 * 7
+else:
+    num_classes = 9
+weight_penalty = 5e-1
+kld_factor = 1e-1
 
 
 if __name__ == '__main__':
@@ -175,8 +198,8 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 5e-5
-    batch_size = 128
+    lr = 1e-3
+    batch_size = 32
     num_epochs = 30
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
@@ -211,12 +234,6 @@ if __name__ == '__main__':
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    # Define the number of classes in your dataset
-    if use_attr:
-        num_classes = 9
-    else:
-        num_classes = 1
-
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -224,23 +241,31 @@ if __name__ == '__main__':
     model_resnet50 = resnet50(pretrained=True)
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
+    model_resnet50.fc = nn.Linear(num_features, 1)
+    # model_resnet50.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
+    # model_resnet50.fc = nn.Sequential(
+    #     nn.Linear(num_features, 256),
+    #     nn.Linear(256, num_classes),
+    # )
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth'))   
+    
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
 
     # Define flows
     K = 4
-    latent_size = 2048
+    context_size = num_features   
+    latent_size = num_classes * (num_classes+1)
     hidden_units = 128
-    hidden_layers = 8
-    context_size = 2048
+    hidden_layers = 4
 
     flows = []
     for i in range(K):
         flows += [nf.flows.AutoregressiveRationalQuadraticSpline(latent_size, hidden_layers, hidden_units,
                                                                 num_context_channels=context_size)]
         flows += [nf.flows.LULinearPermute(latent_size)]
+
     # Set base distribution
     q0 = nf.distributions.DiagGaussian(latent_size, trainable=False)
     # Construct flow model
@@ -259,7 +284,7 @@ if __name__ == '__main__':
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
+    optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr, momentum=0.9)
     optimizer_flow = optim.SGD(model_flow.parameters(), lr=lr, momentum=0.9)
 
     # Initialize the best test loss and the best model

@@ -124,8 +124,8 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 1024),
-        nn.Linear(1024, num_classes),
+        nn.Linear(num_features, 256),
+        nn.Linear(256, num_classes),
         # nn.Linear(num_features, num_classes)
     )
     # model_resnet50.load_state_dict(torch.load('best_model_resnet50.pth'))
