@@ -16,7 +16,7 @@ from train_resnet_cls import earth_mover_distance
 import normflows as nf
 
 
-def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet, optimizer_flow, device):
+def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet, optimizer_flow, weight_prior, device):
     model_resnet.eval()
     model_flow.train()
     running_kld_loss = 0.0
@@ -25,7 +25,6 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
     feature_extractor = create_feature_extractor(model_resnet, return_nodes={'layer4': 'layer4', 'fc': 'fc'})
-
     for images, mean_scores, std_scores, score_prob in progress_bar:
         if is_eval:
             break
@@ -48,21 +47,22 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
 
         # Forward of score prob
         z = model_flow.q0.sample(batch_size)
+        log_prob_z = model_flow.q0.log_prob(z)
         weights = model_flow(z, context=context)
-        log_prob_q = model_flow.log_prob(weights, context)
-
         reshape_weights = weights.view(batch_size, num_classes, (num_classes+1))
         weight = reshape_weights[...,:-1]
         bias = reshape_weights[...,-1]
-        new_logit = torch.stack([_w @ _l + _b for _w, _l, _b in zip(weight, logit, bias)])
+        new_logit = torch.stack([F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
 
         # Compute loss
         log_prob = F.log_softmax(new_logit, dim=1)
         prob = torch.exp(log_prob).clip(min=0.001, max=0.999)
         # KL(weight, N(0,1*weight_penalty))
-        log_prob_normal = -0.5 * torch.sum(weights**2, dim=1) / weight_penalty**2
-        weight_kld_loss = torch.mean(log_prob_q - log_prob_normal)
-        
+        log_prob_normal = weight_prior.log_prob(weights)
+        # Renormalize
+        log_prob_z = F.log_softmax(log_prob_z, dim=0)
+        log_prob_normal = F.log_softmax(log_prob_normal, dim=0)
+        weight_kld_loss = torch.mean(log_prob_z - log_prob_normal)
         emd_loss = criterion_emd(prob, score_prob)
         loss = emd_loss + kld_factor * weight_kld_loss
 
@@ -70,12 +70,11 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         loss.backward()
         optimizer_flow.step()
 
-        # running_kld_loss += kld_loss.item()
+        running_kld_loss += weight_kld_loss.item()
         running_emd_loss += emd_loss.item()
 
         progress_bar.set_postfix(
             {
-                # "Train KLD Loss": kld_loss.item(),
                 "Train LKD Loss": weight_kld_loss.item(),
                 "Train EMD Loss": emd_loss.item(),
             }
@@ -85,7 +84,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
     return epoch_kld_loss, epoch_emd_loss
 
 
-def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
+def evaluate_with_flow(model_resnet, model_flow, dataloader, weight_prior, device):
     model_resnet.eval()
     model_flow.eval()
     running_kld_loss = 0.0
@@ -120,16 +119,23 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
 
             # Forward of score prob
             z = model_flow.q0.sample(batch_size)
+            log_prob_z = model_flow.q0.log_prob(z)
             weights = model_flow(z, context=context)
-            weights = weights.view(batch_size, num_classes, (num_classes+1))
-            weight = weights[...,:-1]
-            bias = weights[...,-1]
-            new_logit = torch.stack([_w @ _l + _b for _w, _l, _b in zip(weight, logit, bias)])
+            reshape_weights = weights.view(batch_size, num_classes, (num_classes+1))
+            weight = reshape_weights[...,:-1]
+            bias = reshape_weights[...,-1]
+            new_logit = torch.stack([F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
 
             # Compute loss
             log_prob = F.log_softmax(new_logit, dim=1)
-            prob = torch.exp(log_prob)
-            
+            prob = torch.exp(log_prob).clip(min=0.001, max=0.999)
+            # KL(weight, N(0,1*weight_penalty))
+            log_prob_normal = weight_prior.log_prob(weights)
+            # Renormalize
+            log_prob_z = F.log_softmax(log_prob_z, dim=0)
+            log_prob_normal = F.log_softmax(log_prob_normal, dim=0)
+            weight_kld_loss = torch.mean(log_prob_z - log_prob_normal)
+
             # MSE loss for mean
             outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
             mse_mean_loss = criterion(outputs_mean, mean_scores)
@@ -147,7 +153,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, device):
             ce_loss = -torch.mean(torch.sum(log_prob * score_prob * ce_weight, dim=1))
             raw_ce_loss = -torch.mean(torch.sum(log_prob * score_prob, dim=1))
 
-            # running_kld_loss += kld_loss.item()
+            running_kld_loss += weight_kld_loss.item()
             running_emd_loss += emd_loss.item()
             running_mse_mean_loss += mse_mean_loss.item()
             running_mse_std_loss += mse_std_loss.item()
@@ -186,8 +192,8 @@ if use_attr:
     num_classes = 9 + 5 * 7
 else:
     num_classes = 9
-weight_penalty = 5e-1
-kld_factor = 1e-1
+weight_penalty = 1e0
+kld_factor = 1e0
 
 
 if __name__ == '__main__':
@@ -275,6 +281,11 @@ if __name__ == '__main__':
         model_flow.load_state_dict(torch.load(resume))
     model_flow = model_flow.to(device)
     
+    # Define the prior of weight 
+    weight_prior = nf.distributions.DiagGaussian(latent_size, trainable=False)
+    weight_prior.log_scale = np.log(weight_penalty) * torch.ones(latent_size)
+    weight_prior = weight_prior.to(device)
+    
     # Define the loss function
     criterion = nn.MSELoss()
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
@@ -290,7 +301,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_test_loss = float('inf')
     best_model = None
-    best_modelname = 'best_model_hnet_flow_emd_K%d_h%d_unit%d_lr%1.0e_%depoch' % (K, hidden_layers, hidden_units, lr, num_epochs)
+    best_modelname = 'best_model_bhn_flow_emd_weight_penalty%1.0e_kld_factor%1.0e_K%d_h%d_unit%d_lr%1.0e_%depoch' % (weight_penalty, kld_factor, K, hidden_layers, hidden_units, lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if resume is not None:
@@ -300,13 +311,13 @@ if __name__ == '__main__':
     # Training loop for ResNet-50
     for epoch in range(num_epochs):
         # Training
-        train_loss, train_emd_loss = train_with_flow(model_resnet50, model_flow, train_dataloader, optimizer_resnet50, optimizer_flow, device)
+        train_loss, train_emd_loss = train_with_flow(model_resnet50, model_flow, train_dataloader, optimizer_resnet50, optimizer_flow, weight_prior, device)
         if is_log:
             wandb.log({"Train KLD Loss": train_loss,
                        "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
-        test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd, test_brier_score = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, device)
+        test_loss, test_loss_mean, test_loss_std, test_loss_ce, test_loss_raw_ce, test_loss_emd, test_brier_score = evaluate_with_flow(model_resnet50, model_flow, test_dataloader, weight_prior, device)
         if is_log:
             wandb.log({"Test KLD Loss": test_loss, "Test MSE Mean Loss": test_loss_mean,
                        "Test MSE Std Loss": test_loss_std, "Test Raw CE Loss": test_loss_raw_ce,
