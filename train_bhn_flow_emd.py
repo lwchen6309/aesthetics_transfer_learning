@@ -52,7 +52,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         reshape_weights = weights.view(batch_size, num_classes, (num_classes+1))
         weight = reshape_weights[...,:-1]
         bias = reshape_weights[...,-1]
-        new_logit = torch.stack([F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
+        new_logit = torch.stack([_l + 5e-2*F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
 
         # Compute loss
         log_prob = F.log_softmax(new_logit, dim=1)
@@ -124,7 +124,7 @@ def evaluate_with_flow(model_resnet, model_flow, dataloader, weight_prior, devic
             reshape_weights = weights.view(batch_size, num_classes, (num_classes+1))
             weight = reshape_weights[...,:-1]
             bias = reshape_weights[...,-1]
-            new_logit = torch.stack([F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
+            new_logit = torch.stack([_l + 5e-2*F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
 
             # Compute loss
             log_prob = F.log_softmax(new_logit, dim=1)
@@ -192,8 +192,9 @@ if use_attr:
     num_classes = 9 + 5 * 7
 else:
     num_classes = 9
-weight_penalty = 1e0
-kld_factor = 1e0
+weight_penalty = 1e-2
+# kld_factor = 1e-1
+kld_factor = 0.
 
 
 if __name__ == '__main__':
