@@ -68,16 +68,16 @@ is_eval = False
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-    # random_seed = None
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
 
-    lr = 1e-4
-    batch_size = 32
-    num_epochs = 200
+    lr = 5e-5
+    batch_size = 100
+    num_epochs = 20
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -91,6 +91,7 @@ if __name__ == '__main__':
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
+        transforms.AutoAugment(),
         transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
     ])
@@ -124,8 +125,8 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 256),
-        nn.Linear(256, num_classes),
+        nn.Linear(num_features, 1024),
+        nn.Linear(1024, num_classes),
         # nn.Linear(num_features, num_classes)
     )
     # model_resnet50.load_state_dict(torch.load('best_model_resnet50.pth'))
@@ -154,7 +155,7 @@ if __name__ == '__main__':
     best_modelname += '.pth'
 
     # Training loop
-    lr_schedule_epochs = 1
+    lr_schedule_epochs = 5
     lr_decay_factor = 0.9
     max_patience_epochs = 10
     num_patience_epochs = 0

@@ -192,9 +192,9 @@ if use_attr:
     num_classes = 9 + 5 * 7
 else:
     num_classes = 9
-weight_penalty = 1e-2
+weight_penalty = 1e1
 # kld_factor = 1e-1
-kld_factor = 0.
+kld_factor = 1.0
 
 
 if __name__ == '__main__':
@@ -205,9 +205,9 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 1e-3
-    batch_size = 32
-    num_epochs = 30
+    lr = 5e-5
+    batch_size = 64
+    num_epochs = 10
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {

@@ -36,8 +36,8 @@ class PARADataset(Dataset):
             'contentPreference',
             'willingnessToShare'
         ]
-        if self.use_hist:
-            self.attributes = [self.attributes[0],*self.attributes[2:]]
+        
+        self.hist_attributes = [self.attributes[0],*self.attributes[2:]] # skip quality score
         if not self.use_attr:
             self.attributes = [self.attributes[0]]
 
@@ -45,9 +45,9 @@ class PARADataset(Dataset):
         self.std_attributes = ['%s_std'%x for x in self.attributes]
         scale = np.arange(1, 5.5, 0.5)
         self.score_hist = []
-        self.score_hist.append(['%s_%2.1f'%(self.attributes[0], i) for i in scale])
+        self.score_hist.append(['%s_%2.1f'%(self.hist_attributes[0], i) for i in scale])
         if self.use_attr:
-            for attr in self.attributes[1:]:
+            for attr in self.hist_attributes[1:]:
                 scale = np.arange(1, 5.5, 1.0)
                 self.score_hist.append(['%s_%d'%(attr, i) for i in scale])
         
@@ -138,8 +138,8 @@ if __name__ == '__main__':
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=True, use_hist=True, random_seed=random_seed)
     
     # Normalize the histograms and backup the annotations to a new CSV file
-    train_dataset.normalize_histogram()
-    test_dataset.normalize_histogram()
+    # train_dataset.normalize_histogram()
+    # test_dataset.normalize_histogram()
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
