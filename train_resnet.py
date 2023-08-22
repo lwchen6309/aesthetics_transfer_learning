@@ -91,7 +91,6 @@ if __name__ == '__main__':
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
-        transforms.AutoAugment(),
         transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
     ])
@@ -156,7 +155,7 @@ if __name__ == '__main__':
 
     # Training loop
     lr_schedule_epochs = 5
-    lr_decay_factor = 0.9
+    lr_decay_factor = 0.1
     max_patience_epochs = 10
     num_patience_epochs = 0
     best_test_loss = float('inf') 

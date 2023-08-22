@@ -77,7 +77,6 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
     model.train()
     running_mse_loss = 0.0
     running_srocc_loss = 0.0
-    srocc_list = []
 
     progress_bar = tqdm(dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
@@ -129,9 +128,6 @@ is_log = False
 num_bins = 9
 num_attr = 8
 num_pt = 25
-use_attr = True
-use_hist = True
-use_ce = False
 
 
 if __name__ == '__main__':
@@ -213,10 +209,6 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'best_model_resnet50_giaa_lr%1.0e_decay_%depoch' % (lr, num_epochs)
-    if not use_attr:
-        best_modelname += '_noattr'
-    if use_ce:
-        best_modelname += '_ce'
     best_modelname += '.pth'
 
     # Training loop

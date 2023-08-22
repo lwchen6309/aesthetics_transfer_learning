@@ -169,9 +169,9 @@ if __name__ == '__main__':
     np.random.seed(random_seed)
     random.seed(random_seed)
 
-    lr = 1e-4
-    batch_size = 32
-    num_epochs = 30
+    lr = 5e-5
+    batch_size = 100
+    num_epochs = 20
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -190,7 +190,7 @@ if __name__ == '__main__':
     ])
 
     test_transform = transforms.Compose([
-        transforms.Resize(256),
+        transforms.Resize(224),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
@@ -252,8 +252,8 @@ if __name__ == '__main__':
     best_modelname += '.pth'
 
     # Training loop
-    lr_schedule_epochs = 1
-    lr_decay_factor = 0.9
+    lr_schedule_epochs = 5
+    lr_decay_factor = 0.1
     max_patience_epochs = 10
     num_patience_epochs = 0
     best_test_loss = float('inf')    
