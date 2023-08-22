@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 import torch.nn.functional as F
+import random
 
 
 class PARA_PIAADataset(Dataset):
@@ -76,6 +77,46 @@ class PARA_PIAADataset(Dataset):
 
         return sample
 
+def collect_batch_personal_trait(sample,
+        personal_traits = ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience'],
+        big5 = ['personality-E', 'personality-A', 'personality-N', 'personality-O', 'personality-C']):
+    pt = torch.cat([sample['userTraits'][_pt] for _pt in personal_traits], dim=1)   
+    pt_big5 = torch.stack([sample['userTraits'][pt] for pt in big5], dim=1)
+    total_pt = torch.cat([pt, pt_big5], dim=1)
+    return total_pt
+
+def collect_batch_attribute(sample,     
+        attr = ['aestheticScore','qualityScore','compositionScore','colorScore','dofScore',
+        'contentScore','lightScore','contentPreference','willingnessToShare']):
+    batch_attr = torch.stack([sample['aestheticScores'][_attr] for _attr in attr], dim=1)
+    return batch_attr[:,0][:,None], batch_attr[:,1:]
+
+
+def limit_annotations_per_user(data, max_annotations_per_user):
+    grouped = data.groupby('userId', group_keys=False)
+    filtered_data = grouped.apply(lambda x: x.sample(min(len(x), max_annotations_per_user)))
+    return filtered_data
+
+def split_data_by_user(data, test_count):
+    user_ids = data['userId'].unique()
+    random.shuffle(user_ids)
+    total_users = len(user_ids)
+    train_users = user_ids[:-test_count]
+    test_users = user_ids[-test_count:]
+    return train_users, test_users
+
+def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10):
+    # Split data by user
+    train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count)
+    # Filter data by user IDs
+    train_dataset.data = train_dataset.data[train_dataset.data['userId'].isin(train_users)]
+    test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
+
+    # Limit the number of annotations per user
+    train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    return train_dataset, test_dataset
+
 if __name__ == '__main__':
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'
@@ -95,7 +136,8 @@ if __name__ == '__main__':
 
     # Create datasets with the appropriate transformations
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
+    test_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
     
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
@@ -104,4 +146,10 @@ if __name__ == '__main__':
     # Iterate over the training dataloader
     for sample in train_dataloader:
         # Perform training operations here
+        print(sample['image'])
+        sample_score, sample_attr = collect_batch_attribute(sample)
+        sample_pt = collect_batch_personal_trait(sample)
+        print(sample_score.shape)
+        print(sample_attr.shape)
+        print(sample_pt.shape)
         raise Exception

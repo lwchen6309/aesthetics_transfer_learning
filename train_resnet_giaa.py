@@ -136,9 +136,6 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
             mse_attr_loss = criterion_mse(attr_mean_scores, attr_mean_pred)
             brier_score = criterion_mse(prob, score_prob)
 
-            mean_scores = mean_scores[:,1:] # Remove aesthetic score
-            score_prob = score_prob[:,:9] # Take only score distribution
-
             # MSE loss for mean
             outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
             mse_mean_loss = criterion_mse(outputs_mean, aesthetic_mean_scores)
@@ -177,7 +174,7 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
 
 
 is_eval = False
-is_log = False
+is_log = True
 num_bins = 9
 num_attr = 8
 use_attr = True
@@ -270,7 +267,7 @@ if __name__ == '__main__':
 
     # Training loop
     lr_schedule_epochs = 5
-    lr_decay_factor = 0.9
+    lr_decay_factor = 0.1
     max_patience_epochs = 10
     num_patience_epochs = 0
     best_test_loss = float('inf')    

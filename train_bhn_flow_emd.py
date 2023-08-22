@@ -43,6 +43,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
             logit = output_dict['fc']
 
         # Train Normalizing Flow model for score_prob
+        optimizer_resnet.zero_grad()
         optimizer_flow.zero_grad()
 
         # Forward of score prob
@@ -69,6 +70,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         # kld_loss.backward()
         loss.backward()
         optimizer_flow.step()
+        optimizer_resnet.step()
 
         running_kld_loss += weight_kld_loss.item()
         running_emd_loss += emd_loss.item()
@@ -192,8 +194,7 @@ if use_attr:
     num_classes = 9 + 5 * 7
 else:
     num_classes = 9
-weight_penalty = 1e1
-# kld_factor = 1e-1
+weight_penalty = 1e0
 kld_factor = 1.0
 
 
@@ -207,7 +208,7 @@ if __name__ == '__main__':
 
     lr = 5e-5
     batch_size = 64
-    num_epochs = 10
+    num_epochs = 20
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -248,7 +249,6 @@ if __name__ == '__main__':
     model_resnet50 = resnet50(pretrained=True)
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
-    model_resnet50.fc = nn.Linear(num_features, 1)
     # model_resnet50.load_state_dict(torch.load('best_model_resnet50_noattr.pth'))
     # model_resnet50.fc = nn.Sequential(
     #     nn.Linear(num_features, 256),
@@ -296,7 +296,7 @@ if __name__ == '__main__':
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr, momentum=0.9)
+    optimizer_resnet50 = optim.SGD(model_resnet50.fc.parameters(), lr=lr*0.1, momentum=0.9)
     optimizer_flow = optim.SGD(model_flow.parameters(), lr=lr, momentum=0.9)
 
     # Initialize the best test loss and the best model
