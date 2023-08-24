@@ -61,8 +61,8 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         # KL(weight, N(0,1*weight_penalty))
         log_prob_normal = weight_prior.log_prob(weights)
         # Renormalize
-        log_prob_z = F.log_softmax(log_prob_z, dim=0)
-        log_prob_normal = F.log_softmax(log_prob_normal, dim=0)
+        # log_prob_z = F.log_softmax(log_prob_z, dim=0)
+        # log_prob_normal = F.log_softmax(log_prob_normal, dim=0)
         weight_kld_loss = torch.mean(log_prob_z - log_prob_normal)
         emd_loss = criterion_emd(prob, score_prob)
         loss = emd_loss + kld_factor * weight_kld_loss
@@ -255,7 +255,7 @@ if __name__ == '__main__':
     #     nn.Linear(256, num_classes),
     # )
     model_resnet50.fc = nn.Linear(num_features, num_classes)
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth'))   
+    model_resnet50.load_state_dict(torch.load('best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth'))
     
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
@@ -265,7 +265,7 @@ if __name__ == '__main__':
     context_size = num_features   
     latent_size = num_classes * (num_classes+1)
     hidden_units = 128
-    hidden_layers = 4
+    hidden_layers = 8
 
     flows = []
     for i in range(K):

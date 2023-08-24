@@ -11,6 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
+from scipy.stats import spearmanr
 
 
 def earth_mover_distance(x, y):
@@ -100,6 +101,7 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     running_mse_std_loss = 0.0
     running_emd_loss = 0.0
     running_brier_score = 0.0
+    running_srocc = 0.0
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
     progress_bar = tqdm(dataloader, leave=False)
@@ -129,12 +131,18 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
             emd_loss = criterion_emd(prob, score_prob)
             brier_score = criterion_mse(prob, score_prob)
 
+            # Calculate SROCC
+            predicted_scores = outputs_mean.view(-1).cpu().numpy()
+            true_scores = mean_scores.view(-1).cpu().numpy()
+            srocc, _ = spearmanr(predicted_scores, true_scores)
+
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()
             running_mse_mean_loss += mse_mean_loss.item()
             running_mse_std_loss += mse_std_loss.item()
             running_emd_loss += emd_loss.item()
             running_brier_score += brier_score.item()
+            running_srocc += srocc
             
             progress_bar.set_postfix({
                 'Eval CE Loss': ce_loss.item(),
@@ -151,24 +159,29 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     epoch_mse_std_loss = running_mse_std_loss / len(dataloader)
     epoch_emd_loss = running_emd_loss / len(dataloader)
     epoch_brier_score = running_brier_score / len(dataloader)
+    epoch_srocc = running_srocc / len(dataloader)
     
-    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score
+    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score, epoch_srocc
 
 
-is_eval = False
-is_log = True
+is_eval = True
+is_log = False
 use_attr = False
 use_hist = True
 use_ce = False
+resume = None
+resume = 'best_model_resnet50_hidden1024_cls_lr5e-05_decay_20epoch_noattr.pth'
+
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
-
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
+    
     lr = 5e-5
     batch_size = 100
     num_epochs = 20
@@ -186,6 +199,7 @@ if __name__ == '__main__':
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(0.5),
         transforms.ToTensor(),
     ])
 
@@ -220,12 +234,12 @@ if __name__ == '__main__':
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 256),
-        nn.Linear(256, num_classes)
+        nn.Linear(num_features, 1024),
+        nn.Linear(1024, num_classes)
     )
-    model_resnet50.load_state_dict(torch.load("best_model_resnet50_noattr.pth"), strict=False)
-    # model_resnet50.load_state_dict(torch.load("best_model_resnet50_cls_lr1e-03_30epoch_noattr.pth"))
-    
+    if resume is not None:
+        model_resnet50.load_state_dict(torch.load(resume))
+
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
     
@@ -239,12 +253,11 @@ if __name__ == '__main__':
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    # optimizer_resnet50 = optim.SGD(model_resnet50.parameters(), lr=lr, momentum=0.9)
     optimizer_resnet50 = optim.Adam(model_resnet50.parameters(), lr=lr)
 
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_cls_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_hidden1024_cls_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if use_ce:
@@ -275,7 +288,7 @@ if __name__ == '__main__':
                        "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
-        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score = evaluate(
+        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score, test_epoch_srocc = evaluate(
             model_resnet50, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
         if is_log:
@@ -284,7 +297,8 @@ if __name__ == '__main__':
                        "Test MSE Mean Loss": test_mse_mean_loss,
                        "Test MSE Std Loss": test_mse_std_loss,
                        "Test EMD Loss": test_emd_loss,
-                       "Test Brier Score": test_brier_score})
+                       "Test Brier Score": test_brier_score,
+                       "Test SROCC": test_epoch_srocc})
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
@@ -298,7 +312,8 @@ if __name__ == '__main__':
               f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
               f"Test MSE Std Loss: {test_mse_std_loss:.4f}, "
               f"Test EMD Loss: {test_emd_loss:.4f}, "
-              f"Test Brier Score: {test_brier_score:.4f}")
+              f"Test Brier Score: {test_brier_score:.4f}, "
+              f"Test SROCC: {test_epoch_srocc:.4f}")
         if is_eval:
             raise Exception
 

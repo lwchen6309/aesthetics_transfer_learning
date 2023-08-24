@@ -56,6 +56,7 @@ def train(model, mlp1, mlp2, dataloader, criterion_mse, optimizer, device):
         I_ij = A_ij.view(batch_size,-1)
         r_ij = mlp1(I_ij)
         y_ij = mlp2(prob) + r_ij
+        y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
 
         # MSE loss
         loss = criterion_mse(y_ij, sample_score)
@@ -101,9 +102,10 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
             I_ij = A_ij.view(batch_size,-1)
             r_ij = mlp1(I_ij)
             y_ij = mlp2(prob) + r_ij
+            y_ij = torch.sum(prob * scale, dim=1, keepdim=True)
 
             # MSE loss
-            loss = criterion_mse(y_ij, sample_score)
+            loss = criterion_mse(y_ij, sample_score)          
 
             running_mse_loss += loss.item()
 
@@ -132,11 +134,11 @@ num_pt = 25
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
 
     lr = 1e-5
     batch_size = 100
@@ -167,7 +169,8 @@ if __name__ == '__main__':
     # Create datasets with the appropriate transformations
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
-    train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40)
+    train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, 
+                                                        test_count=40, max_annotations_per_user=10)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -192,8 +195,8 @@ if __name__ == '__main__':
     
     # Define two MLPs
     d_interactio = num_attr * num_pt
-    mlp1 = MLP(d_interactio, 256, 1)
-    mlp2 = MLP(num_bins, 256, 1)
+    mlp1 = MLP(d_interactio, 1024, 1)
+    mlp2 = MLP(num_bins, 1024, 1)
 
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
@@ -208,12 +211,14 @@ if __name__ == '__main__':
 
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_giaa_lr%1.0e_decay_%depoch' % (lr, num_epochs)
-    best_modelname += '.pth'
+    best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname1 = best_modelname + '_mlp1.pth'
+    best_modelname2 = best_modelname + '_mlp1.pth'
+    # best_modelname += '.pth'
 
     # Training loop
     lr_schedule_epochs = 5
-    lr_decay_factor = 0.1
+    lr_decay_factor = 0.5
     max_patience_epochs = 10
     num_patience_epochs = 0
     best_test_loss = float('inf')    
@@ -246,7 +251,9 @@ if __name__ == '__main__':
         if test_mse_loss < best_test_loss:
             best_test_loss = test_mse_loss
             num_patience_epochs = 0
-            torch.save(model_resnet50.state_dict(), best_modelname)
+            # torch.save(model_resnet50.state_dict(), best_modelname)
+            torch.save(mlp1.state_dict(), best_modelname1)
+            torch.save(mlp2.state_dict(), best_modelname2)
         else:
             num_patience_epochs += 1
             if num_patience_epochs >= max_patience_epochs:

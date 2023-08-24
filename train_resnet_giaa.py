@@ -11,6 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
+from scipy.stats import spearmanr
 
 
 def earth_mover_distance(x, y):
@@ -42,8 +43,8 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
         score_prob = score_prob.to(device)
 
         attr_mean_scores = mean_scores[:,1:] # Remove aesthetic score
-        aesthetic_mean_scores = mean_scores[:,1][:,None] # Remove aesthetic score
-        aesthetic_std_scores = std_scores[:,1][:,None] # Remove aesthetic score
+        aesthetic_mean_scores = mean_scores[:,0][:,None]
+        aesthetic_std_scores = std_scores[:,0][:,None]
         score_prob = score_prob[:,:num_bins] # Take only score distribution
 
         optimizer.zero_grad()
@@ -107,6 +108,7 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     running_emd_loss = 0.0
     running_brier_score = 0.0
     running_mse_meanattr_loss = 0.0
+    running_srocc = 0.0
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
     progress_bar = tqdm(dataloader, leave=False)
@@ -118,8 +120,8 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
             score_prob = score_prob.to(device)
 
             attr_mean_scores = mean_scores[:,1:] # Remove aesthetic score
-            aesthetic_mean_scores = mean_scores[:,1][:,None] # Remove aesthetic score
-            aesthetic_std_scores = std_scores[:,1][:,None] # Remove aesthetic score
+            aesthetic_mean_scores = mean_scores[:,0][:,None] # Remove aesthetic score
+            aesthetic_std_scores = std_scores[:,0][:,None] # Remove aesthetic score
             score_prob = score_prob[:,:num_bins] # Take only score distribution
 
             outputs = model(images)
@@ -144,6 +146,11 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
             outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))            
             mse_std_loss = criterion_mse(outputs_std, aesthetic_std_scores)
 
+            # Calculate SROCC
+            predicted_scores = outputs_mean.view(-1).cpu().numpy()
+            true_scores = aesthetic_mean_scores.view(-1).cpu().numpy()
+            srocc, _ = spearmanr(predicted_scores, true_scores)
+            
             running_ce_loss += ce_loss.item()
             running_raw_ce_loss += raw_ce_loss.item()
             running_mse_mean_loss += mse_mean_loss.item()
@@ -151,6 +158,7 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
             running_emd_loss += emd_loss.item()
             running_brier_score += brier_score.item()
             running_mse_meanattr_loss += mse_attr_loss.item()
+            running_srocc += srocc
             
             progress_bar.set_postfix({
                 # 'Eval CE Loss': ce_loss.item(),
@@ -169,8 +177,9 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     epoch_emd_loss = running_emd_loss / len(dataloader)
     epoch_brier_score = running_brier_score / len(dataloader)
     epoch_mse_meanattr_loss = running_mse_meanattr_loss / len(dataloader)
+    epoch_srocc = running_srocc / len(dataloader)
     
-    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score, epoch_mse_meanattr_loss
+    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score, epoch_mse_meanattr_loss, epoch_srocc
 
 
 is_eval = False
@@ -180,15 +189,17 @@ num_attr = 8
 use_attr = True
 use_hist = True
 use_ce = False
-
+# resume = 'best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'
+resume = None
 
 if __name__ == '__main__':
     # Set random seed for reproducibility
-    random_seed = 42
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    np.random.seed(random_seed)
-    random.seed(random_seed)
+    # random_seed = 42
+    # torch.manual_seed(random_seed)
+    # torch.cuda.manual_seed(random_seed)
+    # np.random.seed(random_seed)
+    # random.seed(random_seed)
+    random_seed = None
 
     lr = 5e-5
     batch_size = 100
@@ -207,6 +218,7 @@ if __name__ == '__main__':
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
+        transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
     ])
 
@@ -241,6 +253,8 @@ if __name__ == '__main__':
         nn.ReLU(),
         nn.Linear(1024, num_classes),  # Output for the first task (num_classes)
     )
+    if resume is not None:
+        model_resnet50.load_state_dict(torch.load(resume))
 
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
@@ -289,7 +303,7 @@ if __name__ == '__main__':
                        "Train EMD Loss": train_emd_loss}, commit=False)
 
         # Testing
-        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score, epoch_mse_meanattr_loss = evaluate(
+        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score, epoch_mse_meanattr_loss, epoch_srocc = evaluate(
             model_resnet50, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
             device)
         if is_log:
@@ -299,7 +313,8 @@ if __name__ == '__main__':
                        "Test MSE Std Loss": test_mse_std_loss,
                        "Test EMD Loss": test_emd_loss,
                        "Test Brier Score": test_brier_score,
-                       "Test MSE Mean Attr Loss": epoch_mse_meanattr_loss})
+                       "Test MSE Mean Attr Loss": epoch_mse_meanattr_loss,
+                       "Test SROCC": epoch_srocc})
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
@@ -308,7 +323,8 @@ if __name__ == '__main__':
               f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
               f"Test EMD Loss: {test_emd_loss:.4f}, "
               f"Test Brier Score: {test_brier_score:.4f}, "
-              f"Test MSE Mean Attr Loss: {epoch_mse_meanattr_loss:.4f}")
+              f"Test MSE Mean Attr Loss: {epoch_mse_meanattr_loss:.4f}, "
+              f"Test SROCC: {epoch_srocc:.4f}")
         if is_eval:
             raise Exception
 
