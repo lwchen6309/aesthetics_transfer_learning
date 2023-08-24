@@ -142,14 +142,15 @@ if __name__ == '__main__':
     # Set the random seed for reproducibility in the test set
     random_seed = 42
     test_transform = transforms.Compose([
-        transforms.Resize((224,224)),
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
 
     # Create datasets with the appropriate transformations
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_piaa_dataset, test_piaa_dataset = split_dataset_by_user(train_piaa_dataset, test_piaa_dataset, test_count=40, max_annotations_per_user=10, seed=42)
+    train_piaa_dataset, test_piaa_dataset = split_dataset_by_user(train_piaa_dataset, test_piaa_dataset, test_count=40, max_annotations_per_user=10, seed=random_seed)
     # Create datasets with the appropriate transformations
     train_dataset = HistogramDataloaderModified(root_dir, transform=train_transform, data=train_piaa_dataset.data, histograms_file='trainset_histograms.pkl')
     test_dataset = HistogramDataloaderModified(root_dir, transform=test_transform, data=test_piaa_dataset.data, histograms_file='testset_histograms.pkl')
