@@ -3,39 +3,33 @@ import torch
 from torchvision import transforms
 import torch.nn.functional as F
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user
+from torch.utils.data import DataLoader
 import random
 import pickle
 from tqdm import tqdm
 
 
 class HistogramDataloaderModified(PARA_PIAADataset):
-    def __init__(self, root_dir, transform=None, histograms_file=None, data=None):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
-        # self.data = self.data[:100]
-
-        # Try to load precomputed histograms if a file path is provided
-        if histograms_file and os.path.exists(histograms_file):
-            print("Loading precomputed histograms from file...")
-            self.precomputed_histograms = self.load_histograms(histograms_file)
+        # self.data = self.data[:1000] 
+        
+        # Create a dictionary mapping each unique image name to a list of indices corresponding to that image
+        self.unique_images = self.data['imageName'].unique()
+        # self.image_to_indices_map = {image: self.data[self.data['imageName'] == image].index.tolist() for image in self.unique_images}
+        if map_file and os.path.exists(map_file):
+            # Load precomputed map from file
+            print("Loading image to indices map from file...")
+            self.image_to_indices_map = self._load_map(map_file)
         else:
-            # Precompute histograms for the entire dataset
-            print("Precomputing histograms...")
-            self.precomputed_histograms = [self._compute_histogram(i) 
-                for i in tqdm(range(len(self.data)), desc="Precomputing histograms")]
-            if histograms_file:
-                print(f"Saving histograms to {histograms_file}")
-                self.save_histograms(histograms_file)
+            # Compute the image to indices map
+            self.image_to_indices_map = {image: self.data[self.data['imageName'] == image].index.tolist() for image in self.unique_images}
+            if map_file:
+                print(f"Saving image to indices map to {map_file}")
+                self._save_map(map_file)
 
-        # Accumulators for one-hot encoded traits
-        self.onehot_accumulators = {
-            'age': torch.zeros(len(self.age_encoder)),
-            'gender': torch.zeros(len(self.gender_encoder)),
-            'EducationalLevel': torch.zeros(len(self.education_encoder)),
-            'artExperience': torch.zeros(len(self.art_experience_encoder)),
-            'photographyExperience': torch.zeros(len(self.photo_experience_encoder))
-        }
 
     def _discretize(self, value, bins):
         """Helper function to discretize a value given specific bins"""
@@ -89,50 +83,88 @@ class HistogramDataloaderModified(PARA_PIAADataset):
             'traits': traits_histogram
         }
 
-    def __getitem__(self, idx, max_sample=50):
+
+    def _save_map(self, file_path):
+        """Save image to indices map to a file."""
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.image_to_indices_map, f)
+
+    def _load_map(self, file_path):
+        """Load image to indices map from a file."""
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+
+    def __getitem__(self, idx, max_sample=20):
         # Determine the number of samples to draw (d)
-        n_sample = random.randint(1, max_sample)
-        sampled_indices = random.sample(range(0, len(self.data)), n_sample)
-        
+        image_name = self.unique_images[idx]
+        associated_indices = self.image_to_indices_map[image_name]
+        n_sample = random.randint(1, min(max_sample, len(associated_indices)))
+        sampled_indices = random.sample(associated_indices, n_sample)
+
         # Initialize accumulators
         accumulated_histogram = {
-            'aestheticScore': torch.zeros_like(self.precomputed_histograms[0]['aestheticScore']),
-            'attributes': {key: torch.zeros_like(value) for key, value in self.precomputed_histograms[0]['attributes'].items()},
-            'traits': {key: torch.zeros_like(value) for key, value in self.precomputed_histograms[0]['traits'].items()},
-            'onehot_traits': self.onehot_accumulators.copy()
+            'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
+            'attributes': {
+                'qualityScore': torch.zeros(5),
+                'compositionScore': torch.zeros(5),
+                'colorScore': torch.zeros(5),
+                'dofScore': torch.zeros(5),
+                'contentScore': torch.zeros(5),
+                'lightScore': torch.zeros(5),
+                'contentPreference': torch.zeros(5),
+                'willingnessToShare': torch.zeros(5)
+            },
+            'traits': {
+                'personality-E': torch.zeros(10),
+                'personality-A': torch.zeros(10),
+                'personality-N': torch.zeros(10),
+                'personality-O': torch.zeros(10),
+                'personality-C': torch.zeros(10)
+            },
+            'onehot_traits': {
+                'age': torch.zeros(len(self.age_encoder)),
+                'gender': torch.zeros(len(self.gender_encoder)),
+                'EducationalLevel': torch.zeros(len(self.education_encoder)),
+                'artExperience': torch.zeros(len(self.art_experience_encoder)),
+                'photographyExperience': torch.zeros(len(self.photo_experience_encoder))
+            }
         }
 
         for random_idx in sampled_indices:
-            accumulated_histogram['aestheticScore'] += self.precomputed_histograms[random_idx]['aestheticScore']
-
+            histogram_data = self._compute_histogram(random_idx)
             sample = super().__getitem__(random_idx)  # Only needed for one-hot accumulators
-            for trait, _ in self.onehot_accumulators.items():
+            
+            accumulated_histogram['aestheticScore'] += histogram_data['aestheticScore']
+            
+            for trait in accumulated_histogram['onehot_traits'].keys():
                 accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
 
             for key in accumulated_histogram['attributes'].keys():
-                accumulated_histogram['attributes'][key] += self.precomputed_histograms[random_idx]['attributes'][key]
-
+                accumulated_histogram['attributes'][key] += histogram_data['attributes'][key]
+            
             for key in accumulated_histogram['traits'].keys():
-                accumulated_histogram['traits'][key] += self.precomputed_histograms[random_idx]['traits'][key]
+                accumulated_histogram['traits'][key] += histogram_data['traits'][key]
         
+        accumulated_histogram['aestheticScore'] /= n_sample
+        for trait in accumulated_histogram['onehot_traits'].keys():
+            accumulated_histogram['onehot_traits'][trait] /= n_sample
+
+        for key in accumulated_histogram['attributes'].keys():
+            accumulated_histogram['attributes'][key] /= n_sample
+
+        for key in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][key] /= n_sample
+
         accumulated_histogram['n_samples'] = n_sample
+        accumulated_histogram['image'] = sample['image']
         return accumulated_histogram
 
-    def save_histograms(self, file_path):
-        """Save precomputed histograms to a file."""
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.precomputed_histograms, f)
-
-    def load_histograms(self, file_path):
-        """Load precomputed histograms from a file."""
-        with open(file_path, 'rb') as f:
-            return pickle.load(f)
 
 
 if __name__ == '__main__':    
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'
-
+    
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
@@ -152,13 +184,14 @@ if __name__ == '__main__':
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_piaa_dataset, test_piaa_dataset = split_dataset_by_user(train_piaa_dataset, test_piaa_dataset, test_count=40, max_annotations_per_user=10, seed=random_seed)
     # Create datasets with the appropriate transformations
-    train_dataset = HistogramDataloaderModified(root_dir, transform=train_transform, data=train_piaa_dataset.data, histograms_file='trainset_histograms.pkl')
-    test_dataset = HistogramDataloaderModified(root_dir, transform=test_transform, data=test_piaa_dataset.data, histograms_file='testset_histograms.pkl')
+    train_dataset = HistogramDataloaderModified(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl')
+    test_dataset = HistogramDataloaderModified(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file='testset_image_dct.pkl')
 
-    print(train_dataset.precomputed_histograms[0])
-    print(train_piaa_dataset[0])
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    # print(train_piaa_dataset[0])
     # Iterate over the training dataloader
-    for sample in train_dataset:
+    for i, sample in enumerate(train_dataloader):
         # Perform training operations here
         print(sample)
         raise Exception

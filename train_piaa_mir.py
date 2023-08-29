@@ -54,9 +54,8 @@ def train(model, mlp1, mlp2, dataloader, criterion_mse, optimizer, device):
         # Interation_map
         A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
         I_ij = A_ij.view(batch_size,-1)
-        r_ij = mlp1(I_ij)
-        y_ij = mlp2(prob) + r_ij
-        y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
+        y_ij = mlp1(I_ij) + mlp2(prob)
+        # y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
 
         # MSE loss
         loss = criterion_mse(y_ij, sample_score)
@@ -100,9 +99,8 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
             # Interation_map
             A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
             I_ij = A_ij.view(batch_size,-1)
-            r_ij = mlp1(I_ij)
-            y_ij = mlp2(prob) + r_ij
-            y_ij = torch.sum(prob * scale, dim=1, keepdim=True)
+            y_ij = mlp1(I_ij) + mlp2(prob)
+            # y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
 
             # MSE loss
             loss = criterion_mse(y_ij, sample_score)          
@@ -125,11 +123,12 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
     return epoch_mse_loss, epoch_srocc
 
 
-is_eval = True
-is_log = False
+is_eval = False
+is_log = True
 num_bins = 9
 num_attr = 8
-num_pt = 25
+num_pt = 25 # number of personal trait
+pretrained_rn = 'best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'
 
 
 if __name__ == '__main__':
@@ -141,7 +140,7 @@ if __name__ == '__main__':
     # random.seed(random_seed)
 
     lr = 1e-5
-    batch_size = 100
+    batch_size = 20
     num_epochs = 5
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
@@ -150,12 +149,16 @@ if __name__ == '__main__':
             "batch_size": batch_size,
             "num_epochs": num_epochs
         }
-
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
         transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
     ])
@@ -170,7 +173,7 @@ if __name__ == '__main__':
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
     train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, 
-                                                        test_count=40, max_annotations_per_user=10)
+        test_count=40, max_annotations_per_user=100)
 
     # Create dataloaders for training and test sets
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -191,7 +194,8 @@ if __name__ == '__main__':
         nn.ReLU(),
         nn.Linear(1024, num_classes),  # Output for the first task (num_classes)
     )
-    model_resnet50.load_state_dict(torch.load('best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'))
+    if pretrained_rn is not None:
+        model_resnet50.load_state_dict(torch.load(pretrained_rn))
     
     # Define two MLPs
     d_interactio = num_attr * num_pt
@@ -202,7 +206,7 @@ if __name__ == '__main__':
     model_resnet50 = model_resnet50.to(device)
     mlp1 = mlp1.to(device)
     mlp2 = mlp2.to(device)
-
+    
     # Define the loss functions
     criterion_mse = nn.MSELoss()
 
@@ -212,6 +216,7 @@ if __name__ == '__main__':
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname += '_%s'%experiment_name
     best_modelname1 = best_modelname + '_mlp1.pth'
     best_modelname2 = best_modelname + '_mlp1.pth'
     # best_modelname += '.pth'

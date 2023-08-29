@@ -170,21 +170,16 @@ use_attr = False
 use_hist = True
 use_ce = False
 resume = None
-# resume = 'best_model_resnet50_hidden1024_cls_lr5e-05_decay_20epoch_noattr.pth'
+# resume = 'best_model_resnet50_hidden1024_cls_lr5e-05_decay_20epoch_noattr_iconicsun.pth'
 
 
 if __name__ == '__main__':
-    # Set random seed for reproducibility
-    # random_seed = 42
-    # torch.manual_seed(random_seed)
-    # torch.cuda.manual_seed(random_seed)
-    # np.random.seed(random_seed)
-    # random.seed(random_seed)
     random_seed = None
     
     lr = 5e-5
     batch_size = 100
     num_epochs = 20
+    
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
         wandb.config = {
@@ -201,15 +196,19 @@ if __name__ == '__main__':
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
+        # transforms.Resize((256,256)),
         transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop((224,224)),
         transforms.ToTensor(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
     test_transform = transforms.Compose([
+        # transforms.Resize((224,224)),
         transforms.Resize(224),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
     # Create datasets with the appropriate transformations
@@ -238,7 +237,8 @@ if __name__ == '__main__':
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
         nn.Linear(num_features, 1024),
-        nn.Linear(1024, num_classes)
+        nn.ReLU(),
+        nn.Linear(1024, num_classes),
     )
     if resume is not None:
         model_resnet50.load_state_dict(torch.load(resume))
@@ -246,7 +246,6 @@ if __name__ == '__main__':
     # Move the model to the device
     model_resnet50 = model_resnet50.to(device)
     
-
     # Define the loss functions
     ce_weight = 1 / train_dataset.aesthetic_score_hist_prob
     ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)

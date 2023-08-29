@@ -46,6 +46,7 @@ class PARA_PIAADataset(Dataset):
         
         sample = {
             'userId': self.data.iloc[idx]['userId'],
+            'subject': self.data.iloc[idx]['semantic'],
             'image': image,
             'aestheticScores': {
                 'aestheticScore': self.data.iloc[idx]['aestheticScore'],
@@ -116,7 +117,7 @@ def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annota
     test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
 
     # Limit the number of annotations per user
-    train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    # train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
     test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
     return train_dataset, test_dataset
 
@@ -134,7 +135,8 @@ if __name__ == '__main__':
     # Set the random seed for reproducibility in the test set
     random_seed = 42
     test_transform = transforms.Compose([
-        transforms.Resize((224,224)),
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
     

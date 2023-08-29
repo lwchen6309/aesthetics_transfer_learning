@@ -211,12 +211,16 @@ if __name__ == '__main__':
             "batch_size": batch_size,
             "num_epochs": num_epochs
         }
-
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
+        # transforms.Resize((256,256)),
         transforms.RandomResizedCrop(224),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
@@ -248,10 +252,11 @@ if __name__ == '__main__':
 
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
+    hidden_unit = 512
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 1024),
+        nn.Linear(num_features, hidden_unit),
         nn.ReLU(),
-        nn.Linear(1024, num_classes),  # Output for the first task (num_classes)
+        nn.Linear(hidden_unit, num_classes),  # Output for the first task (num_classes)
     )
     if resume is not None:
         model_resnet50.load_state_dict(torch.load(resume))
@@ -272,11 +277,12 @@ if __name__ == '__main__':
 
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_giaa_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_giaa_hidden%d_lr%1.0e_decay_%depoch' % (hidden_unit, lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
     if use_ce:
         best_modelname += '_ce'
+    best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
     # Training loop

@@ -12,6 +12,7 @@ import numpy as np
 from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
+from scipy.stats import spearmanr
 
 
 def train(model, train_dataloader, criterion, optimizer, device):
@@ -42,6 +43,7 @@ def train(model, train_dataloader, criterion, optimizer, device):
 def evaluate(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
+    running_srocc = 0.0
 
     progress_bar = tqdm(dataloader, leave=False)
     with torch.no_grad():
@@ -52,27 +54,28 @@ def evaluate(model, dataloader, criterion, device):
             outputs = model(images)
             loss = criterion(outputs, mean_scores)
 
+            # Calculate SROCC
+            predicted_scores = outputs.view(-1).cpu().numpy()
+            true_scores = mean_scores.view(-1).cpu().numpy()
+            srocc, _ = spearmanr(predicted_scores, true_scores)
+
             running_loss += loss.item()
-            progress_bar.set_postfix({'Eval Loss': loss.item()})
+            running_srocc += srocc
+            progress_bar.set_postfix({'Test Loss': loss.item(),
+                                      'Test SROCC': srocc})
 
     epoch_loss = running_loss / len(dataloader)
-    return epoch_loss
+    epoch_srocc = running_srocc / len(dataloader)
+    return epoch_loss, epoch_srocc
 
 
 is_log = True
-use_attr = False
-# resume = 'best_model_resnet50_adam_lr1e-04_200epoch_noattr.pth'
-resume = None
 is_eval = False
+use_attr = False
+resume = None
 
 
 if __name__ == '__main__':
-    # Set random seed for reproducibility
-    # random_seed = 42
-    # torch.manual_seed(random_seed)
-    # torch.cuda.manual_seed(random_seed)
-    # np.random.seed(random_seed)
-    # random.seed(random_seed)
     random_seed = None
 
     lr = 5e-5
@@ -85,12 +88,17 @@ if __name__ == '__main__':
         "batch_size": batch_size,
         "num_epochs": num_epochs
         }
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
 
     # Define the root directory of the PARA dataset
     root_dir = '/home/lwchen/datasets/PARA/'
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
+        # transforms.Resize((256,256)),
+        transforms.RandomHorizontalFlip(0.5),
         transforms.RandomResizedCrop(224),
         transforms.ToTensor(),
     ])
@@ -125,8 +133,8 @@ if __name__ == '__main__':
     num_features = model_resnet50.fc.in_features
     model_resnet50.fc = nn.Sequential(
         nn.Linear(num_features, 1024),
+        nn.ReLU(),
         nn.Linear(1024, num_classes),
-        # nn.Linear(num_features, num_classes)
     )
     # model_resnet50.load_state_dict(torch.load('best_model_resnet50.pth'))
     if resume is not None:
@@ -151,6 +159,7 @@ if __name__ == '__main__':
     best_modelname = 'best_model_resnet50_hidden1024_adam_lr%1.0e_%depoch' % (lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
+    best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
     # Training loop
@@ -172,13 +181,14 @@ if __name__ == '__main__':
             wandb.log({"Train MSE Mean Loss": train_loss}, commit=False)
 
         # Testing
-        test_loss = evaluate(model_resnet50, test_dataloader, criterion, device)
+        test_loss, test_srocc = evaluate(model_resnet50, test_dataloader, criterion, device)
         test_loss_list.append(test_loss)
         if is_log:
-            wandb.log({"Test MSE Mean Loss": test_loss})
+            wandb.log({"Test MSE Mean Loss": test_loss,
+                       "Test SROCC": test_srocc})
 
         # Print the epoch loss
-        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}")
+        print(f"Epoch [{epoch+1}/{num_epochs}], Train Loss: {train_loss}, Test Loss: {test_loss}, Test SROCC: {test_srocc}")
 
         if is_eval:
             break
