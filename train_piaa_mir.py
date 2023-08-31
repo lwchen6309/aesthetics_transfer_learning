@@ -140,7 +140,7 @@ if __name__ == '__main__':
     # random.seed(random_seed)
 
     lr = 1e-5
-    batch_size = 20
+    batch_size = 100
     num_epochs = 5
     if is_log:
         wandb.init(project="resnet_PARA_GIAA")
@@ -176,8 +176,9 @@ if __name__ == '__main__':
         test_count=40, max_annotations_per_user=100)
 
     # Create dataloaders for training and test sets
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    n_workers = 16
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
 
     # Define the number of classes in your dataset
     num_classes = num_attr + num_bins

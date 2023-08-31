@@ -6,6 +6,7 @@ from torchvision import transforms
 from PIL import Image
 import torch.nn.functional as F
 import random
+from tqdm import tqdm
 
 
 class PARA_PIAADataset(Dataset):
@@ -144,18 +145,17 @@ if __name__ == '__main__':
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
-    
     # Create dataloaders for training and test sets
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=1)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=1)
 
     # Iterate over the training dataloader
-    for sample in train_dataloader:
+    for sample in tqdm(train_dataloader):
         # Perform training operations here
-        print(sample['image'])
+        # print(sample['image'])
         sample_score, sample_attr = collect_batch_attribute(sample)
         sample_pt = collect_batch_personal_trait(sample)
-        print(sample_score.shape)
-        print(sample_attr.shape)
-        print(sample_pt.shape)
-        raise Exception
+        # print(sample_score.shape)
+        # print(sample_attr.shape)
+        # print(sample_pt.shape)
+        # raise Exception
