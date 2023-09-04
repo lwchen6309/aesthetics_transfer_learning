@@ -33,10 +33,11 @@ class PARA_PIAADataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, use_image=True):
         session_dir = self.data.iloc[idx]['sessionId']
         img_path = os.path.join(self.root_dir, 'imgs', session_dir, self.data.iloc[idx]['imageName'])
-        image = Image.open(img_path).convert('RGB')
+        if use_image:
+            image = Image.open(img_path).convert('RGB')
         
         # One-hot encoding for personal traits
         age_onehot = F.one_hot(torch.tensor(self.age_encoder[self.data.iloc[idx]['age']]), num_classes=len(self.age_encoder))
@@ -48,7 +49,6 @@ class PARA_PIAADataset(Dataset):
         sample = {
             'userId': self.data.iloc[idx]['userId'],
             'subject': self.data.iloc[idx]['semantic'],
-            'image': image,
             'aestheticScores': {
                 'aestheticScore': self.data.iloc[idx]['aestheticScore'],
                 'qualityScore': self.data.iloc[idx]['qualityScore'],
@@ -74,8 +74,10 @@ class PARA_PIAADataset(Dataset):
             }
         }
 
-        if self.transform:
-            sample['image'] = self.transform(sample['image'])
+        if use_image:
+            sample['image'] = image
+            if self.transform:
+                sample['image'] = self.transform(sample['image'])
 
         return sample
 
@@ -122,6 +124,13 @@ def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annota
     test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
     return train_dataset, test_dataset
 
+def split_dataset_by_images(train_dataset, test_dataset, root_dir):
+    trainset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTrain.csv'))
+    testset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTest.csv'))
+    train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(trainset['imageName'])]
+    test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(testset['imageName'])]
+    return train_dataset, test_dataset
+
 
 if __name__ == '__main__':
     # Usage example:
@@ -144,10 +153,15 @@ if __name__ == '__main__':
     # Create datasets with the appropriate transformations
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
+    # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
+    train_dataset, test_dataset = split_dataset_by_images(train_dataset, test_dataset, root_dir)
+    print(len(train_dataset))
+    print(len(test_dataset))
+    
     # Create dataloaders for training and test sets
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=1)
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=1)
+    n_workers = 10
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=n_workers)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=n_workers)
 
     # Iterate over the training dataloader
     for sample in tqdm(train_dataloader):

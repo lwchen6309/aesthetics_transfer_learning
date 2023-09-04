@@ -164,13 +164,13 @@ def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion
     return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score, epoch_srocc
 
 
-is_eval = False
-is_log = True
+is_eval = True
+is_log = False
 use_attr = False
 use_hist = True
 use_ce = False
 resume = None
-# resume = 'best_model_resnet50_hidden1024_cls_lr5e-05_decay_20epoch_noattr_iconicsun.pth'
+resume = 'best_model_resnet50_hidden512_cls_lr5e-05_decay_20epoch_noattr_distinctive-glade-243.pth'
 
 
 if __name__ == '__main__':
@@ -235,10 +235,11 @@ if __name__ == '__main__':
 
     # Modify the last fully connected layer to match the number of classes
     num_features = model_resnet50.fc.in_features
+    hidden_unit = 512
     model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 1024),
+        nn.Linear(num_features, hidden_unit),
         nn.ReLU(),
-        nn.Linear(1024, num_classes),
+        nn.Linear(hidden_unit, num_classes),
     )
     if resume is not None:
         model_resnet50.load_state_dict(torch.load(resume))
