@@ -358,6 +358,8 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
 
 
 
+
+
 class PARA_PIAA_precompute_HistogramDataset(PARA_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, precomputed_file='precomputed_histogram.pth'):
         super().__init__(root_dir, transform)
@@ -600,6 +602,7 @@ class PARA_GIAA_precompute_HistogramDataset(PARA_PIAA_precompute_HistogramDatase
         accumulated_histogram['image'] = img_sample['image']
 
         return accumulated_histogram
+
 
 
 if __name__ == '__main__':

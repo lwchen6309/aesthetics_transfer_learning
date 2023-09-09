@@ -14,13 +14,13 @@ import wandb
 from scipy.stats import spearmanr
 
 
-def earth_mover_distance(x, y):
+def earth_mover_distance(x, y, dim=-1):
     """
     Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
     """
-    cdf_x = torch.cumsum(x, dim=1)
-    cdf_y = torch.cumsum(y, dim=1)
-    emd = torch.norm(cdf_x - cdf_y, p=2, dim=1)
+    cdf_x = torch.cumsum(x, dim=dim)
+    cdf_y = torch.cumsum(y, dim=dim)
+    emd = torch.norm(cdf_x - cdf_y, p=2, dim=dim)
     return torch.mean(emd)
 
 

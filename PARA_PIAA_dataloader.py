@@ -112,16 +112,16 @@ def split_data_by_user(data, test_count, seed=None):
     test_users = user_ids[-test_count:]
     return train_users, test_users
 
-def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10, seed=None):
+def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=100, seed=None):
     # Split data by user
     train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count, seed=seed)
     # Filter data by user IDs
     train_dataset.data = train_dataset.data[train_dataset.data['userId'].isin(train_users)]
     test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
-
+    
     # Limit the number of annotations per user
-    # train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
-    test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    # test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
     return train_dataset, test_dataset
 
 def split_dataset_by_images(train_dataset, test_dataset, root_dir):

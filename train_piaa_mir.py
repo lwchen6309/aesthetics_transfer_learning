@@ -54,9 +54,9 @@ def train(model, mlp1, mlp2, dataloader, criterion_mse, optimizer, device):
         # Interation_map
         A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
         I_ij = A_ij.view(batch_size,-1)
-        y_ij = mlp1(I_ij) + mlp2(prob)
+        y_ij = mlp1(I_ij) + mlp2(prob * scale)
         # y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
-
+        
         # MSE loss
         loss = criterion_mse(y_ij, sample_score)
 
@@ -99,7 +99,7 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
             # Interation_map
             A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
             I_ij = A_ij.view(batch_size,-1)
-            y_ij = mlp1(I_ij) + mlp2(prob)
+            y_ij = mlp1(I_ij) + mlp2(prob * scale)
             # y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
 
             # MSE loss
@@ -176,7 +176,7 @@ if __name__ == '__main__':
         test_count=40, max_annotations_per_user=100)
 
     # Create dataloaders for training and test sets
-    n_workers = 16
+    n_workers = 4
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
 
@@ -212,7 +212,8 @@ if __name__ == '__main__':
     criterion_mse = nn.MSELoss()
 
     # Define the optimizer
-    optimizer = optim.Adam(chain([*mlp1.parameters(), *mlp2.parameters()]), lr=lr)
+    optimizer = optim.Adam(chain([*model_resnet50.parameters(), *mlp1.parameters(), *mlp2.parameters()]), lr=lr)
+    # optimizer = optim.Adam(chain([*mlp1.parameters(), *mlp2.parameters()]), lr=lr)
 
     # Initialize the best test loss and the best model
     best_model = None

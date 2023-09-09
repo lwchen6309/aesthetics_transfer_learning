@@ -29,6 +29,7 @@ class CombinedModel(nn.Module):
             nn.ReLU(),
             nn.Linear(512, num_bins)
         )
+        self.attr_mask = 0
     
     def forward(self, images, attributes_histogram, traits_histogram):
         x = self.resnet(images)
@@ -56,7 +57,7 @@ def train(model, dataloader, criterion, optimizer, device):
         
         optimizer.zero_grad()
         logits = model(images, attributes_histogram, traits_histogram)
-        prob = F.softmax(logits, dim=1)
+        prob = F.softmax(logits, dim=-1)
 
         loss = criterion(prob, aesthetic_score_histogram)
         loss.backward()
@@ -93,7 +94,7 @@ def evaluate(model, dataloader, criterion, device):
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
             logits = model(images, attributes_histogram, traits_histogram)
-            prob = F.softmax(logits, dim=1)
+            prob = F.softmax(logits, dim=-1)
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
@@ -120,10 +121,13 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, srocc, mse_loss
 
 
+attr_mask = 0
 is_eval = True
 is_log = False
 num_bins = 9
-num_attr = 40
+num_attr = 8
+num_bins_attr = 5
+num_attr = num_attr * num_bins_attr
 num_pt = 50 + 20
 resume = None
 # resume = 'best_model_resnet50_histo_lr5e-05_decay_20epoch_ethereal-sea-259.pth'
@@ -215,7 +219,7 @@ if __name__ == '__main__':
         if (epoch + 1) % lr_schedule_epochs == 0:
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= lr_decay_factor
-
+        
         # Training
         train_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
         if is_log:

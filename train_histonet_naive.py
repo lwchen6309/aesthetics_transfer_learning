@@ -43,6 +43,7 @@ num_bins = 9
 num_attr = 40
 num_pt = 50 + 20
 resume = None
+resume = 'best_model_resnet50_hidden512_cls_lr5e-05_decay_20epoch_noattr_distinctive-glade-243.pth'
 
 
 if __name__ == '__main__':
@@ -98,7 +99,7 @@ if __name__ == '__main__':
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
     
     # Create dataloaders
-    n_workers = 20
+    n_workers = 4
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
@@ -107,10 +108,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_pt, 
-        resume = 'best_model_resnet50_hidden512_cls_lr5e-05_decay_20epoch_noattr_distinctive-glade-243.pth').to(device)
-    if resume is not None:
-        model.load_state_dict(torch.load(resume))
+    model = CombinedModel(num_bins, num_attr, num_pt, resume = resume).to(device)
     # Loss and optimizer
     # criterion_mse = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -137,7 +135,9 @@ if __name__ == '__main__':
         
         # Testing
         test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+        # test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = 0, 0, 0
         test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        # test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = 0, 0, 0
         test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
