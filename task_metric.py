@@ -26,9 +26,12 @@ class TaskEmbeddingModel(nn.Module):
         self.num_bins = num_bins
         self.num_pt = num_pt
         self.embedding_layer = nn.Sequential(
+            # nn.Linear(self.resnet.fc.in_features + self.num_bins, 512),  # Assuming the trait and target histograms are 512-dimensional each
             nn.Linear(self.resnet.fc.in_features + self.num_bins + self.num_pt, 512),  # Assuming the trait and target histograms are 512-dimensional each
             nn.ReLU(),
-            nn.Linear(512, embedding_dim)
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, embedding_dim),
         )
     
     def forward(self, image, traits_histogram, target_histogram):
@@ -37,9 +40,11 @@ class TaskEmbeddingModel(nn.Module):
             output_dict = self.feature_extractor(image)
             resnet_feature = F.adaptive_avg_pool2d(output_dict['layer4'], (1,1))[:,:,0,0]
         # resnet_feature = self.resnet(image)
+        # x = torch.cat((resnet_feature, target_histogram), dim=1)
         x = torch.cat((resnet_feature, traits_histogram, target_histogram), dim=1)
         x = self.embedding_layer(x)
         return F.normalize(x, p=2, dim=1)  # Normalize the embedding
+
 
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.5):
@@ -51,6 +56,7 @@ class TripletLoss(nn.Module):
         neg_dist = F.pairwise_distance(anchor, negative)
         loss = torch.mean(torch.clamp(pos_dist - neg_dist + self.margin, min=0.0))
         return loss
+
 
 class TripletDataset(PARA_HistogramDataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None):
@@ -103,6 +109,39 @@ class TripletDataset(PARA_HistogramDataset):
         return anchor, positive, negative
 
 
+class TripletTestDataset(PARA_HistogramDataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None):
+        super().__init__(root_dir, transform, data, map_file)
+
+    def __len__(self):
+        return super().__len__()
+
+    def get_task_data(self, index):
+        sample = super().__getitem__(index)
+        
+        images = sample['image']
+        aesthetic_score_histogram = sample['aestheticScore']
+        aesthetic_score_histogram = torch.cat([aesthetic_score_histogram[0].unsqueeze(0), 
+                                              aesthetic_score_histogram[1:].reshape(-1,2).sum(dim=1)], dim=0)
+        attributes_histogram = sample['attributes']
+        total_task = torch.cat([aesthetic_score_histogram.unsqueeze(0), attributes_histogram.reshape(-1,5)])
+
+        traits_histogram = sample['traits']
+        onehot_traits_histogram = sample['onehot_traits']
+        traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=0)
+        
+        return images, traits_histogram, total_task
+
+    def __getitem__(self, index):
+        # Get the task data for the provided index
+        anchor_image, anchor_traits, anchor_task = self.get_task_data(index)
+
+        anchor = (anchor_image, anchor_traits, anchor_task[0])
+        positive = (anchor_image, anchor_traits, anchor_task[0])
+        negative = [(anchor_image, anchor_traits, anchor) for anchor in anchor_task[1:]]
+        return anchor, positive, negative
+
+
 def train_triplet(model, dataloader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
@@ -127,24 +166,36 @@ def train_triplet(model, dataloader, criterion, optimizer, device):
 def evaluate_triplet(model, dataloader, criterion, device):
     model.eval()  # Set the model to evaluation mode
     running_loss = 0.0
+    neg_pair_losses = [0.0 for _ in range(8)]  # Assuming 8 negative pairs
+    num_batches = 0
+
     with torch.no_grad():  # No gradient computation during evaluation
         progress_bar = tqdm(dataloader, leave=False)
-        for anchor, positive, negative in progress_bar:
+        for anchor, positive, negatives in progress_bar:
             anchor = [item.to(device) for item in anchor]
             positive = [item.to(device) for item in positive]
-            negative = [item.to(device) for item in negative]
             
             anchor_embed = model(*anchor)
             positive_embed = model(*positive)
-            negative_embed = model(*negative)
-            loss = criterion(anchor_embed, positive_embed, negative_embed)
-            running_loss += loss.item()
-            progress_bar.set_postfix({"Eval Triplet Loss": loss.item()})
-    return running_loss / len(dataloader)
+            
+            batch_losses = []  # Store the batch losses for each negative
+            for idx, negative in enumerate(negatives):
+                negative = [item.to(device) for item in negative]
+                negative_embed = model(*negative)
+                loss = criterion(anchor_embed, positive_embed, negative_embed)
+                batch_losses.append(loss.item())
+                neg_pair_losses[idx] += loss.item()
+            
+            # Average the losses from all the negatives
+            avg_loss = sum(batch_losses) / len(batch_losses)
+            running_loss += avg_loss
+            progress_bar.set_postfix({"Eval Triplet Loss": avg_loss})
+            num_batches += 1
+
+    avg_neg_pair_losses = [loss / num_batches for loss in neg_pair_losses]
+    return avg_neg_pair_losses, running_loss / len(dataloader)
 
 
-
-attr_mask = 0
 is_eval = False
 is_log = False
 num_bins = 5
@@ -152,13 +203,12 @@ num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
-criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
     random_seed = 42
-    lr = 5e-5
-    batch_size = 10
+    lr = 5e-6
+    batch_size = 100
     num_epochs = 20
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
@@ -173,7 +223,7 @@ if __name__ == '__main__':
         }
         experiment_name = wandb.run.name
     else:
-        experiment_name = ''
+        experiment_name = 'local'
     
     root_dir = '/home/lwchen/datasets/PARA/'
     
@@ -206,12 +256,13 @@ if __name__ == '__main__':
     
     # Turn the datasets into triplet datasets for contrastive learning
     train_dataset = TripletDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    test_dataset = TripletDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    # test_dataset = TripletDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    test_dataset = TripletTestDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
     
     # Create dataloaders
-    n_workers = 4
+    n_workers = 20
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
+    test_dataloader = DataLoader(test_dataset, batch_size=20, shuffle=False, num_workers=n_workers)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -226,6 +277,7 @@ if __name__ == '__main__':
     
     # Training loop
     best_test_loss = float('inf')
+    best_modelname = 'best_model_triplet_%s.pth' % experiment_name
     for epoch in range(num_epochs):
         if is_eval:
             break
@@ -239,25 +291,48 @@ if __name__ == '__main__':
         train_loss = train_triplet(model, train_dataloader, criterion, optimizer, device)
         if is_log:
             wandb.log({"Train Triplet Loss": train_loss,}, commit=False)
-        
+
         # Testing
-        test_loss = evaluate_triplet(model, test_dataloader, criterion, device)
+        avg_neg_pair_losses, test_loss = evaluate_triplet(model, test_dataloader, criterion, device)
+
+        # Log the values to wandb
         if is_log:
-            wandb.log({"Test Triplet Loss": test_loss,}, commit=True)
+            log_dict = {"Test Triplet Loss": test_loss}
+            for idx, pair_loss in enumerate(avg_neg_pair_losses, 1):
+                log_dict[f"Neg Pair {idx} Loss"] = pair_loss
+            wandb.log(log_dict, commit=True)
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Train Loss: {train_loss:.4f}, "
               f"Test Loss: {test_loss:.4f}")
+        print(avg_neg_pair_losses)
 
         # Early stopping check
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             num_patience_epochs = 0
-            best_modelname = 'best_model_triplet_%s.pth' % experiment_name
             torch.save(model.state_dict(), best_modelname)
         else:
             num_patience_epochs += 1
             if num_patience_epochs >= max_patience_epochs:
                 print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
                 break
+    
+    if not eval:
+        model.load_state_dict(torch.load(best_modelname))
+
+    # Testing
+    avg_neg_pair_losses, test_loss = evaluate_triplet(model, test_dataloader, criterion, device)
+
+    # Log the values to wandb
+    if is_log:
+        log_dict = {"Test Triplet Loss": test_loss}
+        for idx, pair_loss in enumerate(avg_neg_pair_losses, 1):
+            log_dict[f"Neg Pair {idx} Loss"] = pair_loss
+        wandb.log(log_dict, commit=True)
+
+    # Print the epoch loss
+    print(f"Epoch [{epoch + 1}/{num_epochs}], "
+            f"Test Loss: {test_loss:.4f}")
+    print(avg_neg_pair_losses)

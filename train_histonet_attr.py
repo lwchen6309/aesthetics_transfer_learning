@@ -37,7 +37,7 @@ class CombinedModel(nn.Module):
 
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(num_attr * num_bins_attr + num_pt + 512, 512),
+            nn.Linear(num_attr * num_bins_attr, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
@@ -45,7 +45,7 @@ class CombinedModel(nn.Module):
     def forward(self, images, traits_histogram):
         x = self.resnet(images)
         attribute_logits = self.fc_attribute(torch.cat((x, traits_histogram), dim=1))
-        aesthetic_logits = self.fc_aesthetic(torch.cat((x, attribute_logits, traits_histogram), dim=1))
+        aesthetic_logits = self.fc_aesthetic(attribute_logits)
         return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
 
 # Training Function
@@ -143,14 +143,13 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-is_eval = True
-is_log = False
+is_eval = False
+is_log = True
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
-# resume = 'best_model_resnet50_histo_attr_lr5e-05_decay_20epoch_northern-gorge-15.pth'
 criterion_mse = nn.MSELoss()
 
 
@@ -254,11 +253,13 @@ if __name__ == '__main__':
             wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
                        "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
                        "Test PIAA SROCC": test_piaa_srocc,
+                       "Test PIAA MSE": test_piaa_mse,
                        "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
                        "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
                        "Test user PIAA SROCC": test_user_piaa_srocc,
+                       "Test user PIAA MSE": test_user_piaa_mse,
                        }, commit=True)
-
+        
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Train EMD Loss: {train_emd_loss:.4f}, "
@@ -294,7 +295,16 @@ if __name__ == '__main__':
             "Test GIAA EMD Loss": test_giaa_emd_loss,
             "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
-                    }, commit=True)
+            "Test GIAA MSE": test_giaa_mse,
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA MSE": test_piaa_mse,
+            "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
+            "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
+            "Test user PIAA SROCC": test_user_piaa_srocc,
+            "Test user PIAA MSE": test_user_piaa_mse
+        }, commit=True)
 
     # Print the epoch loss
     print(f"Epoch [{epoch + 1}/{num_epochs}], "

@@ -13,50 +13,57 @@ import wandb
 from itertools import chain
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
-from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
+from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, split_dataset_by_trait
 from train_resnet_cls import earth_mover_distance
 import argparse
 
 
 # Model Definition
 class CombinedModel(nn.Module):
-    def __init__(self, num_bins, num_attr, num_bins_attr, num_pt, attr_mask):
+    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
         super(CombinedModel, self).__init__()
         self.resnet = resnet50(pretrained=True)
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
-        
-        self.fc_combined = nn.Sequential(
-            nn.Linear(512 + num_attr * num_bins_attr + num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins)
-        )
-        self.attr_mask = attr_mask
-        self.num_bins = num_bins
+        self.num_bins_aesthetic = num_bins_aesthetic
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
+        self.num_pt = num_pt
+
+        # For predicting attribute histograms for each attribute
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(num_pt, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512) # Each attribute has its own histogram
+        )
+
+        # For predicting attribute histograms for each attribute
+        self.fc_attribute = nn.Sequential(
+            nn.Linear(512 + 512, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_attr * num_bins_attr) # Each attribute has its own histogram
+        )
+
+        # For predicting aesthetic score histogram
+        self.fc_aesthetic = nn.Sequential(
+            nn.Linear(num_attr * num_bins_attr, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_bins_aesthetic)
+        )
     
-    def forward(self, images, attributes_histogram, traits_histogram):
+    def forward(self, images, traits_histogram):
         x = self.resnet(images)
-        if self.attr_mask != -1:
-            attributes_histogram = attributes_histogram.view(-1, self.num_attr, self.num_bins_attr)
-            
-            # Create a mask of zeros
-            mask = torch.zeros(attributes_histogram.size(0), self.num_attr, self.num_bins_attr, device=attributes_histogram.device)
-            # Set the value at self.attr_mask index to 1
-            mask[:, self.attr_mask, :] = 1
-            attributes_histogram *= mask
-            
-            attributes_histogram = attributes_histogram.view(-1, self.num_attr * self.num_bins_attr)
-        x = torch.cat((x, attributes_histogram, traits_histogram), dim=1)
-        x = self.fc_combined(x)
-        return x
+        pt_code = self.pt_encoder(traits_histogram)
+        attribute_logits = self.fc_attribute(torch.cat((x, pt_code), dim=1))
+        aesthetic_logits = self.fc_aesthetic(attribute_logits)
+        return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
 
 # Training Function
 def train(model, dataloader, criterion, optimizer, device):
     model.train()
-    running_emd_loss = 0.0
+    running_aesthetic_emd_loss = 0.0
+    running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
-    scale = torch.arange(1, 5.5, 0.5).to(device)
+    # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
 
     for sample in progress_bar:
         if is_eval:
@@ -64,34 +71,39 @@ def train(model, dataloader, criterion, optimizer, device):
         
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        attributes_histogram = sample['attributes'].to(device)
         traits_histogram = sample['traits'].to(device)
         onehot_traits_histogram = sample['onehot_traits'].to(device)
+        attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         
         optimizer.zero_grad()
-        logits = model(images, attributes_histogram, traits_histogram)
-        prob = F.softmax(logits, dim=1)
+        aesthetic_logits, attribute_logits = model(images, traits_histogram)
+        prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+        prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+        
+        loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
+        loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
+        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
 
-        loss = criterion(prob, aesthetic_score_histogram)
-        loss.backward()
+        total_loss.backward()
         optimizer.step()
-        running_emd_loss += loss.item()
+        running_total_emd_loss += total_loss.item()
+        running_aesthetic_emd_loss += loss_aesthetic.item()
 
         progress_bar.set_postfix({
-            'Train EMD Loss': loss.item(),
+            'Train EMD Loss': total_loss.item(),
         })
 
-    epoch_mse_loss = running_emd_loss / len(dataloader)
-    return epoch_mse_loss
-
+    epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
+    epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
+    return epoch_emd_loss, epoch_total_emd_loss
 
 # Evaluation Function
 def evaluate(model, dataloader, criterion, device):
     model.eval()
     running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
     running_mse_loss = 0.0
-    running_srocc = 0.0
     scale = torch.arange(1, 5.5, 0.5).to(device)
     eval_srocc = True
 
@@ -102,25 +114,29 @@ def evaluate(model, dataloader, criterion, device):
         for sample in progress_bar:
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            attributes_histogram = sample['attributes'].to(device)
             traits_histogram = sample['traits'].to(device)
             onehot_traits_histogram = sample['onehot_traits'].to(device)
+            attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
-            logits = model(images, attributes_histogram, traits_histogram)
-            prob = F.softmax(logits, dim=1)
+            aesthetic_logits, attribute_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram)
+            loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
             
             if eval_srocc:
-                outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
                 target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
                 mean_pred.append(outputs_mean.view(-1).cpu().numpy())
                 mean_target.append(target_mean.view(-1).cpu().numpy())
                 # MSE
                 mse = criterion_mse(outputs_mean, target_mean)
                 running_mse_loss += mse.item()
-    
-            loss = criterion(prob, aesthetic_score_histogram)
+
             running_emd_loss += loss.item()
+            running_attr_emd_loss += loss_attribute.item()
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
@@ -131,26 +147,26 @@ def evaluate(model, dataloader, criterion, device):
     srocc, _ = spearmanr(predicted_scores, true_scores)
 
     emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, srocc, mse_loss
+    return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
 is_eval = False
-is_log = True
+is_log = False
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
-# num_attr = num_attr * num_bins_attr
 num_pt = 50 + 20
 resume = None
 criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model')
-    parser.add_argument('--attr_mask', type=int, default=-1, help='Attribute mask index to set to zero')
+    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
+    parser.add_argument('--trait', type=str, default=None)
+    parser.add_argument('--value', type=str, default=None)
     args = parser.parse_args()
-    attr_mask = args.attr_mask
 
     random_seed = 42
     lr = 5e-5
@@ -189,18 +205,26 @@ if __name__ == '__main__':
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
+    
+    train_filtered_piaa_dataset = split_dataset_by_trait(train_dataset, args.trait, args.value)
+    test_filtered_piaa_dataset = split_dataset_by_trait(test_dataset, args.trait, args.value)
+
     _, test_user_piaa_dataset = split_dataset_by_user(
         PARA_PIAADataset(root_dir, transform=train_transform), 
         PARA_PIAADataset(root_dir, transform=train_transform), 
         test_count=40, max_annotations_per_user=50, seed=random_seed)
-    
+    print('Truncate trainset from %d to %d'%(len(train_piaa_dataset), len(train_filtered_piaa_dataset)))
+    print('Truncate testset from %d to %d'%(len(test_piaa_dataset), len(test_filtered_piaa_dataset)))
+
     # Create datasets with the appropriate transformations
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl', precompute_file='trainset_GIAA_dct.pkl')
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file='testset_image_dct.pkl', precompute_file='testset_GIAA_dct.pkl')
+    # Remove unique image if its not in the filtered data
+    
+
+    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_filtered_piaa_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
     
     # Create dataloaders
@@ -213,7 +237,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, attr_mask=attr_mask).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
@@ -222,9 +247,11 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_attrmask%d_survivor_lr%1.0e_decay_%depoch' % (attr_mask, lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_attr_latefusion_%s_%s_lr%1.0e_decay_%depoch' % (args.trait, args.value, lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
+    # print(best_modelname)
+    # raise Exception
 
     # Training loop
     best_test_loss = float('inf')
@@ -235,28 +262,36 @@ if __name__ == '__main__':
         if (epoch + 1) % lr_schedule_epochs == 0:
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= lr_decay_factor
-        
+
         # Training
-        train_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
+        train_emd_loss, train_total_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
         if is_log:
-            wandb.log({"Train EMD Loss": train_emd_loss,}, commit=False)
+            wandb.log({"Train EMD Loss": train_emd_loss,
+                       "Train Total EMD Loss": train_total_emd_loss,
+                       }, commit=False)
         
         # Testing
-        test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-        test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
+        test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
+                       "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
                        "Test PIAA SROCC": test_piaa_srocc,
+                       "Test PIAA MSE": test_piaa_mse,
                        "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
+                       "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
                        "Test user PIAA SROCC": test_user_piaa_srocc,
+                       "Test user PIAA MSE": test_user_piaa_mse,
                        }, commit=True)
-
+        
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
               f"Train EMD Loss: {train_emd_loss:.4f}, "
               f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
+              f"Test PIAA Attr EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
               f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
               f"Test user PIAA EMD Loss: {test_user_piaa_emd_loss:.4f}, "
+              f"Test user PIAA Attr EMD Loss: {test_user_piaa_attr_emd_loss:.4f}, "
               f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
               )
 
@@ -275,25 +310,38 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))
     
     # Testing
-    test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-    test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
-    test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
+    test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
+    test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
 
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
+            "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
-                    }, commit=True)
+            "Test GIAA MSE": test_giaa_mse,
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA MSE": test_piaa_mse,
+            "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
+            "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
+            "Test user PIAA SROCC": test_user_piaa_srocc,
+            "Test user PIAA MSE": test_user_piaa_mse
+        }, commit=True)
 
     # Print the epoch loss
     print(f"Epoch [{epoch + 1}/{num_epochs}], "
+            f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
+            f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
+            f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+            f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
             f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
+            f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
             f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
             f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
             f"Test user PIAA EMD Loss: {test_user_piaa_emd_loss:.4f}, "
+            f"Test user PIAA Attr EMD Loss: {test_user_piaa_attr_emd_loss:.4f}, "
             f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
-            f"Test user PIAA MSE Loss: {test_user_piaa_mse:.4f}, "
-            f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
-            f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-            f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
+            f"Test user PIAA MSE Loss: {test_user_piaa_mse:.4f}"
             )

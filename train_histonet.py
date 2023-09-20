@@ -231,8 +231,10 @@ if __name__ == '__main__':
         if is_log:
             wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
                        "Test PIAA SROCC": test_piaa_srocc,
+                       "Test PIAA MSE": test_piaa_mse,
                        "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
                        "Test user PIAA SROCC": test_user_piaa_srocc,
+                       "Test user PIAA MSE": test_user_piaa_mse,
                        }, commit=True)
 
         # Print the epoch loss
@@ -267,8 +269,15 @@ if __name__ == '__main__':
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
-                    }, commit=True)
-
+            "Test GIAA MSE": test_giaa_mse,
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA MSE": test_piaa_mse,
+            "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
+            "Test user PIAA SROCC": test_user_piaa_srocc,
+            "Test user PIAA MSE": test_user_piaa_mse
+        }, commit=True)
+    
     # Print the epoch loss
     print(f"Epoch [{epoch + 1}/{num_epochs}], "
             f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "

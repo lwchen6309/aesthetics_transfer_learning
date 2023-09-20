@@ -132,6 +132,24 @@ def split_dataset_by_images(train_dataset, test_dataset, root_dir):
     return train_dataset, test_dataset
 
 
+def split_dataset_by_trait(dataset, trait, value):
+    """
+    Split the dataset based on a specific trait and its value.
+
+    Args:
+        dataset (Dataset): The dataset to filter.
+        trait (str): The trait to filter by, e.g., 'gender', 'EducationalLevel'.
+        value (str): The value of the trait to filter by, e.g., 'male', 'Bachelor'.
+
+    Returns:
+        filtered_dataset (Dataset): A new dataset containing only the entries with the specified trait value.
+    """
+    filtered_data = dataset.data[dataset.data[trait] == value]
+    filtered_dataset = PARA_PIAADataset(dataset.root_dir, transform=dataset.transform)
+    filtered_dataset.data = filtered_data
+    return filtered_dataset
+
+
 if __name__ == '__main__':
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'
@@ -154,9 +172,11 @@ if __name__ == '__main__':
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
+    
+    train_dataset = split_dataset_by_trait(train_dataset, 'gender', 'male')
+    test_dataset = split_dataset_by_trait(test_dataset, 'gender', 'male')
     train_dataset, test_dataset = split_dataset_by_images(train_dataset, test_dataset, root_dir)
-    print(len(train_dataset))
-    print(len(test_dataset))
+    print(len(train_dataset), len(test_dataset))
     
     # Create dataloaders for training and test sets
     n_workers = 10

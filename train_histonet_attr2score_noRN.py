@@ -15,24 +15,36 @@ from scipy.stats import spearmanr
 from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
 from train_resnet_cls import earth_mover_distance
+import argparse
 
 
 # Model Definition
 class CombinedModel(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt):
+    def __init__(self, num_bins, num_attr, num_bins_attr, attr_mask=-1):
         super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
+        # self.resnet = resnet50(pretrained=True)
+        # self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
         
+        n_channel = num_attr * num_bins_attr
+        if attr_mask > -1:
+            n_channel = num_bins_attr
         self.fc_combined = nn.Sequential(
-            nn.Linear(num_attr, 512),
+            nn.Linear(n_channel, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins)
         )
+        self.attr_mask = attr_mask
+        self.num_attr = num_attr
+        self.num_bins_attr = num_bins_attr
+        self.num_bins = num_bins
     
     def forward(self, images, attributes_histogram):
         # x = self.resnet(images)
-        x = attributes_histogram
+        if self.attr_mask > -1:
+            x = attributes_histogram.view(-1, self.num_attr, self.num_bins_attr)
+            x = x[:,self.attr_mask]
+        else:
+            x = attributes_histogram
         x = self.fc_combined(x)
         return x
 
@@ -119,16 +131,24 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, srocc, mse_loss
 
 
-is_eval = False
-is_log = True
+is_eval = True
+is_log = False
 num_bins = 9
-num_attr = 40
+num_attr = 8
+num_bins_attr = 5
 num_pt = 50 + 20
-resume = None
+# resume = None
 criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model')
+    parser.add_argument('--attr_mask', type=int, default=-1, help='Attribute mask index to set to zero')
+    parser.add_argument('--resume', type=str, default='', help='Resume path')
+    args = parser.parse_args()
+    attr_mask = args.attr_mask
+    resume = args.resume if len(args.resume) > 0 else None    
+    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -190,7 +210,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_pt).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, attr_mask).to(device)
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
@@ -199,10 +219,10 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_nopt_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_attr2score_noRN_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-
+    
     # Training loop
     best_test_loss = float('inf')
     for epoch in range(num_epochs):
@@ -224,8 +244,10 @@ if __name__ == '__main__':
         if is_log:
             wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
                        "Test PIAA SROCC": test_piaa_srocc,
+                       "Test PIAA MSE": test_piaa_mse,
                        "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
                        "Test user PIAA SROCC": test_user_piaa_srocc,
+                       "Test user PIAA MSE": test_user_piaa_mse,
                        }, commit=True)
 
         # Print the epoch loss
@@ -255,11 +277,18 @@ if __name__ == '__main__':
     test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
     test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
     test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-
+    
     if is_log:
         wandb.log({
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA MSE": test_piaa_mse,
+            "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
+            "Test user PIAA SROCC": test_user_piaa_srocc,
+            "Test user PIAA MSE": test_user_piaa_mse,
             "Test GIAA EMD Loss": test_giaa_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
+            "Test GIAA MSE": test_giaa_mse,
                     }, commit=True)
 
     # Print the epoch loss
