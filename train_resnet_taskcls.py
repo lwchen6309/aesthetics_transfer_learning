@@ -167,13 +167,14 @@ if __name__ == '__main__':
     batch_size = 256
     num_epochs = 500
     
+    
     if is_log:
-        wandb.init(project="resnet_PARA_Task")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
+        hyperparam_tags = [
+            f"LR: {lr}",
+            f"LR Decay Factor: {lr_decay_factor}",
+            f"LR Decay Step: {lr_decay_step}"
+        ]
+        wandb.init(project="resnet_PARA_Task", tags=hyperparam_tags)
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -190,7 +191,7 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(MLP(
         [input_dim, 1024, 1024, 512, 512, num_classes], 
         image_feature_dim=2048, num_pt=num_pt, num_bins=num_bins, dropout_p=0.5))
-
+    
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     model = model.to(device)
