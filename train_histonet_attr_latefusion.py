@@ -151,13 +151,14 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-is_eval = False
-is_log = True
+is_eval = True
+is_log = False
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
+resume = 'best_model_resnet50_histo_attr_latefusion_lr5e-05_decay_20epoch_tough-bush-60.pth'
 criterion_mse = nn.MSELoss()
 
 
@@ -169,6 +170,7 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
+    n_workers = 8
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA")
@@ -206,19 +208,19 @@ if __name__ == '__main__':
     
     # Create datasets with the appropriate transformations
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    print(len(train_dataset), len(test_dataset))
+    pkl_dir = './dataset_pkl'
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
     
     # Create dataloaders
-    n_workers = 4
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

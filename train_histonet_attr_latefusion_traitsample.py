@@ -16,6 +16,7 @@ from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_Histogram
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, split_dataset_by_trait
 from train_resnet_cls import earth_mover_distance
 import argparse
+import copy
 
 
 # Model Definition
@@ -152,13 +153,14 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-is_eval = False
+is_eval = True
 is_log = False
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
+resume = 'best_model_resnet50_histo_attr_latefusion_lr5e-05_decay_20epoch_tough-bush-60.pth'
 criterion_mse = nn.MSELoss()
 
 
@@ -167,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)
     args = parser.parse_args()
-
+    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -175,6 +177,7 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
+    n_workers = 8
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA")
@@ -199,41 +202,40 @@ if __name__ == '__main__':
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
-
+    
     # Load datasets
     # Create datasets with the appropriate transformations
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
-    
-    train_filtered_piaa_dataset = split_dataset_by_trait(train_dataset, args.trait, args.value)
-    test_filtered_piaa_dataset = split_dataset_by_trait(test_dataset, args.trait, args.value)
-
+    train_filtered_dataset = split_dataset_by_trait(train_piaa_dataset, args.trait, args.value)
+    test_filtered_dataset = split_dataset_by_trait(test_piaa_dataset, args.trait, args.value)
+    train_dataset, test_dataset = split_dataset_by_images(train_filtered_dataset, test_filtered_dataset, root_dir)
     _, test_user_piaa_dataset = split_dataset_by_user(
-        PARA_PIAADataset(root_dir, transform=train_transform), 
-        PARA_PIAADataset(root_dir, transform=train_transform), 
+        copy.deepcopy(train_filtered_dataset), 
+        copy.deepcopy(test_filtered_dataset), 
         test_count=40, max_annotations_per_user=50, seed=random_seed)
-    print('Truncate trainset from %d to %d'%(len(train_piaa_dataset), len(train_filtered_piaa_dataset)))
-    print('Truncate testset from %d to %d'%(len(test_piaa_dataset), len(test_filtered_piaa_dataset)))
-
+    print('Truncate trainset from %d to %d'%(len(train_piaa_dataset), len(train_dataset)))
+    print('Truncate testset from %d to %d'%(len(test_piaa_dataset), len(test_dataset)))
+    
     # Create datasets with the appropriate transformations
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl', precompute_file='trainset_GIAA_dct.pkl')
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file='testset_image_dct.pkl', precompute_file='testset_GIAA_dct.pkl')
-    # Remove unique image if its not in the filtered data
-    
-
-    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_filtered_piaa_dataset.data)
+    pkl_dir = './dataset_pkl'
+    suffix = '%s_%s'%(args.trait, args.value)
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix))
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix))
+    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    
-    # Create dataloaders
-    n_workers = 4
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
+    print(sum([len(i) for i in train_dataset.image_to_indices_map.values()]))
+    print(sum([len(i) for i in test_giaa_dataset.image_to_indices_map.values()]))
+    print(len(test_piaa_dataset))
+    print(len(test_user_piaa_dataset))
 
+    # Create dataloaders
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
@@ -250,8 +252,6 @@ if __name__ == '__main__':
     best_modelname = 'best_model_resnet50_histo_attr_latefusion_%s_%s_lr%1.0e_decay_%depoch' % (args.trait, args.value, lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-    # print(best_modelname)
-    # raise Exception
 
     # Training loop
     best_test_loss = float('inf')

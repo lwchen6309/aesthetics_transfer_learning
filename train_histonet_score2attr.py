@@ -26,10 +26,10 @@ class CombinedModel(nn.Module):
         # self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
         
         self.fc_combined = nn.Sequential(
-            nn.Linear(num_bins, 512),
-            # nn.Linear(512 + num_bins, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_attr * num_bins_attr)
+            # nn.Linear(num_bins, 512),
+            # nn.ReLU(),
+            # nn.Linear(512, num_attr * num_bins_attr)
+            nn.Linear(num_bins, num_attr * num_bins_attr)            
         )
         self.attr_mask = attr_mask
         self.num_bins = num_bins
@@ -90,15 +90,13 @@ def evaluate(model, dataloader, criterion, device):
     progress_bar = tqdm(dataloader, leave=False)
     mean_pred = []
     mean_target = []
+    attr_emd_losses = []  # List to store EMD loss for each attribute
     with torch.no_grad():
         for i, sample in enumerate(progress_bar):
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             attributes_histogram = sample['attributes'].to(device)
-            attributes_histogram = attributes_histogram.view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
-            # traits_histogram = sample['traits'].to(device)
-            # onehot_traits_histogram = sample['onehot_traits'].to(device)
-            # traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)           
+            attributes_histogram = attributes_histogram.view(-1, num_attr, num_bins_attr)
             
             logits = model(images, aesthetic_score_histogram)
             prob = F.softmax(logits, dim=-1)
@@ -107,15 +105,28 @@ def evaluate(model, dataloader, criterion, device):
             target_mean = torch.sum(attributes_histogram * scale, dim=-1)
             mean_pred.append(outputs_mean.cpu().numpy())
             mean_target.append(target_mean.cpu().numpy())
+            
             # MSE
             mse = criterion_mse(outputs_mean, target_mean)
             running_mse_loss += mse.item()
             
             loss = criterion(prob, attributes_histogram)
+            
+            # Compute EMD loss for each attribute
+            attr_losses = []
+            for j in range(prob.shape[1]):
+                attr_emd_loss = criterion(prob[:,j], attributes_histogram[:,j])
+                attr_losses.append(attr_emd_loss.item())
+            attr_emd_losses.append(attr_losses)
+            
             running_emd_loss += loss.item()
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
+
+    # Calculate average EMD loss for each attribute
+    avg_attr_emd_losses = np.mean(attr_emd_losses, axis=0)
+    emd_losses_dict = {f"EMD_Attr_{i_attr+1}": emd_loss for i_attr, emd_loss in enumerate(avg_attr_emd_losses)}
 
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred, axis=0)
@@ -128,7 +139,8 @@ def evaluate(model, dataloader, criterion, device):
     
     emd_loss = running_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, sroccs_dict, mse_loss
+    return emd_loss, sroccs_dict, mse_loss, emd_losses_dict  # Return the emd_losses_dict
+
 
 
 is_eval = False
@@ -185,11 +197,9 @@ if __name__ == '__main__':
         test_count=40, max_annotations_per_user=50, seed=random_seed)
     
     # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    pkl_dir = './dataset_pkl'
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
     
@@ -211,7 +221,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_score2attr_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_score2attr_linear_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
@@ -231,8 +241,8 @@ if __name__ == '__main__':
             wandb.log({"Train EMD Loss": train_emd_loss,}, commit=False)
         
         # Testing
-        test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-        test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse, test_piaa_emd_losses_dict = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
+        test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse, test_user_piaa_emd_losses_dict = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log(test_piaa_srocc, commit=False)
             wandb.log(test_user_piaa_srocc, commit=False)
@@ -251,7 +261,11 @@ if __name__ == '__main__':
         print(test_piaa_srocc)
         print('PIAA_user')
         print(test_user_piaa_srocc)
-        
+        print('PIAA - EMD Losses per Attribute')
+        print(test_piaa_emd_losses_dict)
+        print('PIAA_user - EMD Losses per Attribute')
+        print(test_user_piaa_emd_losses_dict)
+
         # Early stopping check
         if test_piaa_emd_loss < best_test_loss:
             best_test_loss = test_piaa_emd_loss
@@ -267,9 +281,9 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))
     
     # Testing
-    test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-    test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
-    test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+    test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse, test_piaa_emd_losses_dict = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
+    test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse, test_user_piaa_emd_losses_dict = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
+    test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse, test_giaa_emd_losses_dict = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
 
     # Logging the best model's performance metrics using wandb
     if is_log:
@@ -277,13 +291,17 @@ if __name__ == '__main__':
             "Best Test PIAA EMD Loss": test_piaa_emd_loss,
             "Best Test PIAA MSE Loss": test_piaa_mse,
             **test_piaa_srocc,
+            **test_piaa_emd_losses_dict,
             "Best Test user PIAA EMD Loss": test_user_piaa_emd_loss,
             "Best Test user PIAA MSE Loss": test_user_piaa_mse,
             **test_user_piaa_srocc,
+            **test_user_piaa_emd_losses_dict,
             "Best Test GIAA EMD Loss": test_giaa_emd_loss,
             "Best Test GIAA MSE Loss": test_giaa_mse,
-            **test_giaa_srocc
+            **test_giaa_srocc,
+            **test_giaa_emd_losses_dict
         })
+
 
     # Print the best model's performance metrics
     print(f"Best Model Performance: ")
@@ -301,3 +319,9 @@ if __name__ == '__main__':
     print(test_piaa_srocc)
     print('PIAA_user')
     print(test_user_piaa_srocc)    
+    print('GIAA - EMD Losses per Attribute')
+    print(test_giaa_emd_losses_dict)
+    print('PIAA - EMD Losses per Attribute')
+    print(test_piaa_emd_losses_dict)
+    print('PIAA_user - EMD Losses per Attribute')
+    print(test_user_piaa_emd_losses_dict)    

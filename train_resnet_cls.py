@@ -10,6 +10,7 @@ from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
 from PARA_dataloader import PARADataset
+from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset
 import wandb
 from scipy.stats import spearmanr
 
@@ -31,7 +32,7 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
     running_mse_mean_loss = 0.0
     running_mse_std_loss = 0.0
     running_emd_loss = 0.0
-
+    
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
     for images, mean_scores, std_scores, score_prob in progress_bar:
