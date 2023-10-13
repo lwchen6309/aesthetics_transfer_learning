@@ -84,7 +84,7 @@ def train(model, dataloader, criterion, optimizer, device):
         
         loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
         loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
-        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
+        total_loss = loss_aesthetic + loss_attribute # Combining losses
 
         total_loss.backward()
         optimizer.step()

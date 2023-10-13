@@ -82,7 +82,7 @@ def train(model, dataloader, criterion, optimizer, device):
         
         loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
         loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
-        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
+        total_loss = loss_aesthetic + loss_attribute
 
         total_loss.backward()
         optimizer.step()
@@ -123,7 +123,7 @@ def evaluate(model, dataloader, criterion, device):
             prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
             loss = criterion(prob_aesthetic, aesthetic_score_histogram)
-            loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
+            loss_attribute = criterion(prob_attribute, attributes_target_histogram)
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -158,7 +158,7 @@ num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
-resume = 'best_model_resnet50_histo_attr_latefusion_lr5e-05_decay_20epoch_tough-bush-60.pth'
+# resume = 'best_model_resnet50_histo_attr_latefusion_lr5e-05_decay_20epoch_tough-bush-60.pth'
 criterion_mse = nn.MSELoss()
 
 

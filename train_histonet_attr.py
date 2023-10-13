@@ -153,26 +153,7 @@ resume = None
 criterion_mse = nn.MSELoss()
 
 
-if __name__ == '__main__':
-    random_seed = 42
-    lr = 5e-5
-    batch_size = 100
-    num_epochs = 20
-    lr_schedule_epochs = 5
-    lr_decay_factor = 0.5
-    max_patience_epochs = 10
-    
-    if is_log:
-        wandb.init(project="resnet_PARA_PIAA")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
-        experiment_name = wandb.run.name
-    else:
-        experiment_name = ''
-    
+def load_data():
     root_dir = '/home/lwchen/datasets/PARA/'
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -198,13 +179,38 @@ if __name__ == '__main__':
     
     # Create datasets with the appropriate transformations
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    print(len(train_dataset), len(test_dataset))
+    pkl_dir = './dataset_pkl'
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
+    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset
+
+
+if __name__ == '__main__':
+    random_seed = 42
+    lr = 5e-5
+    batch_size = 100
+    num_epochs = 20
+    lr_schedule_epochs = 5
+    lr_decay_factor = 0.5
+    max_patience_epochs = 10
     
+    if is_log:
+        hyperparam_tags = [
+            f"LR: {lr}",
+            f"LR Decay Factor: {lr_decay_factor}",
+            f"LR Decay Step: {lr_schedule_epochs}"
+        ]
+        wandb.init(project="resnet_PARA_Task", tags=hyperparam_tags)
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
+
     # Create dataloaders
     n_workers = 4
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
@@ -220,7 +226,6 @@ if __name__ == '__main__':
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
-    # criterion_mse = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Initialize the best test loss and the best model
@@ -228,7 +233,7 @@ if __name__ == '__main__':
     best_modelname = 'best_model_resnet50_histo_attr_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-
+    
     # Training loop
     best_test_loss = float('inf')
     for epoch in range(num_epochs):
@@ -247,29 +252,33 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # Testing
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-        test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+        test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+            
         if is_log:
-            wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
-                       "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
-                       "Test PIAA SROCC": test_piaa_srocc,
-                       "Test PIAA MSE": test_piaa_mse,
-                       "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
-                       "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
-                       "Test user PIAA SROCC": test_user_piaa_srocc,
-                       "Test user PIAA MSE": test_user_piaa_mse,
-                       }, commit=True)
-        
+            wandb.log({
+                "Test GIAA EMD Loss": test_giaa_emd_loss,
+                "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
+                "Test GIAA SROCC": test_giaa_srocc,
+                "Test GIAA MSE": test_giaa_mse,
+                "Test PIAA EMD Loss": test_piaa_emd_loss,
+                "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
+                "Test PIAA SROCC": test_piaa_srocc,
+                "Test PIAA MSE": test_piaa_mse,
+            }, commit=True)
+
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
-              f"Train EMD Loss: {train_emd_loss:.4f}, "
-              f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-              f"Test PIAA Attr EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
-              f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-              f"Test user PIAA EMD Loss: {test_user_piaa_emd_loss:.4f}, "
-              f"Test user PIAA Attr EMD Loss: {test_user_piaa_attr_emd_loss:.4f}, "
-              f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
-              )
+                f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
+                f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
+                f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+                f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
+                f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
+                f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
+                f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+                f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
+                )
+                
 
         # Early stopping check
         if test_piaa_emd_loss < best_test_loss:
