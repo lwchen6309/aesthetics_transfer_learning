@@ -28,6 +28,11 @@ class PARA_PIAADataset(Dataset):
         self.art_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['artExperience'].unique())}
         self.photo_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['photographyExperience'].unique())}
         
+        # Encoding image attributes
+        self.img_emotion_encoder = {emotion: idx for idx, emotion in enumerate(self.images_df['imgEmotion'].unique())}
+        self.difficulty_of_judgment_encoder = {difficulty: idx for idx, difficulty in enumerate(self.images_df['difficultyOfJudgment'].unique())}
+        self.semantic_encoder = {content: idx for idx, content in enumerate(self.images_df['semantic'].unique())}
+
         self.transform = transform
 
     def __len__(self):
@@ -39,16 +44,18 @@ class PARA_PIAADataset(Dataset):
         if use_image:
             image = Image.open(img_path).convert('RGB')
         
-        # One-hot encoding for personal traits
+        # One-hot encoding for personal traits and image attributes
         age_onehot = F.one_hot(torch.tensor(self.age_encoder[self.data.iloc[idx]['age']]), num_classes=len(self.age_encoder))
         gender_onehot = F.one_hot(torch.tensor(self.gender_encoder[self.data.iloc[idx]['gender']]), num_classes=len(self.gender_encoder))
         education_onehot = F.one_hot(torch.tensor(self.education_encoder[self.data.iloc[idx]['EducationalLevel']]), num_classes=len(self.education_encoder))
         art_experience_onehot = F.one_hot(torch.tensor(self.art_experience_encoder[self.data.iloc[idx]['artExperience']]), num_classes=len(self.art_experience_encoder))
         photo_experience_onehot = F.one_hot(torch.tensor(self.photo_experience_encoder[self.data.iloc[idx]['photographyExperience']]), num_classes=len(self.photo_experience_encoder))
+        img_emotion_onehot = F.one_hot(torch.tensor(self.img_emotion_encoder[self.data.iloc[idx]['imgEmotion']]), num_classes=len(self.img_emotion_encoder))
+        difficulty_of_judgment_onehot = F.one_hot(torch.tensor(self.difficulty_of_judgment_encoder[self.data.iloc[idx]['difficultyOfJudgment']]), num_classes=len(self.difficulty_of_judgment_encoder))
+        semantic_onehot = F.one_hot(torch.tensor(self.semantic_encoder[self.data.iloc[idx]['semantic']]), num_classes=len(self.semantic_encoder))
         
         sample = {
             'userId': self.data.iloc[idx]['userId'],
-            'subject': self.data.iloc[idx]['semantic'],
             'aestheticScores': {
                 'aestheticScore': self.data.iloc[idx]['aestheticScore'],
                 'qualityScore': self.data.iloc[idx]['qualityScore'],
@@ -71,9 +78,14 @@ class PARA_PIAADataset(Dataset):
                 'personality-N': self.data.iloc[idx]['personality-N'],
                 'personality-O': self.data.iloc[idx]['personality-O'],
                 'personality-C': self.data.iloc[idx]['personality-C']
+            },
+            'imageAttributes': {
+                'imgEmotion': img_emotion_onehot,
+                'difficultyOfJudgment': difficulty_of_judgment_onehot,
+                'semantic': semantic_onehot
             }
         }
-
+        
         if use_image:
             sample['image'] = image
             if self.transform:

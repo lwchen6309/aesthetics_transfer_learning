@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
+from torchvision.models.feature_extraction import create_feature_extractor
 import numpy as np
 from tqdm import tqdm
 import wandb
@@ -21,32 +22,48 @@ from train_resnet_cls import earth_mover_distance
 class CombinedModel(nn.Module):
     def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
         super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
+        self.resnet = create_feature_extractor(resnet50(pretrained=True),
+                                               {'layer4':'layer4'})        
+        # self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
         self.num_bins_aesthetic = num_bins_aesthetic
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
 
         # For predicting attribute histograms for each attribute
         self.fc_attribute = nn.Sequential(
-            nn.Linear(512, 512),
+            nn.Conv2d(2048, 512, kernel_size=1),
             nn.ReLU(),
-            nn.Linear(512, num_attr * num_bins_attr) # Each attribute has its own histogram
+            nn.Conv2d(512, num_attr * num_bins_attr, kernel_size=1),
         )
 
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(num_attr * num_bins_attr, 512),
+            nn.Conv2d(num_attr * num_bins_attr, 512, kernel_size=1),
             nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
+            nn.Conv2d(512, num_bins_aesthetic, kernel_size=1),            
+        )
+
+        # For predicting attribute histograms for each attribute
+        self.fc_merge = nn.Sequential(
+            nn.Linear(num_pt + num_attr * num_bins_attr + num_bins_aesthetic, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_bins_aesthetic) # Each attribute has its own histogram
         )
     
     def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        attribute_logits = self.fc_attribute(x)
-        aesthetic_logits = self.fc_aesthetic(attribute_logits)
+        x = self.resnet(images)['layer4']
+        
+        attribute_map = self.fc_attribute(x)
+        aesthetic_map = self.fc_aesthetic(attribute_map)
+        attribute_logits = self.gap(attribute_map)[:,:,0,0]
+        aesthetic_logits = self.gap(aesthetic_map)[:,:,0,0]
+        aesthetic_logits = self.fc_merge(torch.cat(
+            [traits_histogram, attribute_logits, aesthetic_logits], dim=1))
+        
         return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
+
 
 # Training Function
 def train(model, dataloader, criterion, optimizer, device):
@@ -204,13 +221,13 @@ if __name__ == '__main__':
             f"LR Decay Factor: {lr_decay_factor}",
             f"LR Decay Step: {lr_schedule_epochs}"
         ]
-        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr_nopt")
+        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr_traitmerge_gap")
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
     
     train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
-
+    
     # Create dataloaders
     n_workers = 8
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
@@ -229,7 +246,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_attr_nopt_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_attr_traitmerge_gap_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 

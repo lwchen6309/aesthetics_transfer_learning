@@ -30,12 +30,23 @@ class TaskEmbeddingModel(nn.Module):
         self.feature_extractor = create_feature_extractor(self.resnet, return_nodes={'layer4': 'layer4', 'fc': 'fc'})
         self.num_bins = num_bins
         self.num_pt = num_pt
+        dropout_prob = 0.5
         self.embedding_layer = nn.Sequential(
             # nn.Linear(self.resnet.fc.in_features + self.num_bins, 512),  # Assuming the trait and target histograms are 512-dimensional each
             nn.Linear(self.resnet.fc.in_features + self.num_bins + self.num_pt, 512),  # Assuming the trait and target histograms are 512-dimensional each
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.ReLU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout_prob),                     
             nn.Linear(512, embedding_dim),
         )
     
@@ -49,6 +60,61 @@ class TaskEmbeddingModel(nn.Module):
         x = self.embedding_layer(x)
         return F.normalize(x, p=2, dim=1)  # Normalize the embedding
 
+
+
+# Define a single Residual Block
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        
+        self.block = nn.Sequential(
+            nn.Linear(in_channels, out_channels),
+            nn.ReLU(),
+            nn.Linear(out_channels, out_channels)
+        )
+        
+        # If in_channels != out_channels, add a linear layer to transform the input
+        self.skip = nn.Linear(in_channels, out_channels) if in_channels != out_channels else nn.Identity()
+        
+    def forward(self, x):
+        return F.relu(self.block(x) + self.skip(x))
+
+
+class TaskResEmbeddingModel(nn.Module):
+    def __init__(self, num_bins, num_pt, embedding_dim=128, dropout_prob=0.1):
+        super(TaskResEmbeddingModel, self).__init__()
+        
+        self.resnet = resnet50(pretrained=True)
+        self.feature_extractor = create_feature_extractor(self.resnet, return_nodes={'layer4': 'layer4', 'fc': 'fc'})
+        
+        self.num_bins = num_bins
+        self.num_pt = num_pt
+        
+        self.embedding_layer = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features + self.num_bins + self.num_pt, 1024),
+            nn.ReLU(),
+            ResidualBlock(1024, 1024),
+            nn.Dropout(dropout_prob),
+            ResidualBlock(1024, 1024),
+            nn.Dropout(dropout_prob),
+            ResidualBlock(1024, 512),
+            nn.Dropout(dropout_prob),
+            ResidualBlock(512, 512),
+            nn.Dropout(dropout_prob),
+            ResidualBlock(512, 512),
+            nn.Dropout(dropout_prob),                                    
+            nn.Linear(512, embedding_dim)
+        )
+    
+    def forward(self, image, traits_histogram, target_histogram):
+        with torch.no_grad():
+            output_dict = self.feature_extractor(image)
+            resnet_feature = F.adaptive_avg_pool2d(output_dict['layer4'], (1,1))[:,:,0,0]
+        
+        x = torch.cat((resnet_feature, traits_histogram, target_histogram), dim=1)
+        x = self.embedding_layer(x)
+        
+        return F.normalize(x, p=2, dim=1)  # Normalize the embedding
 
 
 class TripletDataset(PARA_GIAA_HistogramDataset):
@@ -154,6 +220,7 @@ def post_evaluation(avg_neg_pair_losses_oneimg, test_loss, epoch, num_epochs, is
 
     if is_log:
         wandb.log({"Test Triplet Loss": test_loss}, commit=False)
+        log_dict = {}
         for idx, pair_loss in enumerate(avg_neg_pair_losses_oneimg, 1):
             log_dict[f"Neg Pair OneImg {idx} Loss"] = pair_loss
         wandb.log(log_dict, commit=False)
@@ -206,7 +273,7 @@ def load_triplet_dataset(root_dir, pkl_dir):
 
 
 is_eval = False
-is_log = False
+is_log = True
 num_bins = 5
 num_attr = 8
 num_bins_attr = 5
@@ -217,21 +284,22 @@ resume = None
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a model with custom margin and learning rate')
     parser.add_argument('--margin', type=float, default=0.2, help='Margin for the Triplet Loss')
-    parser.add_argument('--lr', type=float, default=1e-2, help='Learning rate for optimizer')
+    # parser.add_argument('--lr', type=float, default=1e-2, help='Learning rate for optimizer')
+    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate for optimizer')
     args = parser.parse_args()
     margin = args.margin
     lr = args.lr
     
     random_seed = None
     batch_size = 64
-    num_epochs = 5
+    num_epochs = 20
     lr_schedule_epochs = 1
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     n_workers = 20
     
     if is_log:
-        wandb.init(project="resnet_PARA_PIAA_metric")
+        wandb.init(project="resnet_PARA_PIAA_metric", notes='Deep ResNet')
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,

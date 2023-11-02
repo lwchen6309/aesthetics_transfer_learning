@@ -204,7 +204,7 @@ if __name__ == '__main__':
             f"LR Decay Factor: {lr_decay_factor}",
             f"LR Decay Step: {lr_schedule_epochs}"
         ]
-        wandb.init(project="resnet_PARA_Task", tags=hyperparam_tags)
+        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr")
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -212,14 +212,13 @@ if __name__ == '__main__':
     train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
 
     # Create dataloaders
-    n_workers = 4
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
+    n_workers = 8
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
     
@@ -233,7 +232,7 @@ if __name__ == '__main__':
     best_modelname = 'best_model_resnet50_histo_attr_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-    
+
     # Training loop
     best_test_loss = float('inf')
     for epoch in range(num_epochs):
@@ -254,7 +253,7 @@ if __name__ == '__main__':
         # Testing
         test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
         test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
-            
+        
         if is_log:
             wandb.log({
                 "Test GIAA EMD Loss": test_giaa_emd_loss,
@@ -278,11 +277,10 @@ if __name__ == '__main__':
                 f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
                 f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
                 )
-                
-
+        
         # Early stopping check
-        if test_piaa_emd_loss < best_test_loss:
-            best_test_loss = test_piaa_emd_loss
+        if test_giaa_emd_loss < best_test_loss:
+            best_test_loss = test_giaa_emd_loss
             num_patience_epochs = 0
             torch.save(model.state_dict(), best_modelname)
         else:
@@ -298,7 +296,7 @@ if __name__ == '__main__':
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
     test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-
+    
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,

@@ -1,5 +1,4 @@
 import os
-import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,51 +9,78 @@ from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
 import wandb
-from itertools import chain
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
+from PARA_histogram_dataloader import PARA_MIAA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
 from train_resnet_cls import earth_mover_distance
+import argparse
 
 
 # Model Definition
+class Discriminator(nn.Module):
+    def __init__(self, num_attr, num_bins_attr, num_bins_aesthetic, num_pt):
+        super(Discriminator, self).__init__()
+        self.num_attr, self.num_bins_attr, self.num_bins_aesthetic, self.num_pt = num_attr, num_bins_attr, num_bins_aesthetic, num_pt
+        self.ravel_attr = self.num_attr * self.num_bins_attr
+        h_dim = 16
+        self.fc = nn.Sequential(
+            nn.Linear(num_attr * num_bins_attr + num_bins_aesthetic, h_dim),
+            nn.ReLU(),
+            nn.Linear(h_dim, 1),
+        )
+    
+    def forward(self, aesthetic_logits, attribute_logits, traits_histogram):
+        x = torch.cat([aesthetic_logits, attribute_logits.view(-1, self.ravel_attr)], dim=1)
+        # x = torch.cat([aesthetic_logits, attribute_logits.view(-1, self.ravel_attr), traits_histogram], dim=1)
+        return self.fc(x)
+
 class CombinedModel(nn.Module):
     def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
         super(CombinedModel, self).__init__()
         self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
+        self.resnet.fc = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features, 512),
+            nn.ReLU(),
+            # nn.Linear(512, num_bins_aesthetic),
+        )
         self.num_bins_aesthetic = num_bins_aesthetic
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
-
+        self.temperature = 0.01
+        
         # For predicting attribute histograms for each attribute
-        self.fc_attribute = nn.Sequential(
-            nn.Linear(512, 512),
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(num_pt, 512),
             nn.ReLU(),
-            nn.Linear(512, num_attr * num_bins_attr) # Each attribute has its own histogram
+            nn.BatchNorm1d(512)
         )
 
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(num_attr * num_bins_attr, 512),
+            nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
     
     def forward(self, images, traits_histogram):
         x = self.resnet(images)
-        attribute_logits = self.fc_attribute(x)
-        aesthetic_logits = self.fc_aesthetic(attribute_logits)
-        return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
+        pt_code = self.pt_encoder(traits_histogram)
+
+        z = self.temperature * pt_code * torch.randn(x.shape).to(images.device)
+        aesthetic_logits = self.fc_aesthetic(x + z)
+        return aesthetic_logits
+
 
 # Training Function
-def train(model, dataloader, criterion, optimizer, device):
+def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimizer, device, soft_label_epsilon=0.):
     model.train()
+    discriminator.train()
     running_aesthetic_emd_loss = 0.0
     running_total_emd_loss = 0.0
+    running_gan_loss = 0.0
+    running_d_loss = 0.0  # Added this line for discriminator loss
     progress_bar = tqdm(dataloader, leave=False)
-    # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
 
     for sample in progress_bar:
         if is_eval:
@@ -64,30 +90,68 @@ def train(model, dataloader, criterion, optimizer, device):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
         onehot_traits_histogram = sample['onehot_traits'].to(device)
-        attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+        attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr)
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
-        
-        optimizer.zero_grad()
-        aesthetic_logits, attribute_logits = model(images, traits_histogram)
-        prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-        prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
-        
-        loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
-        loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
-        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
 
-        total_loss.backward()
+        # Forward pass through the CombinedModel
+        aesthetic_logits = model(images, traits_histogram)
+        
+        # EMD loss for aesthetic and attributes
+        prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+        # prob_attribute = F.softmax(attribute_logits, dim=-1)
+        loss_aesthetic_emd = emd_criterion(prob_aesthetic, aesthetic_score_histogram)
+        # loss_attribute_emd = emd_criterion(prob_attribute, attributes_target_histogram)
+        # total_emd_loss = loss_aesthetic_emd + loss_attribute_emd.sum()
+        total_emd_loss = loss_aesthetic_emd
+
+        # Zero the gradients for discriminator
+        d_optimizer.zero_grad()
+
+        # Forward pass through discriminator for real samples with soft labels
+        real_logits = discriminator(aesthetic_score_histogram, attributes_target_histogram, traits_histogram)
+        real_labels = torch.ones(images.size(0), 1).to(device)  # Soft label applied
+        d_real_loss = F.binary_cross_entropy_with_logits(real_logits, real_labels)
+
+        # Forward pass through discriminator for fake samples with soft labels
+        fake_logits = discriminator(aesthetic_logits.detach(), attributes_target_histogram, traits_histogram)
+        fake_labels = torch.zeros(images.size(0), 1).to(device)  # Soft label applied
+        d_fake_loss = F.binary_cross_entropy_with_logits(fake_logits, fake_labels)
+        
+        # Combine losses and update discriminator
+        d_loss = d_real_loss + d_fake_loss
+        d_loss.backward(retain_graph=True)
+        d_optimizer.step()
+
+        # Zero the gradients for CombinedModel
+        optimizer.zero_grad()
+        
+        # Forward pass through discriminator for fake samples, but this time do not detach logits
+        logits = discriminator(aesthetic_logits, attributes_target_histogram, traits_histogram)
+        labels = torch.ones(images.size(0), 1).to(device)
+        g_loss_gan = F.binary_cross_entropy_with_logits(logits, labels)
+
+        # Combining EMD and GAN loss for generator
+        g_loss = total_emd_loss + g_loss_gan
+        g_loss.backward()
         optimizer.step()
-        running_total_emd_loss += total_loss.item()
-        running_aesthetic_emd_loss += loss_aesthetic.item()
+
+        running_aesthetic_emd_loss += loss_aesthetic_emd.item()
+        running_total_emd_loss += total_emd_loss.item()
+        running_gan_loss += g_loss_gan.item()
+        running_d_loss += d_loss.item()  # Added this line
 
         progress_bar.set_postfix({
-            'Train EMD Loss': total_loss.item(),
+            'Train EMD Loss': total_emd_loss.item(),
+            'Train G Loss': g_loss_gan.item(),
+            'Train D Loss': d_loss.item(),
         })
 
     epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
-    return epoch_emd_loss, epoch_total_emd_loss
+    epoch_gan_loss = running_gan_loss / len(dataloader)
+    epoch_d_loss = running_d_loss / len(dataloader)  # Added this line
+
+    return epoch_emd_loss, epoch_total_emd_loss, epoch_gan_loss, epoch_d_loss  # Updated this line
 
 # Evaluation Function
 def evaluate(model, dataloader, criterion, device):
@@ -110,12 +174,12 @@ def evaluate(model, dataloader, criterion, device):
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
-            aesthetic_logits, attribute_logits = model(images, traits_histogram)
+            aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
-
+            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+            
             loss = criterion(prob_aesthetic, aesthetic_score_histogram)
-            loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
+            # loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -127,7 +191,7 @@ def evaluate(model, dataloader, criterion, device):
                 running_mse_loss += mse.item()
 
             running_emd_loss += loss.item()
-            running_attr_emd_loss += loss_attribute.item()
+            # running_attr_emd_loss += loss_attribute.item()
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
@@ -154,6 +218,7 @@ criterion_mse = nn.MSELoss()
 
 
 def load_data():
+    random_seed = 42
     root_dir = '/home/lwchen/datasets/PARA/'
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -178,11 +243,10 @@ def load_data():
         test_count=40, max_annotations_per_user=50, seed=random_seed)
     
     # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
     print(len(train_dataset), len(test_dataset))
     pkl_dir = './dataset_pkl'
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
@@ -190,21 +254,32 @@ def load_data():
 
 
 if __name__ == '__main__':
-    random_seed = 42
-    lr = 5e-5
+    parser = argparse.ArgumentParser(description="Train a GAN with specified learning rates.")
+    parser.add_argument("--G_lr", type=float, default=5e-5, help="Learning rate for the generator.")
+    parser.add_argument("--D_lr", type=float, default=5e-6, help="Learning rate for the discriminator.")
+    args = parser.parse_args()
+
+    G_lr = args.G_lr
+    D_lr = args.D_lr
     batch_size = 100
-    num_epochs = 20
+    num_epochs = 100
+    # num_epochs = 20
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     
     if is_log:
         hyperparam_tags = [
-            f"LR: {lr}",
+            f"G LR: {G_lr}",
+            f"D LR: {D_lr}",
             f"LR Decay Factor: {lr_decay_factor}",
-            f"LR Decay Step: {lr_schedule_epochs}"
+            f"LR Decay Step: {lr_schedule_epochs}",
+            "Trait",
+            "D_hidden16",
+            "MIAA"
         ]
-        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr_nopt")
+        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, 
+                   notes="GAN_attrDiscriminator")
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -212,7 +287,7 @@ if __name__ == '__main__':
     train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
 
     # Create dataloaders
-    n_workers = 8
+    n_workers = 4
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
@@ -221,15 +296,17 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    discriminator = Discriminator(num_attr, num_bins_attr, num_bins, num_pt).to(device)
     
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=G_lr)
+    d_optimizer = optim.Adam(discriminator.parameters(), lr=D_lr)
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_attr_nopt_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_cls_gan_lr%1.0e_decay_%depoch' % (G_lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
@@ -244,15 +321,19 @@ if __name__ == '__main__':
                 param_group['lr'] *= lr_decay_factor
 
         # Training
-        train_emd_loss, train_total_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
+        train_emd_loss, train_total_emd_loss, train_gan_loss, train_d_loss = train(model, discriminator, 
+                train_dataloader, earth_mover_distance, optimizer, d_optimizer, device)  # Updated this line
+
         if is_log:
             wandb.log({"Train EMD Loss": train_emd_loss,
-                       "Train Total EMD Loss": train_total_emd_loss,
-                       }, commit=False)
-        
+                    "Train Total EMD Loss": train_total_emd_loss,
+                    "Train GAN Loss": train_gan_loss,
+                    "Train Discriminator Loss": train_d_loss  # Added this line
+                    }, commit=False)
+
         # Testing
         test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+        # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
         
         if is_log:
             wandb.log({
@@ -260,10 +341,10 @@ if __name__ == '__main__':
                 "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
                 "Test GIAA SROCC": test_giaa_srocc,
                 "Test GIAA MSE": test_giaa_mse,
-                "Test PIAA EMD Loss": test_piaa_emd_loss,
-                "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
-                "Test PIAA SROCC": test_piaa_srocc,
-                "Test PIAA MSE": test_piaa_mse,
+                # "Test PIAA EMD Loss": test_piaa_emd_loss,
+                # "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
+                # "Test PIAA SROCC": test_piaa_srocc,
+                # "Test PIAA MSE": test_piaa_mse,
             }, commit=True)
 
         # Print the epoch loss
@@ -272,10 +353,10 @@ if __name__ == '__main__':
                 f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
                 f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
                 f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-                f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-                f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
-                f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-                f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
+                # f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
+                # f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
+                # f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+                # f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
                 )
         
         # Early stopping check

@@ -56,6 +56,7 @@ class CombinedModel(nn.Module):
         aesthetic_logits = self.fc_aesthetic(attribute_logits)
         return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
 
+
 # Training Function
 def train(model, dataloader, criterion, optimizer, device):
     model.train()
@@ -82,7 +83,7 @@ def train(model, dataloader, criterion, optimizer, device):
         
         loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
         loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
-        total_loss = loss_aesthetic + loss_attribute
+        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
 
         total_loss.backward()
         optimizer.step()
@@ -123,7 +124,7 @@ def evaluate(model, dataloader, criterion, device):
             prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
             loss = criterion(prob_aesthetic, aesthetic_score_histogram)
-            loss_attribute = criterion(prob_attribute, attributes_target_histogram)
+            loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -151,38 +152,17 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-is_eval = True
-is_log = False
+is_eval = False
+is_log = True
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
-# resume = 'best_model_resnet50_histo_attr_latefusion_lr5e-05_decay_20epoch_tough-bush-60.pth'
 criterion_mse = nn.MSELoss()
 
 
-if __name__ == '__main__':
-    random_seed = 42
-    lr = 5e-5
-    batch_size = 100
-    num_epochs = 20
-    lr_schedule_epochs = 5
-    lr_decay_factor = 0.5
-    max_patience_epochs = 10
-    n_workers = 8
-    
-    if is_log:
-        wandb.init(project="resnet_PARA_PIAA")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
-        experiment_name = wandb.run.name
-    else:
-        experiment_name = ''
-    
+def load_data():
     root_dir = '/home/lwchen/datasets/PARA/'
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -215,22 +195,45 @@ if __name__ == '__main__':
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
+    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset
+
+
+if __name__ == '__main__':
+    random_seed = 42
+    lr = 5e-5
+    batch_size = 100
+    num_epochs = 20
+    lr_schedule_epochs = 5
+    lr_decay_factor = 0.5
+    max_patience_epochs = 10
     
+    if is_log:
+        hyperparam_tags = [
+            f"LR: {lr}",
+            f"LR Decay Factor: {lr_decay_factor}",
+            f"LR Decay Step: {lr_schedule_epochs}"
+        ]
+        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr_latefusion")
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
+
     # Create dataloaders
+    n_workers = 8
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
     
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
-    # criterion_mse = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Initialize the best test loss and the best model
@@ -257,33 +260,36 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # Testing
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
-        test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
-        if is_log:
-            wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
-                       "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
-                       "Test PIAA SROCC": test_piaa_srocc,
-                       "Test PIAA MSE": test_piaa_mse,
-                       "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
-                       "Test user PIAA Attr EMD Loss": test_user_piaa_attr_emd_loss,
-                       "Test user PIAA SROCC": test_user_piaa_srocc,
-                       "Test user PIAA MSE": test_user_piaa_mse,
-                       }, commit=True)
+        test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
         
+        if is_log:
+            wandb.log({
+                "Test GIAA EMD Loss": test_giaa_emd_loss,
+                "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
+                "Test GIAA SROCC": test_giaa_srocc,
+                "Test GIAA MSE": test_giaa_mse,
+                "Test PIAA EMD Loss": test_piaa_emd_loss,
+                "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
+                "Test PIAA SROCC": test_piaa_srocc,
+                "Test PIAA MSE": test_piaa_mse,
+            }, commit=True)
+
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
-              f"Train EMD Loss: {train_emd_loss:.4f}, "
-              f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-              f"Test PIAA Attr EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
-              f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-              f"Test user PIAA EMD Loss: {test_user_piaa_emd_loss:.4f}, "
-              f"Test user PIAA Attr EMD Loss: {test_user_piaa_attr_emd_loss:.4f}, "
-              f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
-              )
-
+                f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
+                f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
+                f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+                f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
+                f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
+                f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
+                f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+                f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
+                )
+        
         # Early stopping check
-        if test_piaa_emd_loss < best_test_loss:
-            best_test_loss = test_piaa_emd_loss
+        if test_giaa_emd_loss < best_test_loss:
+            best_test_loss = test_giaa_emd_loss
             num_patience_epochs = 0
             torch.save(model.state_dict(), best_modelname)
         else:
@@ -299,7 +305,7 @@ if __name__ == '__main__':
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)       
     test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)    
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-
+    
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,

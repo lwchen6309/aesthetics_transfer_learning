@@ -18,6 +18,61 @@ import argparse
 from torch.optim.lr_scheduler import StepLR
 
 
+class ResidualMLP(nn.Module):
+    def __init__(self, layer_sizes, image_feature_dim, num_pt, num_bins, dropout_p=0.5, final_relu=False):
+        super().__init__()
+
+        self.first_layer = nn.Linear(image_feature_dim + 256, layer_sizes[1])
+        self.layer_sizes = [int(x) for x in layer_sizes]
+        assert self.layer_sizes[0] == image_feature_dim + 256
+        num_layers = len(self.layer_sizes) - 1
+        final_relu_layer = num_layers if final_relu else num_layers - 1
+
+        layer_list = []
+        for i in range(1, len(self.layer_sizes) - 1):
+            input_size = self.layer_sizes[i]
+            curr_size = self.layer_sizes[i + 1]
+            layer_list.append(nn.ReLU(inplace=False))
+            layer_list.append(nn.Dropout(p=dropout_p))
+            layer_list.append(nn.Linear(input_size, curr_size))
+
+        # If you don't want dropout after the last layer, you can remove the last dropout layer
+        if not final_relu:
+            layer_list = layer_list[:-2]
+
+        self.net = nn.Sequential(*layer_list)
+        self.last_linear = self.net[-1]
+
+        self.image_feature_dim = image_feature_dim
+        self.num_pt = num_pt
+        self.num_bins = num_bins
+        self.index_split = [self.image_feature_dim,
+                            self.image_feature_dim + self.num_pt,
+                            self.image_feature_dim + self.num_pt + self.num_bins]
+
+        self.task_encode = nn.Sequential(
+            nn.Linear(self.num_bins, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+        )
+        self.pt_encode = nn.Sequential(
+            nn.Linear(self.num_pt, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        image_feature = x[:, :self.index_split[0]]
+        pt = x[:, self.index_split[0]:self.index_split[1]]
+        task = x[:, self.index_split[1]:self.index_split[2]]
+
+        x = torch.cat([image_feature, self.pt_encode(pt), self.task_encode(task)], dim=1)
+        x = self.first_layer(x) + self.net(x)  # Add residual connection to the first layer
+        return x
+
+
 class MLP(nn.Module):
     # layer_sizes[0] is the dimension of the input
     # layer_sizes[-1] is the dimension of the output
@@ -145,7 +200,7 @@ def evaluate(model, dataloader, criterion, device):
 
 
 is_eval = False
-is_log = True
+is_log = False
 resume = None
 num_bins = 5
 num_pt = 50 + 20
@@ -153,7 +208,7 @@ num_pt = 50 + 20
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')
-    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate')
     parser.add_argument('--lr_decay', type=float, default=0.9, help='Learning rate decay factor')
     parser.add_argument('--lr_decay_step', type=int, default=10, help='Number of epochs before lr decay')
     args = parser.parse_args()
@@ -189,8 +244,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     input_dim = 128 + 128 + 2048
     model = torch.nn.DataParallel(MLP(
-        [input_dim, 1024, 1024, 512, 512, num_classes], 
-        image_feature_dim=2048, num_pt=num_pt, num_bins=num_bins, dropout_p=0.5))
+        [input_dim, 1024, 1024, 1024, 1024, 1024, 1024, 512, 512, num_classes], 
+        image_feature_dim=2048, num_pt=num_pt, num_bins=num_bins, dropout_p=0.8))
     
     if resume is not None:
         model.load_state_dict(torch.load(resume))

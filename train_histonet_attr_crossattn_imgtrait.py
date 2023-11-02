@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
+from torchvision.models.feature_extraction import create_feature_extractor
 import numpy as np
 from tqdm import tqdm
 import wandb
@@ -17,36 +18,72 @@ from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_
 from train_resnet_cls import earth_mover_distance
 
 
-# Model Definition
-class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
-        super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
-        self.num_bins_aesthetic = num_bins_aesthetic
-        self.num_attr = num_attr
-        self.num_bins_attr = num_bins_attr
-        self.num_pt = num_pt
-
-        # For predicting attribute histograms for each attribute
-        self.fc_attribute = nn.Sequential(
-            nn.Linear(512, 512),
+class Attention(nn.Module):
+    def __init__(self, image_feat_dim, trait_dim, attention_dim):
+        super(Attention, self).__init__()
+        self.key_layer = nn.Linear(image_feat_dim, attention_dim)
+        self.value_layer = nn.Linear(image_feat_dim, attention_dim)
+        # self.query_layer = nn.Linear(trait_dim, attention_dim)
+        self.query_layer = nn.Sequential(
+            nn.Linear(image_feat_dim + trait_dim, 512),
             nn.ReLU(),
-            nn.Linear(512, num_attr * num_bins_attr) # Each attribute has its own histogram
+            nn.Linear(512, attention_dim)
         )
+        # For predicting attribute histograms for each attribute
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(trait_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, attention_dim)
+        )
+
+    def forward(self, images_feat, traits_histogram):
+        keys = self.key_layer(images_feat)
+        values = self.value_layer(images_feat)
+        queries = self.query_layer(torch.cat([torch.mean(images_feat, dim=1, keepdim=False), traits_histogram], dim=1))
+        attn_weights = F.softmax(torch.bmm(keys, queries.unsqueeze(2)), dim=1)
+        attn_output = torch.mean(attn_weights * values, dim=1)
+        attn_output += self.pt_encoder(traits_histogram)
+        return attn_output
+
+
+class CombinedModel(nn.Module):
+    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt, attention_dim=512):
+        super(CombinedModel, self).__init__()
+        
+        # Use create_feature_extractor to extract features before pooling
+        self.resnet = create_feature_extractor(resnet50(pretrained=True),
+                                               {'layer4':'layer4'})
+        self.attention = Attention(2048, num_pt, attention_dim)
+        
+        # For predicting attribute histograms for each attribute
+        # self.fc_attribute = nn.Sequential(
+        #     nn.Linear(attention_dim, 512),
+        #     nn.ReLU(),
+        #     nn.Linear(512, num_attr * num_bins_attr)
+        # )
 
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(num_attr * num_bins_attr, 512),
+            nn.Linear(attention_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
     
     def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        attribute_logits = self.fc_attribute(x)
-        aesthetic_logits = self.fc_aesthetic(attribute_logits)
-        return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
+        # Extract feature map
+        x = self.resnet(images)['layer4']
+        b, c, h, w = x.shape
+        # Flatten spatial dimensions
+        x = x.view(b, c, h*w).permute(0, 2, 1)
+        
+        attention_output = self.attention(x, traits_histogram)
+        # attribute_logits = self.fc_attribute(attention_output)
+        # aesthetic_logits = self.fc_aesthetic(attribute_logits)
+        aesthetic_logits = self.fc_aesthetic(attention_output)
+        return aesthetic_logits
+
 
 # Training Function
 def train(model, dataloader, criterion, optimizer, device):
@@ -68,13 +105,13 @@ def train(model, dataloader, criterion, optimizer, device):
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         
         optimizer.zero_grad()
-        aesthetic_logits, attribute_logits = model(images, traits_histogram)
+        aesthetic_logits = model(images, traits_histogram)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-        prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+        # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
         
         loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram)
-        loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
-        total_loss = loss_aesthetic + loss_attribute.sum() # Combining losses
+        # loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
+        total_loss = loss_aesthetic #+ loss_attribute.sum() # Combining losses
 
         total_loss.backward()
         optimizer.step()
@@ -110,12 +147,12 @@ def evaluate(model, dataloader, criterion, device):
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
-            aesthetic_logits, attribute_logits = model(images, traits_histogram)
+            aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
             loss = criterion(prob_aesthetic, aesthetic_score_histogram)
-            loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
+            # loss_attribute = criterion(prob_attribute, attributes_target_histogram) # This will compute the loss for each attribute's histogram
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -127,7 +164,7 @@ def evaluate(model, dataloader, criterion, device):
                 running_mse_loss += mse.item()
 
             running_emd_loss += loss.item()
-            running_attr_emd_loss += loss_attribute.item()
+            # running_attr_emd_loss += loss_attribute.item()
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
@@ -197,14 +234,14 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    
+    exp_tag = "crossattn_residual_imgtrait_query"
     if is_log:
         hyperparam_tags = [
             f"LR: {lr}",
             f"LR Decay Factor: {lr_decay_factor}",
             f"LR Decay Step: {lr_schedule_epochs}"
         ]
-        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes="attr_nopt")
+        wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes=exp_tag)
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -229,7 +266,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_attr_nopt_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_%s_lr%1.0e_decay_%depoch' % (exp_tag, lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
@@ -252,7 +289,6 @@ if __name__ == '__main__':
         
         # Testing
         test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
         
         if is_log:
             wandb.log({
@@ -260,22 +296,14 @@ if __name__ == '__main__':
                 "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
                 "Test GIAA SROCC": test_giaa_srocc,
                 "Test GIAA MSE": test_giaa_mse,
-                "Test PIAA EMD Loss": test_piaa_emd_loss,
-                "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
-                "Test PIAA SROCC": test_piaa_srocc,
-                "Test PIAA MSE": test_piaa_mse,
             }, commit=True)
-
+        
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
                 f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
                 f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
                 f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
                 f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-                f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-                f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
-                f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-                f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
                 )
         
         # Early stopping check

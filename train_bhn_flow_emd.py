@@ -54,7 +54,7 @@ def train_with_flow(model_resnet, model_flow, train_dataloader, optimizer_resnet
         weight = reshape_weights[...,:-1]
         bias = reshape_weights[...,-1]
         new_logit = torch.stack([_l + 5e-2*F.leaky_relu(_w @ _l + _b, negative_slope=0.2) for _w, _l, _b in zip(weight, logit, bias)])
-
+        
         # Compute loss
         log_prob = F.log_softmax(new_logit, dim=1)
         prob = torch.exp(log_prob).clip(min=0.001, max=0.999)
