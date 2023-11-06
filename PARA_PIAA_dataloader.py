@@ -7,6 +7,7 @@ from PIL import Image
 import torch.nn.functional as F
 import random
 from tqdm import tqdm
+import copy
 
 
 class PARA_PIAADataset(Dataset):
@@ -113,27 +114,51 @@ def limit_annotations_per_user(data, max_annotations_per_user):
     filtered_data = grouped.apply(lambda x: x.sample(min(len(x), max_annotations_per_user)))
     return filtered_data
 
-def split_data_by_user(data, test_count, seed=None):
+def generate_data_per_user(dataset, max_annotations_per_user=50):
+    data = dataset.data  # Assuming this is a pandas DataFrame
+    for user_id in data['userId'].unique():
+        # Filter data for the current user
+        user_data = data[data['userId'] == user_id]
+        # Limit the number of annotations per user
+        user_data_limited = limit_annotations_per_user(user_data, max_annotations_per_user=max_annotations_per_user)
+        # Create a deep copy of the dataset and replace its data with the limited user data
+        user_dataset = copy.deepcopy(dataset)
+        user_dataset.data = user_data_limited
+        # Yield the dataset for the user
+        yield (user_id, user_dataset)
+
+def split_data_by_user(data, test_count, user_id_list=None, seed=None):
     if seed is not None:
         random.seed(seed)  # Setting the random seed
+
+    if user_id_list is not None:
+        # Filter data for user IDs that are in the provided user_id_list if it is not None
+        data = data[data['userId'].isin(user_id_list)]
+    
+    # Get the unique user IDs
     user_ids = data['userId'].unique()
     user_ids = list(user_ids)  # Ensure user_ids is a list for shuffling
+    
+    # Shuffle the list of user IDs
     random.shuffle(user_ids)
-    total_users = len(user_ids)
+    
+    # Calculate the number of users for training based on the total minus test_count
+    # total_users = len(user_ids)
     train_users = user_ids[:-test_count]
     test_users = user_ids[-test_count:]
+    
     return train_users, test_users
 
-def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=100, seed=None):
+def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=50, user_id_list=None, seed=None):
     # Split data by user
-    train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count, seed=seed)
+    train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count, user_id_list=user_id_list, seed=seed)
     # Filter data by user IDs
     train_dataset.data = train_dataset.data[train_dataset.data['userId'].isin(train_users)]
     test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
     
     # Limit the number of annotations per user
     train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
-    # test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
     return train_dataset, test_dataset
 
 def split_dataset_by_images(train_dataset, test_dataset, root_dir):

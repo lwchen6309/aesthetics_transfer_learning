@@ -27,13 +27,14 @@ class Attention(nn.Module):
         self.query_layer = nn.Sequential(
             nn.Linear(trait_dim, 512),
             nn.ReLU(),
-            nn.Linear(512, attention_dim)
+            nn.Linear(512, attention_dim),
         )
         # For predicting attribute histograms for each attribute
         self.pt_encoder = nn.Sequential(
             nn.Linear(trait_dim, 512),
             nn.ReLU(),
-            nn.Linear(512, attention_dim)
+            nn.Linear(512, attention_dim),
+            nn.BatchNorm1d(attention_dim)
         )
     
     def forward(self, images_feat, traits_histogram):
@@ -239,7 +240,8 @@ if __name__ == '__main__':
         hyperparam_tags = [
             f"LR: {lr}",
             f"LR Decay Factor: {lr_decay_factor}",
-            f"LR Decay Step: {lr_schedule_epochs}"
+            f"LR Decay Step: {lr_schedule_epochs}",
+            "Trait BN"
         ]
         wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, notes=exp_tag)
         experiment_name = wandb.run.name

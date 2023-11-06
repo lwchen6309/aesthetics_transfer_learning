@@ -13,11 +13,60 @@ import wandb
 from itertools import chain
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
-from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
-# from train_resnet_cls import earth_mover_distance
-from train_histonet import train, evaluate
+from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, generate_data_per_user
 import matplotlib.pyplot as plt
+from copy import deepcopy
+import pandas as pd
 
+
+# Evaluation Function
+def evaluate(model, dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_mse_loss = 0.0
+    running_srocc = 0.0
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+    eval_srocc = True
+    criterion_mse = nn.MSELoss()
+
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    with torch.no_grad():
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            attributes_histogram = sample['attributes'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            onehot_traits_histogram = sample['onehot_traits'].to(device)
+            traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
+            
+            logits = model(images)
+            prob = F.softmax(logits, dim=-1)
+            
+            if eval_srocc:
+                outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+
+            loss = criterion(prob, aesthetic_score_histogram).mean()
+            running_emd_loss += loss.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+
+    emd_loss = running_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, srocc, mse_loss
 
 def earth_mover_distance(x, y, dim=-1):
     """
@@ -48,29 +97,6 @@ class CombinedModel(nn.Module):
         return x
 
 
-class MLP(nn.Module):
-    def __init__(self, input_dims):
-        super(MLP, self).__init__()
-        self.input_dims = input_dims
-        self.fc1 = nn.Linear(input_dims, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)  # Output is a single scalar: emd_loss
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
-
-
-is_eval = True
-is_log = False
-num_bins = 9
-num_attr = 40
-num_pt = 50 + 20
-resume = None
-resume = 'best_model_resnet50_hidden512_cls_lr5e-05_decay_20epoch_noattr_distinctive-glade-243.pth'
-
-
 def load_data():
     root_dir = '/home/lwchen/datasets/PARA/'
     # Dataset transformations
@@ -90,11 +116,24 @@ def load_data():
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
-    _, test_user_piaa_dataset = split_dataset_by_user(
-        PARA_PIAADataset(root_dir, transform=train_transform), 
-        PARA_PIAADataset(root_dir, transform=train_transform), 
-        test_count=40, max_annotations_per_user=50, seed=random_seed)
     
+    user_ids_from = None
+    user_ids_from = pd.read_csv('top20_user_ids.csv')['User ID'].tolist()
+    train_user_piaa_dataset, test_user_piaa_dataset = split_dataset_by_user(
+        # deepcopy(train_dataset), 
+        # deepcopy(test_dataset), 
+        PARA_PIAADataset(root_dir, transform=train_transform),
+        PARA_PIAADataset(root_dir, transform=train_transform),
+        test_count=40, max_annotations_per_user=50, seed=None, user_id_list=user_ids_from)
+    
+    all_each_user_piaa_dataset = generate_data_per_user(
+        PARA_PIAADataset(root_dir, transform=train_transform), 
+        max_annotations_per_user=50)
+
+    testimg_each_user_piaa_dataset = generate_data_per_user(
+        deepcopy(test_dataset), 
+        max_annotations_per_user=3000)
+
     # Create datasets with the appropriate transformations
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
@@ -103,9 +142,9 @@ def load_data():
     train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
+    train_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=train_user_piaa_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset
-
+    return train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset
 
 def evaluate_emd(model, dataloader, criterion, device):
     model.eval()
@@ -177,7 +216,6 @@ def compute_mean_emd_for_semantics(emd_losses, semantic_values):
     avg_semantic_emd_losses = {k: np.mean(v) for k, v in semantic_emd_losses.items()}
 
     return avg_semantic_emd_losses
-
 
 def train_to_predict_emd(model, mlp, mlp_optimizer, dataloader, criterion, device):
     model.eval()
@@ -349,7 +387,6 @@ def analyze_histograms(dataset, emd_losses, ratio=0.3):
 
     return results
 
-
 def visualize_difference_trait(results, savefig=True):
     def parse_subset(subset):
         data = results[subset]
@@ -493,12 +530,93 @@ def visualize_difference_semantic(results, savefig=True):
     if savefig:
         plt.savefig('semantic_diff.jpg', dpi=300)
 
+def evaluate_user_datasets(user_datasets, model, earth_mover_distance, device, batch_size, n_workers, pin_memory):
+    results = []
+    for user_id, user_dataset in user_datasets:
+        test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=user_dataset.data)
+        user_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+        user_emd_loss, user_srocc, user_mse = evaluate(model, user_dataloader, earth_mover_distance, device)
+        results.append((user_id, user_srocc))
+    return results
+
+
+is_eval = True
+is_log = False
+num_bins = 9
+num_attr = 40
+num_pt = 50 + 20
+resume = None
+resume = 'best_model_resnet50_hidden512_cls_lr5e-05_decay_20epoch_noattr_distinctive-glade-243.pth'
+root_dir = '/home/lwchen/datasets/PARA/'
+test_transform = transforms.Compose([
+    transforms.Resize(224),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+])
+
+
+def eval_user_piaa():
+    lr = 5e-5
+    batch_size = 100
+    num_epochs = 1
+    
+    if is_log:
+        wandb.init(project="resnet_PARA_PIAA")
+        wandb.config = {
+            "learning_rate": lr,
+            "batch_size": batch_size,
+            "num_epochs": num_epochs
+        }
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
+    train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset = load_data()
+    n_workers = 4
+    
+    pin_memory = False
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    train_user_piaa_dataloader = DataLoader(train_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Initialize the combined model
+    model = CombinedModel(num_bins, num_attr, num_pt, resume = resume).to(device)
+    # Loss and optimizer
+    # criterion_mse = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    # Initialize the best test loss and the best model
+    best_model = None
+    best_modelname = 'best_model_resnet50_histo_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname += '_%s'%experiment_name
+    best_modelname += '.pth'
+
+    # Testing
+    # _, train_user_piaa_srocc, _ = evaluate(model, train_user_piaa_dataloader, earth_mover_distance, device)
+    _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+
+    return test_user_piaa_srocc
+
 
 if __name__ == '__main__':
+    # results = np.array([eval_user_piaa() for _ in range(10)])
+    # tag = 'top20'
+    # np.savez('testuser_piaa_%s.npz'%tag, results=results)
+    # with open('results_%s.csv'%tag, 'w') as csvfile:
+    #     # Write the header
+    #     csvfile.write('SROCC\n')
+    #     # Write each result on a new line
+    #     for result in results:
+    #         csvfile.write(f'{result}\n')
+
     random_seed = 42
     lr = 5e-5
     batch_size = 100
-    num_epochs = 10
+    num_epochs = 1
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
@@ -514,15 +632,16 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
-    n_workers = 4
+    train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset = load_data()
+    n_workers = 8
     
     pin_memory = False
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    train_user_piaa_dataloader = DataLoader(train_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
     test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
@@ -530,9 +649,6 @@ if __name__ == '__main__':
     # Loss and optimizer
     # criterion_mse = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    
-    mlp = MLP(119).to(device)
-    mlp_optimizer = optim.Adam(mlp.parameters(), lr=1e-4)
 
     # Initialize the best test loss and the best model
     best_model = None
@@ -540,85 +656,53 @@ if __name__ == '__main__':
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
-    srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_giaa_dataloader, earth_mover_distance, device)
+    # srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_giaa_dataloader, earth_mover_distance, device)
+    srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_piaa_dataloader, earth_mover_distance, device)
     # Sorting the data for clarity
     sorted_keys = sorted(avg_semantic_emd_losses.keys())
     sorted_values = [avg_semantic_emd_losses[key] for key in sorted_keys]
-
-    # Plot
-    plt.bar(sorted_keys, sorted_values)
-    plt.xlabel('Semantic Value')
-    plt.ylabel('Average EMD Loss')
-    plt.title('Average EMD Loss per Semantic Value')
-    plt.xticks(list(range(10)))  # x-axis ticks from 0 to 9
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    xlabel = ['animal', 'stilllife', 'portrait', 'plant', 'scene',
-              'indoor', 'others', 'nightScene', 'food', 'building']
-    plt.gca().set_xticklabels(xlabel, rotation=45, ha='right')  # Set x-labels
     
-    plt.show()
-
     results = analyze_histograms(test_giaa_dataset, emd_losses, ratio=0.3)
     savefig = True
-    # visualize_difference_trait(results, savefig=savefig)
-    # visualize_difference_attr(results, savefig=savefig)
-    # visualize_difference_big5(results, savefig=savefig)
-    # visualize_difference_semantic(results, savefig=savefig)
-    # fig = plt.figure()
-    # plt.hist(emd_losses, bins=40)
-    # plt.xlabel('EMD loss')
-    plt.show()
+    plot_diff = True
+    if plot_diff:
+        # Plot image
+        plt.bar(sorted_keys, sorted_values)
+        plt.xlabel('Semantic Value')
+        plt.ylabel('Average EMD Loss')
+        plt.title('Average EMD Loss per Semantic Value')
+        plt.xticks(list(range(10)))  # x-axis ticks from 0 to 9
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        xlabel = ['animal', 'stilllife', 'portrait', 'plant', 'scene',
+                'indoor', 'others', 'nightScene', 'food', 'building']
+        plt.gca().set_xticklabels(xlabel, rotation=45, ha='right')  # Set x-labels
+
+        # Plot trait
+        visualize_difference_trait(results, savefig=savefig)
+        visualize_difference_attr(results, savefig=savefig)
+        visualize_difference_big5(results, savefig=savefig)
+        visualize_difference_semantic(results, savefig=savefig)
+        fig = plt.figure()
+        plt.hist(emd_losses, bins=40)
+        plt.xlabel('EMD loss')
+        plt.show()
+
     raise Exception
-    # Training loop
-    best_test_loss = float('inf')
-    for epoch in range(num_epochs):
-        # Learning rate schedule
-        if (epoch + 1) % lr_schedule_epochs == 0:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] *= lr_decay_factor
+    # all_user_results = evaluate_user_datasets(all_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)
+    # testimg_user_results = evaluate_user_datasets(testimg_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)    
+    # Testing
 
-        # Training
-        # train_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
-        train_emd_loss = 0
-        if is_log:
-            wandb.log({"Train EMD Loss": train_emd_loss,}, commit=False)
-        
-        # Testing
-        test_giaa_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-        test_piaa_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
-        test_user_piaa_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
-        if is_log:
-            wandb.log({"Test PIAA EMD Loss": test_piaa_emd_loss,
-                       "Test PIAA SROCC": test_piaa_srocc,
-                       "Test GIAA EMD Loss": test_giaa_emd_loss,
-                       "Test GIAA SROCC": test_giaa_srocc,
-                       "Test user PIAA EMD Loss": test_user_piaa_emd_loss,
-                       "Test user PIAA SROCC": test_user_piaa_srocc,
-                       }, commit=True)
+    _, test_giaa_srocc, _ = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+    _, test_piaa_srocc, _ = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+    _, train_user_piaa_srocc, _ = evaluate(model, train_user_piaa_dataloader, earth_mover_distance, device)
+    _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
 
-        # Print the epoch loss
-        print(f"Epoch [{epoch + 1}/{num_epochs}], "
-              f"Train EMD Loss: {train_emd_loss:.4f}, "
-              f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-              f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-              f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
-              f"Test user PIAA EMD Loss: {test_user_piaa_emd_loss:.4f}, "
-              f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
-              f"Test user PIAA MSE Loss: {test_user_piaa_mse:.4f}, "
-              f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
-              f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-              f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-              )
-        if is_eval:
-            break
-        
-        # Early stopping check
-        if test_piaa_emd_loss < best_test_loss:
-            best_test_loss = test_piaa_emd_loss
-            num_patience_epochs = 0
-            torch.save(model.state_dict(), best_modelname)
-        else:
-            num_patience_epochs += 1
-            if num_patience_epochs >= max_patience_epochs:
-                print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
-                break
+    # Print the epoch loss
+    print(
+        f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+        f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+        f"Test user PIAA SROCC Loss: {test_user_piaa_srocc:.4f}, "
+        f"Train user PIAA SROCC Loss: {train_user_piaa_srocc:.4f}, "
+        )
+
+    

@@ -22,7 +22,7 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.num_attr, self.num_bins_attr, self.num_bins_aesthetic, self.num_pt = num_attr, num_bins_attr, num_bins_aesthetic, num_pt
         self.ravel_attr = self.num_attr * self.num_bins_attr
-        h_dim = 64
+        h_dim = 2
         self.fc = nn.Sequential(
             nn.Linear(num_attr * num_bins_attr + num_bins_aesthetic, h_dim),
             nn.ReLU(),
@@ -48,12 +48,12 @@ class CombinedModel(nn.Module):
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
         self.temperature = 0.01
-        
+        self.z_dims = 128
         # For predicting attribute histograms for each attribute
         self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 32),
+            nn.Linear(num_pt + self.z_dims, 512),
             nn.ReLU(),
-            nn.Linear(32, 512),
+            nn.Linear(512, 512),
             nn.BatchNorm1d(512)
         )
 
@@ -64,23 +64,14 @@ class CombinedModel(nn.Module):
             nn.Linear(512, num_bins_aesthetic)
         )
 
-        self.pt_decoder = nn.Sequential(
-            nn.Linear(512, num_pt),
-            nn.ReLU(),
-            nn.Linear(num_pt, num_pt),
-            nn.ReLU(),
-        )
-
-
     def forward(self, images, traits_histogram):
         x = self.resnet(images)
-        pt_code = self.pt_encoder(traits_histogram)
-
-        z = self.temperature * pt_code #* torch.randn(x.shape).to(images.device)
-        xz = x + z
+        z = torch.randn(x.shape[0], self.z_dims).to(images.device)
+        pt_code = self.pt_encoder(torch.cat([traits_histogram, z], dim=1))
+        xz = x + pt_code
+        # xz = torch.cat([x, pt_code], dim=1)
         aesthetic_logits = self.fc_aesthetic(xz)
-        recont_pt = self.pt_decoder(pt_code)
-        return aesthetic_logits, recont_pt
+        return aesthetic_logits
 
 
 # Training Function
@@ -106,7 +97,7 @@ def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimize
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
 
         # Forward pass through the CombinedModel
-        aesthetic_logits, recont_pt = model(images, traits_histogram)
+        aesthetic_logits = model(images, traits_histogram)
         
         # EMD loss for aesthetic and attributes
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
@@ -115,7 +106,6 @@ def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimize
         # loss_attribute_emd = emd_criterion(prob_attribute, attributes_target_histogram)
         # total_emd_loss = loss_aesthetic_emd + loss_attribute_emd.sum()
         total_emd_loss = loss_aesthetic_emd
-        pt_mse_loss = mse_loss(traits_histogram, recont_pt)
 
         # Zero the gradients for discriminator
         d_optimizer.zero_grad()
@@ -144,8 +134,7 @@ def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimize
         g_loss_gan = F.binary_cross_entropy_with_logits(logits, labels)
 
         # Combining EMD and GAN loss for generator
-        # g_loss = total_emd_loss + g_loss_gan
-        g_loss = total_emd_loss + pt_mse_loss
+        g_loss = total_emd_loss + g_loss_gan
         g_loss.backward()
         optimizer.step()
 
@@ -188,7 +177,7 @@ def evaluate(model, dataloader, criterion, device):
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
-            aesthetic_logits, pt_recont = model(images, traits_histogram)
+            aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
             
@@ -232,7 +221,7 @@ criterion_mse = nn.MSELoss()
 
 
 def load_data():
-    random_seed = 42
+    random_seed = None
     root_dir = '/home/lwchen/datasets/PARA/'
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -276,10 +265,10 @@ if __name__ == '__main__':
     G_lr = args.G_lr
     D_lr = args.D_lr
     batch_size = 100
-    num_epochs = 20
+    num_epochs = 40
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
-    max_patience_epochs = 10
+    max_patience_epochs = 20
     
     if is_log:
         hyperparam_tags = [
@@ -288,9 +277,10 @@ if __name__ == '__main__':
             f"LR Decay Factor: {lr_decay_factor}",
             f"LR Decay Step: {lr_schedule_epochs}",
             "Trait",
+            "D_hidden2"
         ]
         wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, 
-                   notes="NIMA Trait addition")
+                   notes="NIMA Trait addition, attrgan")
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -298,7 +288,7 @@ if __name__ == '__main__':
     train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
 
     # Create dataloaders
-    n_workers = 4
+    n_workers = 8
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
@@ -317,7 +307,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_cls_gan_lr%1.0e_decay_%depoch' % (G_lr, num_epochs)
+    best_modelname = 'best_model_resnet50_cls_trait_lr%1.0e_decay_%depoch' % (G_lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 

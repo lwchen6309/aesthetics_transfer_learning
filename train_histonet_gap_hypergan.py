@@ -19,11 +19,10 @@ import argparse
 
 # Model Definition
 class Discriminator(nn.Module):
-    def __init__(self, num_attr, num_bins_attr, num_bins_aesthetic, num_pt):
+    def __init__(self, num_attr, num_bins_attr, num_bins_aesthetic, num_pt, h_dim=16):
         super(Discriminator, self).__init__()
         self.num_attr, self.num_bins_attr, self.num_bins_aesthetic, self.num_pt = num_attr, num_bins_attr, num_bins_aesthetic, num_pt
         self.ravel_attr = self.num_attr * self.num_bins_attr
-        h_dim = 16
         self.fc = nn.Sequential(
             nn.Linear(num_attr * num_bins_attr + num_bins_aesthetic, h_dim),
             nn.ReLU(),
@@ -100,7 +99,22 @@ class CombinedModel(nn.Module):
             HyperConvNetwork(num_pt, ch_in=256, ch_out=128, kernel_size=3).cuda(),
             HyperConvNetwork(num_pt, ch_in=128, ch_out=num_bins_aesthetic, kernel_size=1).cuda()
         ]
-    
+        
+        # For predicting attribute histograms for each attribute
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(num_pt, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_bins_aesthetic),
+            nn.BatchNorm1d(num_bins_aesthetic)
+        )
+
+        # For predicting attribute histograms for each attribute
+        self.fuser = nn.Sequential(
+            nn.Linear(2*num_bins_aesthetic, 2*num_bins_aesthetic),
+            nn.ReLU(),
+            nn.Linear(2*num_bins_aesthetic, num_bins_aesthetic),
+        )
+
     def forward(self, images, traits_histogram):
         x = self.resnet(images)['layer4']
         x = self.conv_encoder(x)
@@ -110,6 +124,8 @@ class CombinedModel(nn.Module):
             x = hnet.infer_hnet(x, traits_histogram)
         x = x + out
         aesthetic_logits = self.gap(x)[:,:,0,0]
+        pt_code = self.pt_encoder(traits_histogram)
+        aesthetic_logits = self.fuser(torch.cat([aesthetic_logits, pt_code], dim=1))
         return aesthetic_logits
 
 
@@ -160,8 +176,8 @@ def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimize
         
         # Combine losses and update discriminator
         d_loss = d_real_loss + d_fake_loss
-        d_loss.backward(retain_graph=True)
-        d_optimizer.step()
+        # d_loss.backward(retain_graph=True)
+        # d_optimizer.step()
 
         # Zero the gradients for CombinedModel
         optimizer.zero_grad()
@@ -172,7 +188,7 @@ def train(model, discriminator, dataloader, emd_criterion, optimizer, d_optimize
         g_loss_gan = F.binary_cross_entropy_with_logits(logits, labels)
 
         # Combining EMD and GAN loss for generator
-        g_loss = total_emd_loss + g_loss_gan
+        g_loss = total_emd_loss
         g_loss.backward()
         optimizer.step()
 
@@ -298,13 +314,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train a GAN with specified learning rates.")
     parser.add_argument("--G_lr", type=float, default=5e-5, help="Learning rate for the generator.")
     parser.add_argument("--D_lr", type=float, default=5e-5, help="Learning rate for the discriminator.")
+    parser.add_argument("--h_dim", type=int, default=8, help="Hidden dimension size for the Discriminator.")
     args = parser.parse_args()
 
     G_lr = args.G_lr
     D_lr = args.D_lr
+    h_dim = args.h_dim
     batch_size = 100
-    num_epochs = 100
-    # num_epochs = 20
+    num_epochs = 20
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
@@ -316,7 +333,8 @@ if __name__ == '__main__':
             f"LR Decay Factor: {lr_decay_factor}",
             f"LR Decay Step: {lr_schedule_epochs}",
             "TraitHyper",
-            "D_hidden16",
+            # "D_hidden8",
+            "Residual"
         ]
         wandb.init(project="resnet_PARA_PIAA", tags=hyperparam_tags, 
                    notes="GAN_attrDiscriminator")
@@ -327,7 +345,7 @@ if __name__ == '__main__':
     train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
 
     # Create dataloaders
-    n_workers = 4
+    n_workers = 8
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
@@ -336,7 +354,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
-    discriminator = Discriminator(num_attr, num_bins_attr, num_bins, num_pt).to(device)
+    discriminator = Discriminator(num_attr, num_bins_attr, num_bins, num_pt, h_dim).to(device)
     
     if resume is not None:
         model.load_state_dict(torch.load(resume))
