@@ -149,7 +149,7 @@ def split_data_by_user(data, test_count, user_id_list=None, seed=None):
     
     return train_users, test_users
 
-def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=50, user_id_list=None, seed=None):
+def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=[10, 50], n_samples=10, user_id_list=None, seed=None):
     # Split data by user
     train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count, user_id_list=user_id_list, seed=seed)
     # Filter data by user IDs
@@ -157,8 +157,10 @@ def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annota
     test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
     
     # Limit the number of annotations per user
-    train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user)
-    test_dataset.data = limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user)
+    train_dataset.databank = [limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user[0]) for _ in range(n_samples)]
+    train_dataset.data = train_dataset.databank[0]
+    test_dataset.databank = [limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user[1]) for _ in range(n_samples)]
+    test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
 def split_dataset_by_images(train_dataset, test_dataset, root_dir):
@@ -208,7 +210,7 @@ if __name__ == '__main__':
     # Create datasets with the appropriate transformations
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=10)
+    # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=[10,50])
     
     train_dataset = split_dataset_by_trait(train_dataset, 'gender', 'male')
     test_dataset = split_dataset_by_trait(test_dataset, 'gender', 'male')

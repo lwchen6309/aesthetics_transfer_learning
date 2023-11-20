@@ -6,13 +6,14 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.models import resnet50
+# from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
-from PARA_PIAA_dataloader import PARA_PIAADataset, collect_batch_attribute, collect_batch_personal_trait, split_dataset_by_user
+from PARA_PIAA_dataloader import PARA_PIAADataset, collect_batch_attribute, collect_batch_personal_trait, split_dataset_by_user, split_dataset_by_images, limit_annotations_per_user
 import wandb
 from itertools import chain
 from scipy.stats import spearmanr
+from train_resnet_giaa import CombinedModel
 
 
 class MLP(nn.Module):
@@ -46,9 +47,7 @@ def train(model, mlp1, mlp2, dataloader, criterion_mse, optimizer, device):
         batch_size = len(images)
         optimizer.zero_grad()
 
-        outputs = model(images)
-        logit = outputs[:,:num_bins]
-        attr_mean_pred = outputs[:,num_bins:]
+        logit, attr_mean_pred = model(images)
         prob = F.softmax(logit, dim=1)
 
         # Interation_map
@@ -74,9 +73,11 @@ def train(model, mlp1, mlp2, dataloader, criterion_mse, optimizer, device):
 
 
 def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
-    model.train()
+    model.eval()  # Set the model to evaluation mode
     running_mse_loss = 0.0
-    running_srocc_loss = 0.0
+
+    all_predicted_scores = []  # List to store all predictions
+    all_true_scores = []  # List to store all true scores
 
     progress_bar = tqdm(dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
@@ -91,71 +92,35 @@ def evaluate(model, mlp1, mlp2, dataloader, criterion_mse, device):
             sample_pt = sample_pt.to(device)
             batch_size = len(images)
 
-            outputs = model(images)
-            logit = outputs[:,:num_bins]
-            attr_mean_pred = outputs[:,num_bins:]
+            logit, attr_mean_pred = model(images)
             prob = F.softmax(logit, dim=1)
 
-            # Interation_map
+            # Interaction_map
             A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
-            I_ij = A_ij.view(batch_size,-1)
+            I_ij = A_ij.view(batch_size, -1)
             y_ij = mlp1(I_ij) + mlp2(prob * scale)
-            # y_ij = y_ij + torch.sum(prob * scale, dim=1, keepdim=True)
 
             # MSE loss
-            loss = criterion_mse(y_ij, sample_score)          
-
+            loss = criterion_mse(y_ij, sample_score)
             running_mse_loss += loss.item()
 
-            # Calculate SROCC
+            # Store predicted and true scores for SROCC calculation
             predicted_scores = y_ij.view(-1).cpu().numpy()
             true_scores = sample_score.view(-1).cpu().numpy()
-            srocc, _ = spearmanr(predicted_scores, true_scores)
-            running_srocc_loss += srocc
+            all_predicted_scores.extend(predicted_scores)
+            all_true_scores.extend(true_scores)
 
-            progress_bar.set_postfix({
-                'Test MSE Mean Loss': loss.item(),
-                'Test SROCC': srocc,
-            })
+            progress_bar.set_postfix({'Test MSE Mean Loss': loss.item()})
 
     epoch_mse_loss = running_mse_loss / len(dataloader)
-    epoch_srocc = running_srocc_loss / len(dataloader)
-    return epoch_mse_loss, epoch_srocc
 
+    # Calculate SROCC for all predictions
+    srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
 
-is_eval = False
-is_log = True
-num_bins = 9
-num_attr = 8
-num_pt = 25 # number of personal trait
-pretrained_rn = 'best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'
-
-
-if __name__ == '__main__':
-    # Set random seed for reproducibility
-    # random_seed = 42
-    # torch.manual_seed(random_seed)
-    # torch.cuda.manual_seed(random_seed)
-    # np.random.seed(random_seed)
-    # random.seed(random_seed)
-
-    lr = 1e-5
-    batch_size = 100
-    num_epochs = 5
-    if is_log:
-        wandb.init(project="resnet_PARA_GIAA")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
-        experiment_name = wandb.run.name
-    else:
-        experiment_name = ''
+    return epoch_mse_loss, srocc
     
-    # Define the root directory of the PARA dataset
-    root_dir = '/home/lwchen/datasets/PARA/'
 
+def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -170,41 +135,72 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
-    train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, 
-        test_count=40, max_annotations_per_user=100)
+    train_dataset, test_dataset = split_dataset_by_images(
+        PARA_PIAADataset(root_dir, transform=train_transform), 
+        PARA_PIAADataset(root_dir, transform=test_transform), root_dir)
 
-    # Create dataloaders for training and test sets
-    n_workers = 4
+    # Create datasets with the appropriate transformations
+    # train_dataset, _ = split_dataset_by_user(
+    #     train_dataset, PARA_PIAADataset(root_dir, transform=test_transform),
+    #     test_count=40, max_annotations_per_user=[10, 100])
+    
+    # train_dataset.data = limit_annotations_per_user(train_dataset.data, max_annotations_per_user=100)
+
+    # train_dataset, test_dataset = split_dataset_by_user(
+    #     PARA_PIAADataset(root_dir, transform=train_transform), 
+    #     PARA_PIAADataset(root_dir, transform=test_transform), 
+    #     test_count=40, max_annotations_per_user=100)
+    
+    return train_dataset, test_dataset
+
+
+is_eval = False
+is_log = True
+num_bins = 9
+num_attr = 8
+num_pt = 25 # number of personal trait
+pretrained_rn = 'best_model_resnet50_giaa_hidden512_lr5e-05_decay_20epoch_twilight-dream-273.pth'
+
+
+if __name__ == '__main__':
+    lr = 1e-5
+    batch_size = 100
+    num_epochs = 20
+
+    if is_log:
+        wandb.init(project="resnet_PARA_GIAA",
+                   notes="PIAA-MIR",
+                   tags=['Train user sample'])
+        wandb.config = {
+            "learning_rate": lr,
+            "batch_size": batch_size,
+            "num_epochs": num_epochs
+        }
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
+     # Create dataloaders for training and test sets
+    train_dataset, test_dataset = load_data()
+    n_workers = 8
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
 
     # Define the number of classes in your dataset
     num_classes = num_attr + num_bins
+    hidden_unit = 512
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = CombinedModel(num_bins, num_attr, hidden_unit).to(device)
+    model.load_state_dict(torch.load(pretrained_rn))
 
-    # Load the pre-trained ResNet model
-    model_resnet50 = resnet50(pretrained=True)
-
-    # Modify the last fully connected layer to match the number of classes
-    num_features = model_resnet50.fc.in_features
-    model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, 1024),
-        nn.ReLU(),
-        nn.Linear(1024, num_classes),  # Output for the first task (num_classes)
-    )
-    if pretrained_rn is not None:
-        model_resnet50.load_state_dict(torch.load(pretrained_rn))
-    
     # Define two MLPs
     d_interactio = num_attr * num_pt
     mlp1 = MLP(d_interactio, 1024, 1)
     mlp2 = MLP(num_bins, 1024, 1)
 
     # Move the model to the device
-    model_resnet50 = model_resnet50.to(device)
+    model = model.to(device)
     mlp1 = mlp1.to(device)
     mlp2 = mlp2.to(device)
     
@@ -212,7 +208,7 @@ if __name__ == '__main__':
     criterion_mse = nn.MSELoss()
 
     # Define the optimizer
-    optimizer = optim.Adam(chain([*model_resnet50.parameters(), *mlp1.parameters(), *mlp2.parameters()]), lr=lr)
+    optimizer = optim.Adam(chain([*model.parameters(), *mlp1.parameters(), *mlp2.parameters()]), lr=lr)
     # optimizer = optim.Adam(chain([*mlp1.parameters(), *mlp2.parameters()]), lr=lr)
 
     # Initialize the best test loss and the best model
@@ -228,7 +224,7 @@ if __name__ == '__main__':
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     num_patience_epochs = 0
-    best_test_loss = float('inf')    
+    best_test_loss = float('inf')
     for epoch in range(num_epochs):
         # Learning rate schedule
         if (epoch + 1) % lr_schedule_epochs == 0:
@@ -236,21 +232,21 @@ if __name__ == '__main__':
                 param_group['lr'] *= lr_decay_factor
 
         # Training
-        train_mse_loss = train(model_resnet50, mlp1, mlp2, train_dataloader, criterion_mse, optimizer, device)
+        train_mse_loss = train(model, mlp1, mlp2, train_dataloader, criterion_mse, optimizer, device)
         if is_log:
-            wandb.log({"Train MSE Loss": train_mse_loss,}, commit=False)
+            wandb.log({"Train PIAA MSE Loss": train_mse_loss,}, commit=False)
 
         # Testing
-        test_mse_loss, test_srocc = evaluate(model_resnet50, mlp1, mlp2, test_dataloader, criterion_mse, device)
+        test_mse_loss, test_srocc = evaluate(model, mlp1, mlp2, test_dataloader, criterion_mse, device)
         if is_log:
-            wandb.log({"Test MSE Loss": train_mse_loss,
-                       "Test SROCC": test_srocc}, commit=True)
+            wandb.log({"Test PIAAMSE Loss": train_mse_loss,
+                       "Test PIAA SROCC": test_srocc}, commit=True)
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
-              f"Train MSE Loss: {train_mse_loss:.4f}, "
-              f"Test MSE Loss: {test_mse_loss:.4f}, "
-              f"Test SROCC Loss: {test_srocc:.4f}, ")
+              f"Train PIAA MSE Loss: {train_mse_loss:.4f}, "
+              f"Test PIAA MSE Loss: {test_mse_loss:.4f}, "
+              f"Test PIAA SROCC Loss: {test_srocc:.4f}, ")
         if is_eval:
             raise Exception
 

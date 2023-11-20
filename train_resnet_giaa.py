@@ -12,6 +12,30 @@ from tqdm import tqdm
 from PARA_dataloader import PARADataset
 import wandb
 from scipy.stats import spearmanr
+import argparse
+
+
+# Model Definition
+class CombinedModel(nn.Module):
+    def __init__(self, num_bins, num_attrs, h_dims=512, resume=None):
+        super(CombinedModel, self).__init__()
+        tot_num_bins = num_bins + num_attrs
+        self.num_bins = num_bins
+        self.num_attrs = num_attrs
+        self.resnet = resnet50(pretrained=True)
+        self.resnet.fc = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features, h_dims),
+            nn.ReLU(),
+            nn.Linear(h_dims, tot_num_bins),
+        )
+        if resume is not None:
+            self.resnet.load_state_dict(torch.load(resume))
+    
+    def forward(self, images):
+        outputs = self.resnet(images)
+        logit = outputs[:,:self.num_bins]
+        attr_mean_pred = outputs[:,self.num_bins:]
+        return logit, attr_mean_pred
 
 
 def earth_mover_distance(x, y):
@@ -24,13 +48,14 @@ def earth_mover_distance(x, y):
     return torch.mean(emd)
 
 
-def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd, optimizer, device):
+def train(model, train_dataloader, optimizer, device):
     model.train()
-    running_ce_loss = 0.0
-    running_raw_ce_loss = 0.0
     running_mse_mean_loss = 0.0
     running_mse_std_loss = 0.0
     running_emd_loss = 0.0
+    running_attr_mse_loss = 0.0
+    criterion_mse = nn.MSELoss()
+    criterion_emd = earth_mover_distance
 
     progress_bar = tqdm(train_dataloader, leave=False)
     scale = torch.arange(1, 5.5, 0.5).to(device)
@@ -49,14 +74,8 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
 
         optimizer.zero_grad()
 
-        outputs = model(images)
-        logit = outputs[:,:num_bins]
-        attr_mean_pred = outputs[:,num_bins:]
+        logit, attr_mean_pred = model(images)
         prob = F.softmax(logit, dim=1)
-        
-        # Cross-entropy loss
-        ce_loss = criterion_weight_ce(logit, score_prob)
-        raw_ce_loss = criterion_raw_ce(logit, score_prob)
         
         # Earth Mover's Distance (EMD) loss
         emd_loss = criterion_emd(prob, score_prob)
@@ -75,111 +94,76 @@ def train(model, train_dataloader, criterion_weight_ce, criterion_raw_ce, criter
         loss.backward()
         optimizer.step()
 
-        running_ce_loss += ce_loss.item()
-        running_raw_ce_loss += raw_ce_loss.item()
         running_mse_mean_loss += mse_mean_loss.item()
         running_mse_std_loss += mse_std_loss.item()
         running_emd_loss += emd_loss.item()
+        running_attr_mse_loss += mse_attr_loss.item()
 
         progress_bar.set_postfix({
-            # 'Train CE Loss': ce_loss.item(),
-            # 'Train Raw CE Loss': raw_ce_loss.item(),
-            # 'Train MSE Mean Loss': mse_mean_loss.item(),
-            # 'Train MSE Std Loss': mse_std_loss.item(),
             'Train MSE MeanAttr Loss': mse_attr_loss.item(),
             'Train EMD Loss': emd_loss.item()
         })
 
-    epoch_ce_loss = running_ce_loss / len(train_dataloader)
-    epoch_raw_ce_loss = running_raw_ce_loss / len(train_dataloader)
     epoch_mse_mean_loss = running_mse_mean_loss / len(train_dataloader)
     epoch_mse_std_loss = running_mse_std_loss / len(train_dataloader)
     epoch_emd_loss = running_emd_loss / len(train_dataloader)
+    epoch_attr_mse_loss = running_attr_mse_loss / len(train_dataloader)
 
-    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss
+    return epoch_mse_mean_loss, epoch_mse_std_loss, epoch_attr_mse_loss, epoch_emd_loss
 
 
-def evaluate(model, dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd, device):
+def evaluate(model, dataloader, num_bins, num_attr, device, eval_srocc=True):
     model.eval()
-    running_ce_loss = 0.0
-    running_raw_ce_loss = 0.0
-    running_mse_mean_loss = 0.0
-    running_mse_std_loss = 0.0
     running_emd_loss = 0.0
-    running_brier_score = 0.0
-    running_mse_meanattr_loss = 0.0
-    running_srocc = 0.0
+    running_mse_loss = 0.0
+    running_attr_mse_loss = 0.0
+    criterion_mse = nn.MSELoss()
+    criterion_emd = earth_mover_distance
 
     scale = torch.arange(1, 5.5, 0.5).to(device)
+
     progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
     with torch.no_grad():
         for images, mean_scores, std_scores, score_prob in progress_bar:
             images = images.to(device)
+            score_prob = score_prob.to(device)[:,:num_bins] # Take only score distribution
             mean_scores = mean_scores.to(device)
-            std_scores = std_scores.to(device)
-            score_prob = score_prob.to(device)
-
             attr_mean_scores = mean_scores[:,1:] # Remove aesthetic score
-            aesthetic_mean_scores = mean_scores[:,0][:,None] # Remove aesthetic score
-            aesthetic_std_scores = std_scores[:,0][:,None] # Remove aesthetic score
-            score_prob = score_prob[:,:num_bins] # Take only score distribution
 
-            outputs = model(images)
-            logit = outputs[:,:num_bins]
-            attr_mean_pred = outputs[:,num_bins:]
+            logit, attr_mean_pred = model(images)
             prob = F.softmax(logit, dim=1)
-            
-            # Cross-entropy loss
-            ce_loss = criterion_weight_ce(logit, score_prob)
-            raw_ce_loss = criterion_raw_ce(logit, score_prob)
-            
-            # Earth Mover's Distance (EMD) loss
+
             emd_loss = criterion_emd(prob, score_prob)
             mse_attr_loss = criterion_mse(attr_mean_scores, attr_mean_pred)
-            brier_score = criterion_mse(prob, score_prob)
-
-            # MSE loss for mean
-            outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
-            mse_mean_loss = criterion_mse(outputs_mean, aesthetic_mean_scores)
-
-            # MSE loss for std
-            outputs_std = torch.sqrt(torch.sum(prob * (scale - outputs_mean) ** 2, dim=1, keepdim=True))            
-            mse_std_loss = criterion_mse(outputs_std, aesthetic_std_scores)
-
-            # Calculate SROCC
-            predicted_scores = outputs_mean.view(-1).cpu().numpy()
-            true_scores = aesthetic_mean_scores.view(-1).cpu().numpy()
-            srocc, _ = spearmanr(predicted_scores, true_scores)
-            
-            running_ce_loss += ce_loss.item()
-            running_raw_ce_loss += raw_ce_loss.item()
-            running_mse_mean_loss += mse_mean_loss.item()
-            running_mse_std_loss += mse_std_loss.item()
             running_emd_loss += emd_loss.item()
-            running_brier_score += brier_score.item()
-            running_mse_meanattr_loss += mse_attr_loss.item()
-            running_srocc += srocc
+            running_attr_mse_loss += mse_attr_loss.item()
             
+            if eval_srocc:
+                # MSE loss for mean
+                outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
+                mse_loss = criterion_mse(outputs_mean, mean_scores[:,0].unsqueeze(1))
+                running_mse_loss += mse_loss.item()
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(mean_scores[:,0].cpu().numpy())
+
             progress_bar.set_postfix({
-                # 'Eval CE Loss': ce_loss.item(),
-                # 'Eval Raw CE Loss': raw_ce_loss.item(),
-                # 'Eval MSE Mean Loss': mse_mean_loss.item(),
-                # 'Eval MSE Std Loss': mse_std_loss.item(),
-                'Eval MSE MeanAttr Loss': mse_attr_loss.item(),
                 'Eval EMD Loss': emd_loss.item(),
-                'Eval Brier Score': brier_score.item()
+                'Eval MSE Loss': mse_loss.item() if eval_srocc else 0,
             })
 
-    epoch_ce_loss = running_ce_loss / len(dataloader)
-    epoch_raw_ce_loss = running_raw_ce_loss / len(dataloader)
-    epoch_mse_mean_loss = running_mse_mean_loss / len(dataloader)
-    epoch_mse_std_loss = running_mse_std_loss / len(dataloader)
-    epoch_emd_loss = running_emd_loss / len(dataloader)
-    epoch_brier_score = running_brier_score / len(dataloader)
-    epoch_mse_meanattr_loss = running_mse_meanattr_loss / len(dataloader)
-    epoch_srocc = running_srocc / len(dataloader)
+    # Calculate SROCC
+    srocc = None
+    if eval_srocc:
+        predicted_scores = np.concatenate(mean_pred, axis=0)
+        true_scores = np.concatenate(mean_target, axis=0)
+        srocc, _ = spearmanr(predicted_scores, true_scores)
     
-    return epoch_ce_loss, epoch_raw_ce_loss, epoch_mse_mean_loss, epoch_mse_std_loss, epoch_emd_loss, epoch_brier_score, epoch_mse_meanattr_loss, epoch_srocc
+    attr_mse_loss = running_attr_mse_loss / len(dataloader)
+    emd_loss = running_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader) if eval_srocc else 0
+    return emd_loss, attr_mse_loss, mse_loss, srocc
 
 
 is_eval = False
@@ -188,35 +172,11 @@ num_bins = 9
 num_attr = 8
 use_attr = True
 use_hist = True
-use_ce = False
 # resume = 'best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'
 resume = None
 
-if __name__ == '__main__':
-    # Set random seed for reproducibility
-    # random_seed = 42
-    # torch.manual_seed(random_seed)
-    # torch.cuda.manual_seed(random_seed)
-    # np.random.seed(random_seed)
-    # random.seed(random_seed)
-    random_seed = None
-
-    lr = 5e-5
-    batch_size = 100
-    num_epochs = 20
-    if is_log:
-        wandb.init(project="resnet_PARA_GIAA")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
-        experiment_name = wandb.run.name
-    else:
-        experiment_name = ''
-    
+def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     # Define the root directory of the PARA dataset
-    root_dir = '/home/lwchen/datasets/PARA/'
 
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
@@ -237,60 +197,72 @@ if __name__ == '__main__':
                                 use_hist=use_hist, random_seed=random_seed)
     test_dataset = PARADataset(root_dir, transform=test_transform, train=False, use_attr=use_attr,
                                use_hist=use_hist, random_seed=random_seed)
+    return train_dataset, test_dataset
 
+
+if __name__ == '__main__':
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Train and Evaluate the Combined Model')
+    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
+    parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
+    parser.add_argument('--num_epochs', type=int, default=20, help='Number of epochs')
+    parser.add_argument('--lr_schedule_epochs', type=int, default=5, help='Epochs after which to apply learning rate decay')
+    parser.add_argument('--lr_decay_factor', type=float, default=0.1, help='Factor by which to decay the learning rate')
+    parser.add_argument('--max_patience_epochs', type=int, default=10, help='Max patience epochs for early stopping')
+    args = parser.parse_args()
+
+    lr = args.lr
+    batch_size = args.batch_size
+    num_epochs = args.num_epochs
+    lr_schedule_epochs = args.lr_schedule_epochs
+    lr_decay_factor = args.lr_decay_factor
+    max_patience_epochs = args.max_patience_epochs
+    random_seed = None
+
+    if is_log:
+        wandb.init(project="resnet_PARA_GIAA",
+                   notes='NIMA for MIR',
+                   tags=["lr_decay_factor%.2f"%lr_decay_factor])
+        wandb.config = {
+            "learning_rate": lr,
+            "batch_size": batch_size,
+            "num_epochs": num_epochs,
+        }
+        experiment_name = wandb.run.name
+    else:
+        experiment_name = ''
+    
+    train_dataset, test_dataset = load_data()
     # Create dataloaders for training and test sets
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=10)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=10)
-
+    n_workers = 4
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, pin_memory=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, pin_memory=True)
+    
     # Define the number of classes in your dataset
     num_classes = num_attr + num_bins
+    hidden_unit = 512
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = CombinedModel(num_bins, num_attr, hidden_unit, resume = resume).to(device)
 
-    # Load the pre-trained ResNet model
-    model_resnet50 = resnet50(pretrained=True)
-
-    # Modify the last fully connected layer to match the number of classes
-    num_features = model_resnet50.fc.in_features
-    hidden_unit = 512
-    model_resnet50.fc = nn.Sequential(
-        nn.Linear(num_features, hidden_unit),
-        nn.ReLU(),
-        nn.Linear(hidden_unit, num_classes),  # Output for the first task (num_classes)
-    )
-    if resume is not None:
-        model_resnet50.load_state_dict(torch.load(resume))
-
-    # Move the model to the device
-    model_resnet50 = model_resnet50.to(device)
-    
     # Define the loss functions
-    ce_weight = 1 / train_dataset.aesthetic_score_hist_prob[:num_bins]
-    ce_weight = ce_weight / np.sum(ce_weight) * len(ce_weight)
-    criterion_weight_ce = nn.CrossEntropyLoss(weight=torch.tensor(ce_weight, device=device))
-    criterion_raw_ce = nn.CrossEntropyLoss()
     criterion_mse = nn.MSELoss()
     criterion_emd = earth_mover_distance
 
     # Define the optimizer
-    optimizer_resnet50 = optim.Adam(model_resnet50.parameters(), lr=lr)
+    optimizer_resnet50 = optim.Adam(model.parameters(), lr=lr)
 
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'best_model_resnet50_giaa_hidden%d_lr%1.0e_decay_%depoch' % (hidden_unit, lr, num_epochs)
     if not use_attr:
         best_modelname += '_noattr'
-    if use_ce:
-        best_modelname += '_ce'
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
     # Training loop
-    lr_schedule_epochs = 5
-    lr_decay_factor = 0.1
-    max_patience_epochs = 10
+    best_test_loss = float('inf')
     num_patience_epochs = 0
-    best_test_loss = float('inf')    
     for epoch in range(num_epochs):
         # Learning rate schedule
         if (epoch + 1) % lr_schedule_epochs == 0:
@@ -298,51 +270,62 @@ if __name__ == '__main__':
                 param_group['lr'] *= lr_decay_factor
 
         # Training
-        train_ce_loss, train_raw_ce_loss, train_mse_mean_loss, train_mse_std_loss, train_emd_loss = train(
-            model_resnet50, train_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
-            optimizer_resnet50, device)
+        train_mse_mean_loss, train_mse_std_loss, train_attr_mse_loss, train_emd_loss = train(model, train_dataloader, optimizer_resnet50, device)
         if is_log:
-            wandb.log({"Train CE Loss": train_ce_loss,
-                       "Train Raw CE Loss": train_raw_ce_loss,
-                       "Train MSE Mean Loss": train_mse_mean_loss,
+            wandb.log({"Train MSE Mean Loss": train_mse_mean_loss,
                        "Train MSE Std Loss": train_mse_std_loss,
-                       "Train EMD Loss": train_emd_loss}, commit=False)
+                       "Train EMD Loss": train_emd_loss,
+                       "Train Attr MSE Loss": train_attr_mse_loss}, commit=False)
 
         # Testing
-        test_ce_loss, test_raw_ce_loss, test_mse_mean_loss, test_mse_std_loss, test_emd_loss, test_brier_score, epoch_mse_meanattr_loss, epoch_srocc = evaluate(
-            model_resnet50, test_dataloader, criterion_weight_ce, criterion_raw_ce, criterion_mse, criterion_emd,
-            device)
+        test_emd_loss, test_attr_mse_loss, test_mse_mean_loss, test_srocc = evaluate(model, test_dataloader, num_bins, num_attr, device, eval_srocc=True)
         if is_log:
-            wandb.log({"Test CE Loss": test_ce_loss,
-                       "Test Raw CE Loss": test_raw_ce_loss,
-                       "Test MSE Mean Loss": test_mse_mean_loss,
-                       "Test MSE Std Loss": test_mse_std_loss,
+            wandb.log({"Test MSE Mean Loss": test_mse_mean_loss,
                        "Test EMD Loss": test_emd_loss,
-                       "Test Brier Score": test_brier_score,
-                       "Test MSE Mean Attr Loss": epoch_mse_meanattr_loss,
-                       "Test SROCC": epoch_srocc})
+                       "Test MSE Mean Attr Loss": test_attr_mse_loss,
+                       "Test SROCC": test_srocc})
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
-              f"Train MSE Mean Loss: {train_mse_mean_loss:.4f}, "
+            #   f"Train MSE Mean Loss: {train_mse_mean_loss:.4f}, "
               f"Train EMD Loss: {train_emd_loss:.4f}, "
-              f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
+            #   f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
               f"Test EMD Loss: {test_emd_loss:.4f}, "
-              f"Test Brier Score: {test_brier_score:.4f}, "
-              f"Test MSE Mean Attr Loss: {epoch_mse_meanattr_loss:.4f}, "
-              f"Test SROCC: {epoch_srocc:.4f}")
+              f"Test MSE Mean Attr Loss: {test_attr_mse_loss:.4f}, "
+              f"Test SROCC: {test_srocc:.4f}")
         if is_eval:
             raise Exception
 
         # Check if the current model has the best test loss so far
-        test_loss = test_ce_loss if use_ce else test_emd_loss
+        test_loss = test_emd_loss
         # Early stopping check
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             num_patience_epochs = 0
-            torch.save(model_resnet50.state_dict(), best_modelname)
+            torch.save(model.state_dict(), best_modelname)
         else:
             num_patience_epochs += 1
             if num_patience_epochs >= max_patience_epochs:
                 print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
                 break
+
+
+    if not is_eval:
+        model.load_state_dict(torch.load(best_modelname))
+    
+    # Testing
+    test_emd_loss, test_attr_mse_loss, test_mse_mean_loss, test_srocc = evaluate(model, test_dataloader, num_bins, num_attr, device, eval_srocc=True)
+    if is_log:
+        wandb.log({"Test MSE Mean Loss": test_mse_mean_loss,
+                    "Test EMD Loss": test_emd_loss,
+                    "Test MSE Mean Attr Loss": test_attr_mse_loss,
+                    "Test SROCC": test_srocc})
+
+    # Print the epoch loss
+    print(f"Epoch [{epoch + 1}/{num_epochs}], "
+        #   f"Train MSE Mean Loss: {train_mse_mean_loss:.4f}, "
+            f"Train EMD Loss: {train_emd_loss:.4f}, "
+        #   f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
+            f"Test EMD Loss: {test_emd_loss:.4f}, "
+            f"Test MSE Mean Attr Loss: {test_attr_mse_loss:.4f}, "
+            f"Test SROCC: {test_srocc:.4f}")

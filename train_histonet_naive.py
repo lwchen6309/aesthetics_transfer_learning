@@ -118,13 +118,11 @@ def load_data():
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     
     user_ids_from = None
-    user_ids_from = pd.read_csv('top20_user_ids.csv')['User ID'].tolist()
+    # user_ids_from = pd.read_csv('top20_user_ids.csv')['User ID'].tolist()
     train_user_piaa_dataset, test_user_piaa_dataset = split_dataset_by_user(
-        # deepcopy(train_dataset), 
-        # deepcopy(test_dataset), 
         PARA_PIAADataset(root_dir, transform=train_transform),
         PARA_PIAADataset(root_dir, transform=train_transform),
-        test_count=40, max_annotations_per_user=50, seed=None, user_id_list=user_ids_from)
+        test_count=40, max_annotations_per_user=[10, 5000], seed=None, user_id_list=user_ids_from)
     
     all_each_user_piaa_dataset = generate_data_per_user(
         PARA_PIAADataset(root_dir, transform=train_transform), 
@@ -142,8 +140,8 @@ def load_data():
     train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
-    train_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=train_user_piaa_dataset.data)
-    test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
+    train_user_piaa_dataset = [PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=data) for data in train_user_piaa_dataset.databank]
+    test_user_piaa_dataset = [PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=data) for data in test_user_piaa_dataset.databank]
     return train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset
 
 def evaluate_emd(model, dataloader, criterion, device):
@@ -560,49 +558,30 @@ def eval_user_piaa():
     batch_size = 100
     num_epochs = 1
     
-    if is_log:
-        wandb.init(project="resnet_PARA_PIAA")
-        wandb.config = {
-            "learning_rate": lr,
-            "batch_size": batch_size,
-            "num_epochs": num_epochs
-        }
-        experiment_name = wandb.run.name
-    else:
-        experiment_name = ''
-    
     train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset = load_data()
     n_workers = 4
     
     pin_memory = False
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-    train_user_piaa_dataloader = DataLoader(train_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+    
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_pt, resume = resume).to(device)
     # Loss and optimizer
-    # criterion_mse = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # Initialize the best test loss and the best model
-    best_model = None
-    best_modelname = 'best_model_resnet50_histo_lr%1.0e_decay_%depoch' % (lr, num_epochs)
-    best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
-
-    # Testing
-    # _, train_user_piaa_srocc, _ = evaluate(model, train_user_piaa_dataloader, earth_mover_distance, device)
-    _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
-
-    return test_user_piaa_srocc
+    # Testing   
+    scores = []
+    for dataset in test_user_piaa_dataset:
+        test_user_piaa_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
+        _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+        scores.append(test_user_piaa_srocc)
+    return scores
 
 
 if __name__ == '__main__':
+    scroccs = eval_user_piaa()
+    raise Exception
     # results = np.array([eval_user_piaa() for _ in range(10)])
     # tag = 'top20'
     # np.savez('testuser_piaa_%s.npz'%tag, results=results)
@@ -662,10 +641,10 @@ if __name__ == '__main__':
     sorted_keys = sorted(avg_semantic_emd_losses.keys())
     sorted_values = [avg_semantic_emd_losses[key] for key in sorted_keys]
     
-    results = analyze_histograms(test_giaa_dataset, emd_losses, ratio=0.3)
-    savefig = True
-    plot_diff = True
+    plot_diff = False
     if plot_diff:
+        savefig = True
+        results = analyze_histograms(test_giaa_dataset, emd_losses, ratio=0.3)
         # Plot image
         plt.bar(sorted_keys, sorted_values)
         plt.xlabel('Semantic Value')
@@ -686,8 +665,10 @@ if __name__ == '__main__':
         plt.hist(emd_losses, bins=40)
         plt.xlabel('EMD loss')
         plt.show()
-
+    
     raise Exception
+    _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
+
     # all_user_results = evaluate_user_datasets(all_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)
     # testimg_user_results = evaluate_user_datasets(testimg_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)    
     # Testing
