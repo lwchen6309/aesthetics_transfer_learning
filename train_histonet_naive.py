@@ -118,11 +118,10 @@ def load_data():
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     
     user_ids_from = None
-    # user_ids_from = pd.read_csv('top20_user_ids.csv')['User ID'].tolist()
+    user_ids_from = pd.read_csv('top25_user_ids.csv')['User ID'].tolist()
     train_user_piaa_dataset, test_user_piaa_dataset = split_dataset_by_user(
         PARA_PIAADataset(root_dir, transform=train_transform),
-        PARA_PIAADataset(root_dir, transform=train_transform),
-        test_count=40, max_annotations_per_user=[10, 5000], seed=None, user_id_list=user_ids_from)
+        test_count=40, max_annotations_per_user=[100, 50], seed=None, user_id_list=user_ids_from)
     
     all_each_user_piaa_dataset = generate_data_per_user(
         PARA_PIAADataset(root_dir, transform=train_transform), 
@@ -142,6 +141,8 @@ def load_data():
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     train_user_piaa_dataset = [PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=data) for data in train_user_piaa_dataset.databank]
     test_user_piaa_dataset = [PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=data) for data in test_user_piaa_dataset.databank]
+    # train_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=train_user_piaa_dataset.data)
+    # test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=train_user_piaa_dataset.data)
     return train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset
 
 def evaluate_emd(model, dataloader, criterion, device):
@@ -214,122 +215,6 @@ def compute_mean_emd_for_semantics(emd_losses, semantic_values):
     avg_semantic_emd_losses = {k: np.mean(v) for k, v in semantic_emd_losses.items()}
 
     return avg_semantic_emd_losses
-
-def train_to_predict_emd(model, mlp, mlp_optimizer, dataloader, criterion, device):
-    model.eval()
-    running_mse_loss = 0.0
-    running_mse_emd_loss = 0.0
-    scale = torch.arange(1, 5.5, 0.5).to(device)
-    criterion_mse = nn.MSELoss()
-    progress_bar = tqdm(dataloader, leave=False)
-    mean_pred = []
-    mean_target = []
-
-    num_epochs = 5
-    for epoch in range(num_epochs):
-        for sample in progress_bar:
-            images = sample['image'].to(device)
-            aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            attributes_histogram = sample['attributes'].to(device)
-            traits_histogram = sample['traits'].to(device)
-            onehot_traits_histogram = sample['onehot_traits'].to(device)
-            traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
-            
-            with torch.no_grad():
-                logits = model(images)
-                prob = F.softmax(logits, dim=-1)
-            
-                outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
-                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
-                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
-                mean_target.append(target_mean.view(-1).cpu().numpy())
-                
-                # MSE
-                mse = criterion_mse(outputs_mean, target_mean)
-                running_mse_loss += mse.item()
-
-                loss = criterion(prob, aesthetic_score_histogram)
-
-        # Loss MLP
-        mlp_input = torch.cat([aesthetic_score_histogram, attributes_histogram, traits_histogram], dim=1)
-        predict_loss = mlp(mlp_input)
-        loss_mse = criterion_mse(predict_loss, loss.detach())
-        mlp_optimizer.zero_grad()
-        loss_mse.backward()
-        mlp_optimizer.step()
-
-        loss = torch.mean(loss)
-        running_mse_emd_loss += loss_mse.item()
-        progress_bar.set_postfix({'Test EMD Loss': loss.item(), 'MSE of Test EMD': loss_mse.item()})
-
-    # Calculate SROCC
-    predicted_scores = np.concatenate(mean_pred, axis=0)
-    true_scores = np.concatenate(mean_target, axis=0)
-    srocc, _ = spearmanr(predicted_scores, true_scores)
-
-    mse_loss = running_mse_loss / len(dataloader)
-    mse_emd_loss = running_mse_emd_loss / len(dataloader)
-    
-    return srocc, mse_loss, mse_emd_loss
-
-def evaluate_feature_impotance_mse_emd(model, mlp, dataloader, criterion, device):
-    model.eval()
-    mlp.eval()
-    running_mse_loss = 0.0
-    running_mse_emd_loss = 0.0
-    scale = torch.arange(1, 5.5, 0.5).to(device)
-    criterion_mse = nn.MSELoss()
-    progress_bar = tqdm(dataloader, leave=False)
-    mean_pred = []
-    mean_target = []
-    feature_importances = []
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        attributes_histogram = sample['attributes'].to(device)
-        traits_histogram = sample['traits'].to(device)
-        onehot_traits_histogram = sample['onehot_traits'].to(device)
-        traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
-        
-        with torch.no_grad():
-            logits = model(images)
-            prob = F.softmax(logits, dim=-1)
-
-            outputs_mean = torch.sum(prob * scale, dim=1, keepdim=True)
-            target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
-            mean_pred.append(outputs_mean.view(-1).cpu().numpy())
-            mean_target.append(target_mean.view(-1).cpu().numpy())
-            
-            # MSE
-            mse = criterion_mse(outputs_mean, target_mean)
-            running_mse_loss += mse.item()
-
-            loss = criterion(prob, aesthetic_score_histogram)
-
-        # Loss MLP
-        mlp_input = torch.cat([aesthetic_score_histogram, attributes_histogram, traits_histogram], dim=1)
-        predict_loss = mlp(mlp_input)
-        loss_mse = criterion_mse(predict_loss, loss.detach())
-
-        # Compute feature importance
-        original_mse = loss_mse.item()
-        for i in range(mlp_input.size(1)):
-            mlp_input_permuted = mlp_input.clone()
-            mlp_input_permuted[:, i] = torch.rand(mlp_input[:, i].shape)  # Shuffle the feature values
-
-            predicted_loss_permuted = mlp(mlp_input_permuted)
-            permuted_mse = criterion_mse(predicted_loss_permuted, loss.detach()).item()
-
-            # Difference between permuted and original MSE indicates importance
-            feature_importances.append(permuted_mse - original_mse)
-
-        loss = torch.mean(loss)
-        running_mse_emd_loss += loss_mse.item()
-        progress_bar.set_postfix({'Test EMD Loss': loss.item(), 'MSE of Test EMD': loss_mse.item()})
-    # Average the feature importances
-    avg_feature_importances = [sum(feature_importances[i::mlp_input.size(1)]) / len(dataloader) for i in range(mlp_input.size(1))]
-    return avg_feature_importances
-
 
 def analyze_histograms(dataset, emd_losses, ratio=0.3):
     # Get the indices of the top n% of the emd_losses, in descending order.
@@ -554,16 +439,12 @@ test_transform = transforms.Compose([
 
 
 def eval_user_piaa():
-    lr = 5e-5
     batch_size = 100
-    num_epochs = 1
-    
     train_dataset, test_giaa_dataset, test_piaa_dataset, train_user_piaa_dataset, test_user_piaa_dataset, all_each_user_piaa_dataset, testimg_each_user_piaa_dataset = load_data()
     n_workers = 4
     
     pin_memory = False
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=pin_memory, timeout=300)
-    
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Initialize the combined model
@@ -580,8 +461,15 @@ def eval_user_piaa():
 
 
 if __name__ == '__main__':
-    scroccs = eval_user_piaa()
+    scroccs_users = []
+    for i in range(10):
+        scroccs = eval_user_piaa()
+        mean_scrocc = np.mean(np.array(scroccs))
+        scroccs_users.append(mean_scrocc)
+    scroccs_users = np.array(scroccs_users)
+    print(scroccs_users.mean(), scroccs_users.std())
     raise Exception
+
     # results = np.array([eval_user_piaa() for _ in range(10)])
     # tag = 'top20'
     # np.savez('testuser_piaa_%s.npz'%tag, results=results)
@@ -635,8 +523,7 @@ if __name__ == '__main__':
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
 
-    # srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_giaa_dataloader, earth_mover_distance, device)
-    srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_piaa_dataloader, earth_mover_distance, device)
+    srocc, mse_loss, mse_emd_loss, emd_losses, avg_semantic_emd_losses = evaluate_emd(model, test_giaa_dataloader, earth_mover_distance, device)
     # Sorting the data for clarity
     sorted_keys = sorted(avg_semantic_emd_losses.keys())
     sorted_values = [avg_semantic_emd_losses[key] for key in sorted_keys]
@@ -666,13 +553,12 @@ if __name__ == '__main__':
         plt.xlabel('EMD loss')
         plt.show()
     
-    raise Exception
-    _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
-
+    # raise Exception
+    # _, test_user_piaa_srocc, _ = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
     # all_user_results = evaluate_user_datasets(all_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)
     # testimg_user_results = evaluate_user_datasets(testimg_each_user_piaa_dataset, model, earth_mover_distance, device, batch_size, n_workers, pin_memory)    
-    # Testing
 
+    # Testing
     _, test_giaa_srocc, _ = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     _, test_piaa_srocc, _ = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
     _, train_user_piaa_srocc, _ = evaluate(model, train_user_piaa_dataloader, earth_mover_distance, device)

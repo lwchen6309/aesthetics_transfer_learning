@@ -91,7 +91,7 @@ class PARA_PIAADataset(Dataset):
             sample['image'] = image
             if self.transform:
                 sample['image'] = self.transform(sample['image'])
-
+        
         return sample
 
 def collect_batch_personal_trait(sample,
@@ -109,10 +109,40 @@ def collect_batch_attribute(sample,
     return batch_attr[:,0][:,None], batch_attr[:,1:]
 
 
-def limit_annotations_per_user(data, max_annotations_per_user):
+def limit_annotations_per_user(data, max_annotations_per_user=[100, 50]):
+    # Ensure the input is a list of two elements
+    if len(max_annotations_per_user) != 2:
+        raise ValueError("max_annotations must be a list of two elements")
+
+    # Group by userId
     grouped = data.groupby('userId', group_keys=False)
-    filtered_data = grouped.apply(lambda x: x.sample(min(len(x), max_annotations_per_user)))
-    return filtered_data
+
+    def sample_disjoint(group, n1, n2):
+        # Sample min(len(group), n1 + n2) items randomly
+        total_sample_size = min(len(group), n1 + n2)
+        total_sample = random.sample(range(len(group)), total_sample_size)
+        
+        # Create boolean masks for two disjoint sets
+        mask1 = [True if i in total_sample[:n1] else False for i in range(len(group))]
+        mask2 = [True if i in total_sample[n1:n1 + n2] else False for i in range(len(group))]
+
+        return group[mask1], group[mask2]
+
+    # Initialize lists to store the two sets
+    first_set = []
+    second_set = []
+
+    # Apply the function to each group and append results to the lists
+    for name, group in grouped:
+        set1, set2 = sample_disjoint(group.reset_index(drop=True), max_annotations_per_user[0], max_annotations_per_user[1])
+        first_set.append(set1)
+        second_set.append(set2)
+
+    # Concatenate the lists into DataFrames
+    first_set_df = pd.concat(first_set)
+    second_set_df = pd.concat(second_set)
+    
+    return first_set_df, second_set_df
 
 def generate_data_per_user(dataset, max_annotations_per_user=50):
     data = dataset.data  # Assuming this is a pandas DataFrame
@@ -149,17 +179,20 @@ def split_data_by_user(data, test_count, user_id_list=None, seed=None):
     
     return train_users, test_users
 
-def split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=[10, 50], n_samples=10, user_id_list=None, seed=None):
+def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 50], n_samples=10, user_id_list=None, seed=None):
     # Split data by user
-    train_users, test_users = split_data_by_user(train_dataset.data, test_count=test_count, user_id_list=user_id_list, seed=seed)
+    _, test_users = split_data_by_user(dataset.data, test_count=test_count, user_id_list=user_id_list, seed=seed)
     # Filter data by user IDs
-    train_dataset.data = train_dataset.data[train_dataset.data['userId'].isin(train_users)]
-    test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_users)]
+    
+    dataset.data = dataset.data[dataset.data['userId'].isin(test_users)]
+    train_dataset = dataset
+    test_dataset = copy.deepcopy(dataset)
     
     # Limit the number of annotations per user
-    train_dataset.databank = [limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user[0]) for _ in range(n_samples)]
+    databank = [limit_annotations_per_user(train_dataset.data, max_annotations_per_user=max_annotations_per_user) for _ in range(n_samples)]
+    train_dataset.databank = [data[0] for data in databank]
+    test_dataset.databank = [data[1] for data in databank]
     train_dataset.data = train_dataset.databank[0]
-    test_dataset.databank = [limit_annotations_per_user(test_dataset.data, max_annotations_per_user=max_annotations_per_user[1]) for _ in range(n_samples)]
     test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
