@@ -12,8 +12,9 @@ from tqdm import tqdm
 import wandb
 from itertools import chain
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import PARA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
+from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_MIAA_HistogramDataset
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
+from train_histonet_latefusion import CombinedModel
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -73,46 +74,6 @@ def optimize_entropy_for_batch(distributions, lr=0.1, num_sample=30, num_epochs=
             best_c = c.detach()
     
     return best_c, best_ce_improvement, init_ce
-
-
-Model Definition
-class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
-        super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 512)
-        self.num_bins_aesthetic = num_bins_aesthetic
-        self.num_attr = num_attr
-        self.num_bins_attr = num_bins_attr
-        self.num_pt = num_pt
-
-        # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512) # Each attribute has its own histogram
-        )
-
-        # For predicting attribute histograms for each attribute
-        self.fc_attribute = nn.Sequential(
-            nn.Linear(512 + 512, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_attr * num_bins_attr) # Each attribute has its own histogram
-        )
-
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(num_attr * num_bins_attr, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
-    
-    def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        pt_code = self.pt_encoder(traits_histogram)
-        attribute_logits = self.fc_attribute(torch.cat((x, pt_code), dim=1))
-        aesthetic_logits = self.fc_aesthetic(attribute_logits)
-        return aesthetic_logits, attribute_logits.view(-1, self.num_attr, self.num_bins_attr)
 
 
 # Training Function
@@ -221,6 +182,48 @@ def evaluate(model, dataloader, criterion, device):
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
+def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
+    # Dataset transformations
+    train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+    ])
+
+    # Load datasets
+    # Create datasets with the appropriate transformations
+    train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
+    _, test_user_piaa_dataset = split_dataset_by_user(
+        PARA_PIAADataset(root_dir, transform=train_transform),  
+        test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
+    
+    # Create datasets with the appropriate transformations
+    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
+    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
+    print(len(train_dataset), len(test_dataset))
+    pkl_dir = './dataset_pkl'
+    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
+    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
+    # test_piaa_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
+    #                 giaa_data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
+
+    # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
+
+    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset
+
 
 is_eval = False
 is_log = True
@@ -244,7 +247,9 @@ if __name__ == '__main__':
     n_workers = 8
     
     if is_log:
-        wandb.init(project="resnet_PARA_PIAA")
+        wandb.init(project="resnet_PARA_PIAA", 
+                   notes="latefusion",
+                   tags = ["no_attr", 'piaa'])        
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -254,39 +259,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    root_dir = '/home/lwchen/datasets/PARA/'
-    # Dataset transformations
-    train_transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
-
-    # Load datasets
-    # Create datasets with the appropriate transformations
-    train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
-    _, test_user_piaa_dataset = split_dataset_by_user(
-        PARA_PIAADataset(root_dir, transform=train_transform), 
-        PARA_PIAADataset(root_dir, transform=train_transform), 
-        test_count=40, max_annotations_per_user=50, seed=random_seed)
-    
-    # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    print(len(train_dataset), len(test_dataset))
-    pkl_dir = './dataset_pkl'
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
-    test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)

@@ -8,6 +8,7 @@ import random
 import pickle
 from tqdm import tqdm
 import copy
+from scipy.optimize import minimize, Bounds
 
 
 class PARA_HistogramDataset(PARA_PIAADataset):
@@ -198,6 +199,22 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histograms.append(self._compute_item(idx, is_giaa=True))
         return accumulated_histograms
 
+    def augment_entire_dataset(self, num_trial=400):
+        tot_count = 0
+        for idx, histograms in enumerate(tqdm(self.precomputed_data, desc="Augmenting Dataset")):
+            count = 0
+            augment_list = []
+            for _ in range(num_trial):
+                augmented_histogram = self.augment_data(histograms)
+                if augmented_histogram:
+                    # Extend the original histograms with the augmented one
+                    augment_list.append(augmented_histogram)
+                    count += 1
+            if count > 0:
+                self.precomputed_data[idx].extend(augment_list)        
+                tot_count += count
+        print('augment %d data'%tot_count)
+
     def _compute_item(self, idx, is_giaa=True):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
         if not is_giaa:
@@ -291,6 +308,67 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
         selected_histogram['image'] = img_sample['image']
         selected_histogram['semantic'] = img_sample['imageAttributes']['semantic']
         return selected_histogram
+    
+    def augment_data(self, histograms):
+        # Randomly select two histograms from the provided list
+        x0, x1 = random.sample(histograms, 2)
+
+        # Define lengths of each component in traits and onehot_traits
+        len_traits = {'personality-E': 10, 'personality-A': 10, 'personality-N': 10, 'personality-O': 10, 'personality-C': 10}
+        len_onehot_traits = {'age': len(self.age_encoder), 'gender': len(self.gender_encoder), 'EducationalLevel': len(self.education_encoder), 
+                             'artExperience': len(self.art_experience_encoder), 'photographyExperience': len(self.photo_experience_encoder)}
+
+        # Function to split concatenated tensor into its components
+        def split_tensor(tensor, lengths):
+            split_tensors = {}
+            start = 0
+            for key, length in lengths.items():
+                split_tensors[key] = tensor[start:start + length]
+                start += length
+            return split_tensors
+
+        # Define the objective function for minimization
+        def objective_function(c1):
+            c0 = 1
+            c1_tensor = torch.tensor(c1, dtype=torch.float32)  # Convert c1 to a PyTorch tensor
+
+            d = {key: (c0 * x0[key] - c1_tensor * x1[key]) / (c0 - c1_tensor) for key in ['aestheticScore', 'traits', 'onehot_traits', 'attributes']}
+            std_components = []
+            std_components.append(torch.std(d['aestheticScore']))
+
+            d_traits = split_tensor(d['traits'], len_traits)
+            d_onehot_traits = split_tensor(d['onehot_traits'], len_onehot_traits)
+            
+            for component in d_traits.values():
+                std_components.append(torch.std(component))
+            for component in d_onehot_traits.values():
+                std_components.append(torch.std(component))
+            return sum(std_components).item()  # Ensure to return a Python scalar
+
+        # Initial standard deviation without augmentation
+        initial_std = objective_function(0)
+
+        # Find coefficient c1 that minimizes the objective function
+        result = minimize(objective_function, [random.random()-0.5], bounds=Bounds(-1, 0.9))
+
+        # Check if the optimization was successful and actually reduces the standard deviation
+        if result.success and result.fun < initial_std:
+            c1 = result.x[0]
+            selected_histogram = {key: (x0[key] - c1 * x1[key]) / (1 - c1) for key in ['aestheticScore', 'traits', 'onehot_traits', 'attributes']}
+            for key in selected_histogram:
+                selected_histogram[key] = torch.clamp(selected_histogram[key], min=0)
+
+            # Split traits and onehot_traits back into their components
+            selected_histogram['traits'] = split_tensor(selected_histogram['traits'], len_traits)
+            selected_histogram['onehot_traits'] = split_tensor(selected_histogram['onehot_traits'], len_onehot_traits)
+            return selected_histogram
+        else:
+            return None
+
+    def augment_and_save_dataset(self, save_file):
+        self.augment_entire_dataset()
+        self.save(save_file)
+        print(f"Augmented data saved to {save_file}")
 
     def _discretize(self, value, bins):
         for i, bin_value in enumerate(bins):
@@ -679,6 +757,8 @@ if __name__ == '__main__':
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
+    train_dataset.augment_and_save_dataset(os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct_augment.pkl'))
+    raise Exception
     train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
 
     # test_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
