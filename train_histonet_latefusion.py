@@ -14,6 +14,7 @@ from itertools import chain
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_usersplit_data, PARA_MIAA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_GSP_HistogramDataset
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
+import pandas as pd
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -322,6 +323,11 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
+    # Assuming shell_users_df contains the shell user DataFrame
+    shell_users_df = pd.read_csv('shell_user_ids.csv')
+    filtered_data = train_dataset.data[train_dataset.data['userId'].isin(shell_users_df['userId'])]
+    train_dataset.data = filtered_data
+
     _, test_user_piaa_dataset = split_dataset_by_user(
         PARA_PIAADataset(root_dir, transform=train_transform),  
         test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
@@ -332,9 +338,9 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     print(len(train_dataset), len(test_dataset))
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
-    train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+    train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
 
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
@@ -371,7 +377,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
-                   tags = ["no_attr"])
+                   tags = ["no_attr","PIAA","OuterShell"])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -423,33 +429,33 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # # Testing
-        # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
-        # if is_log:
-        #     wandb.log({
-        #         "Test PIAA EMD Loss": test_piaa_emd_loss,
-        #         "Test PIAA SROCC": test_piaa_srocc,
-        #                }, commit=True)
-        test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({
-                "Test GIAA EMD Loss": test_giaa_emd_loss,
-                "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
-                "Test GIAA SROCC": test_giaa_srocc,
-                "Test GIAA MSE": test_giaa_mse,
+                "Test PIAA EMD Loss": test_piaa_emd_loss,
+                "Test PIAA SROCC": test_piaa_srocc,
                        }, commit=True)
+        # test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        # if is_log:
+        #     wandb.log({
+        #         "Test GIAA EMD Loss": test_giaa_emd_loss,
+        #         "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
+        #         "Test GIAA SROCC": test_giaa_srocc,
+        #         "Test GIAA MSE": test_giaa_mse,
+        #                }, commit=True)
         
-        # Print the epoch loss
-        print(  f"Epoch [{epoch + 1}/{num_epochs}], "
-                f"Train EMD Loss: {train_emd_loss:.4f}, "
-                f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
-                f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
-                f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-                f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-              )
+        # # Print the epoch loss
+        # print(  f"Epoch [{epoch + 1}/{num_epochs}], "
+        #         f"Train EMD Loss: {train_emd_loss:.4f}, "
+        #         f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
+        #         f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
+        #         f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+        #         f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
+        #       )
 
         # Early stopping check
-        if test_giaa_emd_loss < best_test_loss:
-            best_test_loss = test_giaa_emd_loss
+        if test_piaa_emd_loss < best_test_loss:
+            best_test_loss = test_piaa_emd_loss
             num_patience_epochs = 0
             torch.save(model.state_dict(), best_modelname)
         else:
