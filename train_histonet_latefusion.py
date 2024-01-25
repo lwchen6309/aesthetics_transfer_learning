@@ -1,3 +1,4 @@
+import argparse
 import os
 import random
 import torch
@@ -305,7 +306,7 @@ def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate
     return optimized_trait_histograms, accumulated_emd_results
 
 
-def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
+def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims = 2, num_user = 200, is_reverse=False):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -324,7 +325,13 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
-    shell_users_df = pd.read_csv('shell_user_ids.csv')
+    filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
+    if is_reverse:
+        filename = filename.replace('.csv', '_rev.csv')
+    filename = os.path.join('shell_users', filename)
+    shell_users_df = pd.read_csv(filename)
+    print('Read user from %s'%filename)
+    
     filtered_data = train_dataset.data[train_dataset.data['userId'].isin(shell_users_df['userId'])]
     train_dataset.data = filtered_data
 
@@ -365,6 +372,15 @@ criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Process dimensions and number of users.')
+    parser.add_argument('--dims', type=int, default=2, help='Number of dimensions')
+    parser.add_argument('--num_users', type=int, default=200, help='Number of users')
+    parser.add_argument('--is_reverse', action='store_true', help='Reverse the order of processing')
+    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca'],
+                        help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
+    
+    args = parser.parse_args()
+    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -372,12 +388,12 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 8
+    n_workers = 4
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell"])
+                   tags = ["no_attr","PIAA","OuterShell_%ddim_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -387,7 +403,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data()
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data(method=args.method, dims=args.dims, num_user=args.num_users, is_reverse=args.is_reverse)
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
