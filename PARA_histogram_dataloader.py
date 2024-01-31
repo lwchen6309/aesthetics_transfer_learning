@@ -9,6 +9,7 @@ import pickle
 from tqdm import tqdm
 import copy
 from scipy.optimize import minimize, Bounds
+from time import time
 
 
 class PARA_HistogramDataset(PARA_PIAADataset):
@@ -562,16 +563,8 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
         if data is not None:
             self.data = data
 
-    def _discretize(self, value, bins):
-        """Helper function to discretize a value given specific bins"""
-        for i, bin_value in enumerate(bins):
-            if value <= bin_value:
-                return i
-        return len(bins) - 1
-    
-    def __getitem__(self, idx):
         # Initialize accumulators
-        accumulated_histogram = {
+        self.accumulated_histogram_template = {
             'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
             'attributes': {
                 'qualityScore': torch.zeros(5),
@@ -599,6 +592,15 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
             }
         }
 
+    def _discretize(self, value, bins):
+        """Helper function to discretize a value given specific bins"""
+        for i, bin_value in enumerate(bins):
+            if value <= bin_value:
+                return i
+        return len(bins) - 1
+
+    def __getitem__(self, idx):
+        accumulated_histogram = copy.deepcopy(self.accumulated_histogram_template)
         sample = super().__getitem__(idx)
         # Compute aesthetic score histogram
         bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
@@ -679,6 +681,114 @@ class PARA_GSP_HistogramDataset(PARA_PIAA_HistogramDataset):
     def __len__(self):
         # The length is the same as that of the PIAA dataset
         return len(self.data)
+
+
+
+class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
+    def __init__(self, root_dir, transform=None, data=None, save_file=None):
+        super().__init__(root_dir, transform)
+        if data is not None:
+            self.data = data
+
+        # Initialize accumulators
+        self.accumulated_histogram_template = {
+            'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
+            'attributes': {
+                'qualityScore': torch.zeros(5),
+                'compositionScore': torch.zeros(5),
+                'colorScore': torch.zeros(5),
+                'dofScore': torch.zeros(5),
+                'contentScore': torch.zeros(5),
+                'lightScore': torch.zeros(5),
+                'contentPreference': torch.zeros(5),
+                'willingnessToShare': torch.zeros(5)
+            },
+            'traits': {
+                'personality-E': torch.zeros(10),
+                'personality-A': torch.zeros(10),
+                'personality-N': torch.zeros(10),
+                'personality-O': torch.zeros(10),
+                'personality-C': torch.zeros(10)
+            },
+            'onehot_traits': {
+                'age': torch.zeros(len(self.age_encoder)),
+                'gender': torch.zeros(len(self.gender_encoder)),
+                'EducationalLevel': torch.zeros(len(self.education_encoder)),
+                'artExperience': torch.zeros(len(self.art_experience_encoder)),
+                'photographyExperience': torch.zeros(len(self.photo_experience_encoder))
+            }
+        }
+
+        self.save_file = save_file
+        if self.save_file:
+            if os.path.exists(self.save_file):
+                # Load precomputed histograms if the file exists
+                with open(self.save_file, 'rb') as f:
+                    self.precomputed_histograms = pickle.load(f)
+            else:
+                # Precompute and save the histograms
+                self.precompute_histograms()
+        else:
+            # Precompute histograms without saving
+            self.precomputed_histograms = [self.__getitem__(i) for i in tqdm(range(len(self)))]
+
+    def _discretize(self, value, bins):
+        """Helper function to discretize a value given specific bins"""
+        for i, bin_value in enumerate(bins):
+            if value <= bin_value:
+                return i
+        return len(bins) - 1
+
+    def __getitem__(self, idx):
+        if hasattr(self, 'precomputed_histograms'):
+            return self.precomputed_histograms[idx]
+        
+        accumulated_histogram = copy.deepcopy(self.accumulated_histogram_template)
+        sample = super().__getitem__(idx)
+        
+        # Compute aesthetic score histogram
+        bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+        accumulated_histogram['aestheticScore'][bin_idx] += 1
+
+        # Round the quality score to the nearest integer and update histogram
+        rounded_quality_score = round(sample['aestheticScores']['qualityScore'])
+        accumulated_histogram['attributes']['qualityScore'][rounded_quality_score - 1] += 1
+
+        # Compute histograms for other attributes
+        for attribute in ['compositionScore', 'colorScore', 'dofScore', 'contentScore', 'lightScore', 'contentPreference', 'willingnessToShare']:
+            bin_idx = int(sample['aestheticScores'][attribute] - 1)
+            accumulated_histogram['attributes'][attribute][bin_idx] += 1
+
+        # Compute histograms for traits
+        for trait, _ in accumulated_histogram['traits'].items():
+            bin_idx = int(sample['userTraits'][trait] - 1)
+            accumulated_histogram['traits'][trait][bin_idx] += 1
+
+        # Update onehot traits
+        for trait in accumulated_histogram['onehot_traits'].keys():
+            accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+
+        accumulated_histogram['n_samples'] = 1
+        accumulated_histogram['image'] = sample['image']
+
+        # Convert histograms to stacked tensors
+        stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+
+        # Replace dictionaries with stacked tensors
+        accumulated_histogram['attributes'] = stacked_attributes
+        accumulated_histogram['traits'] = stacked_traits
+        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+
+        return accumulated_histogram
+
+    def precompute_histograms(self):
+        self.precomputed_histograms = [self.__getitem__(i) for i in tqdm(range(len(self)))]
+        if self.save_file:
+            with open(self.save_file, 'wb') as f:
+                pickle.dump(self.precomputed_histograms, f)
+
 
 
 def load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=True):
