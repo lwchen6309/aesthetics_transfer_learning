@@ -41,6 +41,11 @@ def extract_outer_shell(X_transformed):
     return outer_shell_points, indices_on_hull
 
 
+def read_user_ids(file_path):
+    with open(file_path, 'r') as file:
+        return [line.strip() for line in file]
+
+
 if __name__ == '__main__':
     # Set up the argument parser
     parser = argparse.ArgumentParser(description='Process PCA or PaCMAP on data.')
@@ -68,16 +73,22 @@ if __name__ == '__main__':
 
     # Load your data (make sure to exclude any non-feature columns like 'userId')
     data = pd.read_csv('OneHotEncoded_Traits_Corrected.csv')
-    X = data.drop('userId', axis=1)
+    # Read user IDs from the file
+    user_ids_to_keep = read_user_ids('users_list_more_than500imgs.txt')
     
+    # Filter the data to keep only the rows with the user IDs from the file
+    data = data[data['userId'].isin(user_ids_to_keep)]
+    iaa_data = data.drop('userId', axis=1)
+    data.reset_index(drop=True, inplace=True)
+
     # Initialize PCA instance for 2 components
     if method == 'pacmap':    
         embedding = pacmap.PaCMAP(n_components=n_components, n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0) 
-        X_transformed = embedding.fit_transform(X, init="pca")
+        X_transformed = embedding.fit_transform(iaa_data, init="pca")
     else:
         # Fit and transform the data using PCA
         pca = PCA(n_components=n_components)
-        X_transformed = pca.fit_transform(X)
+        X_transformed = pca.fit_transform(iaa_data)
 
     # Extract the outer shell of the PCA-transformed data and the shell indices
     print('Compute Convex hull')
@@ -94,7 +105,9 @@ if __name__ == '__main__':
     closest_vertex_indices = closest_vertex_indices[:num_user]
     
     # Select the corresponding user IDs and data points for the unique closest vertices
-    unique_closest_user_ids = data['userId'][closest_vertex_indices]
+    # unique_closest_user_ids = data['userId'][closest_vertex_indices]
+    # unique_closest_data_points = X_transformed[closest_vertex_indices]
+    unique_closest_user_ids = data['userId'].iloc[closest_vertex_indices]
     unique_closest_data_points = X_transformed[closest_vertex_indices]
 
     # Save the unique closest user IDs to a CSV file
@@ -102,7 +115,7 @@ if __name__ == '__main__':
     filename = '%dD_shell_%duser_ids_%s.csv'%(n_components, num_user, method)
     if is_reverse:
         filename = filename.replace('.csv', '_rev.csv')
-    filename = os.path.join('shell_users', filename)
+    filename = os.path.join('shell_users', '500imgs', filename)
     unique_closest_user_ids_df.to_csv(filename, index=False)
 
     if isplot and n_components == 2:

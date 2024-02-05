@@ -328,12 +328,12 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
     filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
     if is_reverse:
         filename = filename.replace('.csv', '_rev.csv')
-    filename = os.path.join('shell_users', filename)
+    filename = os.path.join('shell_users', '500imgs', filename)
     shell_users_df = pd.read_csv(filename)
     print('Read user from %s'%filename)
     
     filtered_data = train_dataset.data[train_dataset.data['userId'].isin(shell_users_df['userId'])]
-    filtered_data, _ = limit_annotations_per_user(filtered_data, max_annotations_per_user=[57,10])
+    filtered_data, _ = limit_annotations_per_user(filtered_data, max_annotations_per_user=[500,1])
     train_dataset.data = filtered_data
 
     _, test_user_piaa_dataset = split_dataset_by_user(
@@ -355,8 +355,8 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     # test_piaa_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
     #                 giaa_data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    # test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    test_user_piaa_dataset = PARA_PIAA_HistogramDataset_Precomputed(root_dir, transform=test_transform, data=test_user_piaa_dataset.data, save_file=os.path.join(pkl_dir,'test_PIAA_dct.pkl'))
+    test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
+    # test_user_piaa_dataset = PARA_PIAA_HistogramDataset_Precomputed(root_dir, transform=test_transform, data=test_user_piaa_dataset.data, save_file=os.path.join(pkl_dir,'test_PIAA_dct.pkl'))
 
     # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
 
@@ -391,12 +391,12 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 4
+    n_workers = 3
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA_usersample", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell_%ddim_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method, '57imgs','NoEarlyStop'])
+                   tags = ["no_attr","PIAA","OuterShell_%ddim_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method, '500imgs'])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -426,6 +426,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
+    experiment_name = 'tmp'
     best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
@@ -447,7 +448,8 @@ if __name__ == '__main__':
                        "Train Total EMD Loss": train_total_emd_loss,
                        }, commit=False)
         
-        continue
+        if epoch % 4 > 0:
+            continue
         
         # # Testing
         test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
@@ -485,8 +487,8 @@ if __name__ == '__main__':
                 print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
                 break
     
-    # if not is_eval:
-    #     model.load_state_dict(torch.load(best_modelname))   
+    if not is_eval:
+        model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_subPIAA(model, test_piaa_dataloader, earth_mover_distance, device)
