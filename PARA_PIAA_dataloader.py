@@ -34,7 +34,7 @@ class PARA_PIAADataset_precompute(Dataset):
         self.education_encoder = {level: idx for idx, level in enumerate(self.user_info_df['EducationalLevel'].unique())}
         self.art_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['artExperience'].unique())}
         self.photo_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['photographyExperience'].unique())}
-
+        
         # Encoding image attributes
         self.img_emotion_encoder = {emotion: idx for idx, emotion in enumerate(self.images_df['imgEmotion'].unique())}
         self.difficulty_of_judgment_encoder = {difficulty: idx for idx, difficulty in enumerate(self.images_df['difficultyOfJudgment'].unique())}

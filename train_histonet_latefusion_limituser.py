@@ -99,12 +99,12 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 4
+    n_workers = 20
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA_usersample", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell_%ddim_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method, '500imgs'])
+                   tags = ["no_attr","PIAA","OuterShell_DataSpace_%duser"%(args.num_users),'reverse=%d'%args.is_reverse, args.method, '500imgs'])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -135,7 +135,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    experiment_name = 'tmp'
+    # experiment_name = 'tmp'
     best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
