@@ -8,27 +8,28 @@ import os
 import pickle
 
 
-def plot_pca_data(X, labels, title, filename):
+def plot_pca_data(X, labels, title, filename, label_dict):
     """
     Plot PCA-transformed data with different categories.
     :param X: PCA-transformed data.
     :param labels: List of labels for each data point.
     :param title: Title of the plot.
     :param filename: Filename to save the plot.
+    :param label_dict: Dictionary to convert label indices to actual labels.
     """
-    unique_labels = np.unique(labels)
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(6, 6))
 
-    for label in unique_labels:
-        idx = labels == label
-        plt.scatter(X[idx, 0], X[idx, 1], label=label, alpha=0.5)
+    for label_idx in np.unique(labels):
+        idx = labels == label_idx
+        label = label_dict.get(label_idx, 'Unknown')
+        plt.scatter(X[idx, 0], X[idx, 1], label=label, alpha=0.5, s=10)
 
     plt.title(title)
     plt.xlabel('PCA Component 1')
     plt.ylabel('PCA Component 2')
     plt.legend()
     plt.savefig(filename)
-    plt.show()
+
 
 # Function to extract the outer shell of PCA-transformed data
 def extract_outer_shell(X_transformed):
@@ -42,6 +43,20 @@ def extract_outer_shell(X_transformed):
     outer_shell_points = X_transformed[indices_on_hull]
     
     return outer_shell_points, indices_on_hull
+
+
+age_dict = {'30-34': 0, '18-21': 1, '22-25': 2, '26-29': 3, '35-40': 4}
+gender_dict = {'female': 0, 'male': 1}
+education_dict = {'junior_college': 0, 'university': 1, 'senior_high_school': 2, 'technical_secondary_school': 3, 'junior_high_school': 4}
+art_experience_dict = {'proficient': 0, 'competent': 1, 'beginner': 2, 'expert': 3}
+photo_experience_dict = {'proficient': 0, 'competent': 1, 'beginner': 2, 'expert': 3}
+
+# Reverse the dictionaries
+age_dict_rev = {v: k for k, v in age_dict.items()}
+gender_dict_rev = {v: k for k, v in gender_dict.items()}
+education_dict_rev = {v: k for k, v in education_dict.items()}
+art_experience_dict_rev = {v: k for k, v in art_experience_dict.items()}
+photo_experience_dict_rev = {v: k for k, v in photo_experience_dict.items()}
 
 
 if __name__ == '__main__':
@@ -135,32 +150,37 @@ if __name__ == '__main__':
     filename = os.path.join('shell_users', '500imgs', filename)
     unique_closest_user_ids_df.to_csv(filename, index=False)
 
-    isplot = True
+
     if isplot and n_components == 2:
         # Plot for different categories like gender, age, etc.
-        for trait in ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience']:
-            # Use argmax to determine the category for each user
-            trait_labels = np.array([np.argmax(precomputed_data[user_id]['userTraits'][trait]) for user_id in unique_closest_user_ids])
-            plot_pca_data(unique_closest_data_points, trait_labels, f'PCA Plot with {trait}', f'PCA_{trait}.png')
-
+        traits_dictionaries = {
+            'age': age_dict_rev,
+            'gender': gender_dict_rev,
+            'EducationalLevel': education_dict_rev,
+            'artExperience': art_experience_dict_rev,
+            'photographyExperience': photo_experience_dict_rev
+        }
+        for trait, trait_dict in traits_dictionaries.items():
+            trait_labels = np.array([np.argmax(precomputed_data[user_id]['userTraits'][trait]) for user_id in user_ids_to_keep])
+            plot_pca_data(X_transformed, trait_labels, f'PCA Plot with {trait}', f'PCA_{trait}.png', trait_dict)
+        
 
         # Plot the extracted outer shell
         plt.figure(figsize=(6, 6))
-        plt.scatter(X_transformed[:, 0], X_transformed[:, 1], s=0.6)
-        plt.scatter(outer_shell[:, 0], outer_shell[:, 1], s=10, color='red', label='Outer Shell')
+        plt.scatter(X_transformed[:, 0], X_transformed[:, 1], s=1)
+        plt.scatter(outer_shell[:, 0], outer_shell[:, 1], s=10, alpha=0.5, color='red', label='Outer Shell')
         plt.title('%s Embedding with Outer Shell'%method)
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.legend()
         
         # Visualize the 100 unique data points
-        plt.figure(figsize=(8, 8))
-        plt.scatter(X_transformed[:, 0], X_transformed[:, 1], s=0.6, label='All Data')
-        plt.scatter(unique_closest_data_points[:, 0], unique_closest_data_points[:, 1], s=10, color='red', label='Unique Closest Data')
-        plt.title('Visualization of Unique Closest Data Points')
+        plt.figure(figsize=(6, 6))
+        plt.scatter(X_transformed[:, 0], X_transformed[:, 1], s=1, label='All Users')
+        plt.scatter(unique_closest_data_points[:, 0], unique_closest_data_points[:, 1], s=10, alpha=0.5, color='red', label='Selected Users')
+        plt.title('Visualization of Selected Users')
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.legend()
-        plt.show()
 
         plt.show()
