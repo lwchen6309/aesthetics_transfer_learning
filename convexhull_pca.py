@@ -8,24 +8,27 @@ import os
 import pickle
 
 
-def plot_pca_by_onehot_trait(X_transformed, data, trait_prefix, method):
-    # Filter columns for the specific trait
-    trait_columns = [col for col in data.columns if col.startswith(trait_prefix)]
-    
-    # Plotting
-    plt.figure(figsize=(6, 6))
-    for col in trait_columns:
-        # Extract the category name without the prefix
-        category_name = col[len(trait_prefix):]
-        # Only plot the points where the trait value is 1
-        indices = data[col] == 1
-        plt.scatter(X_transformed[indices, 0], X_transformed[indices, 1], label=category_name, s=4.0)
-    
-    plt.title(f'%s Embedding Colored by {trait_prefix}'%method)
-    plt.xlabel('Principal Component 1')
-    plt.ylabel('Principal Component 2')
-    plt.legend()
+def plot_pca_data(X, labels, title, filename):
+    """
+    Plot PCA-transformed data with different categories.
+    :param X: PCA-transformed data.
+    :param labels: List of labels for each data point.
+    :param title: Title of the plot.
+    :param filename: Filename to save the plot.
+    """
+    unique_labels = np.unique(labels)
+    plt.figure(figsize=(10, 8))
 
+    for label in unique_labels:
+        idx = labels == label
+        plt.scatter(X[idx, 0], X[idx, 1], label=label, alpha=0.5)
+
+    plt.title(title)
+    plt.xlabel('PCA Component 1')
+    plt.ylabel('PCA Component 2')
+    plt.legend()
+    plt.savefig(filename)
+    plt.show()
 
 # Function to extract the outer shell of PCA-transformed data
 def extract_outer_shell(X_transformed):
@@ -39,11 +42,6 @@ def extract_outer_shell(X_transformed):
     outer_shell_points = X_transformed[indices_on_hull]
     
     return outer_shell_points, indices_on_hull
-
-
-def read_user_ids(file_path):
-    with open(file_path, 'r') as file:
-        return [line.strip() for line in file]
 
 
 if __name__ == '__main__':
@@ -77,8 +75,9 @@ if __name__ == '__main__':
     with open(file_path, 'rb') as file:
         # Load the data using pickle
         precomputed_data = pickle.load(file)
-    
-    user_ids_to_keep = read_user_ids('users_list_more_than500imgs.txt')
+    with open('users_list_more_than500imgs.txt', 'r') as file:
+        user_ids_to_keep = [line.strip() for line in file]
+
     users_traits = []
     for user_id in user_ids_to_keep:
         traits = precomputed_data[user_id]['userTraits']
@@ -136,13 +135,14 @@ if __name__ == '__main__':
     filename = os.path.join('shell_users', '500imgs', filename)
     unique_closest_user_ids_df.to_csv(filename, index=False)
 
+    isplot = True
     if isplot and n_components == 2:
-        # Plot data for each class
-        plot_pca_by_onehot_trait(X_transformed, data, 'gender_', method)
-        plot_pca_by_onehot_trait(X_transformed, data, 'age_', method)
-        plot_pca_by_onehot_trait(X_transformed, data, 'EducationalLevel_', method)
-        plot_pca_by_onehot_trait(X_transformed, data, 'artExperience_', method)
-        plot_pca_by_onehot_trait(X_transformed, data, 'photographyExperience_', method)
+        # Plot for different categories like gender, age, etc.
+        for trait in ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience']:
+            # Use argmax to determine the category for each user
+            trait_labels = np.array([np.argmax(precomputed_data[user_id]['userTraits'][trait]) for user_id in unique_closest_user_ids])
+            plot_pca_data(unique_closest_data_points, trait_labels, f'PCA Plot with {trait}', f'PCA_{trait}.png')
+
 
         # Plot the extracted outer shell
         plt.figure(figsize=(6, 6))
@@ -152,7 +152,7 @@ if __name__ == '__main__':
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.legend()
-
+        
         # Visualize the 100 unique data points
         plt.figure(figsize=(8, 8))
         plt.scatter(X_transformed[:, 0], X_transformed[:, 1], s=0.6, label='All Data')
