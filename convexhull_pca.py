@@ -6,6 +6,7 @@ from scipy.spatial import ConvexHull
 import argparse
 import os
 import pickle
+import random
 
 
 def plot_pca_by_distance(X_pca, distances, title, filename):
@@ -81,7 +82,7 @@ photo_experience_dict_rev = {v: k for k, v in photo_experience_dict.items()}
 if __name__ == '__main__':
     # Set up the argument parser
     parser = argparse.ArgumentParser(description='Process PCA or PaCMAP on data.')
-    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca'],
+    parser.add_argument('--method', type=str, default='pac', choices=['random', 'pca'],
                         help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
     parser.add_argument('--num_user', type=int, default=50,
                         help='Number of users to consider (default: 200)')
@@ -136,6 +137,17 @@ if __name__ == '__main__':
         users_traits.append(output)
     
     user_ids = np.array(user_ids_to_keep)
+
+    if method == 'random':
+        # Save the unique closest user IDs to a CSV file
+        unique_closest_user_ids = random.choices(user_ids, k=num_user)
+        unique_closest_user_ids_df = pd.DataFrame(unique_closest_user_ids, columns=['userId'])
+        for i in range(10):
+            filename = 'shell_%duser_ids_%s_%d.csv'%(num_user, method, i)
+            filename = os.path.join('shell_users', 'random_users', filename)
+            unique_closest_user_ids_df.to_csv(filename, index=False)
+        raise Exception('Pause by random user')
+
     iaa_data = np.stack(users_traits)
     # iaa_data[:, iaa_data.std(0) > 0]
 
