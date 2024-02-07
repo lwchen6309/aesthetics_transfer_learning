@@ -1,11 +1,11 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.decomposition import PCA
-import pacmap
 import numpy as np
 from scipy.spatial import ConvexHull
 import argparse
 import os
+import pickle
 
 
 def plot_pca_by_onehot_trait(X_transformed, data, trait_prefix, method):
@@ -72,28 +72,48 @@ if __name__ == '__main__':
 
 
     # Load your data (make sure to exclude any non-feature columns like 'userId')
-    data = pd.read_csv('OneHotEncoded_Traits_Corrected.csv')
-    # Read user IDs from the file
-    user_ids_to_keep = read_user_ids('users_list_more_than500imgs.txt')
+    # data = pd.read_csv('OneHotEncoded_Traits_Corrected.csv')
+    file_path = 'precomputed_trait_encodings.pkl'
+    with open(file_path, 'rb') as file:
+        # Load the data using pickle
+        precomputed_data = pickle.load(file)
     
-    # Filter the data to keep only the rows with the user IDs from the file
-    data = data[data['userId'].isin(user_ids_to_keep)]
-    iaa_data = data.drop('userId', axis=1)
-    data.reset_index(drop=True, inplace=True)
+    user_ids_to_keep = read_user_ids('users_list_more_than500imgs.txt')
+    users_traits = []
+    for user_id in user_ids_to_keep:
+        traits = precomputed_data[user_id]['userTraits']
+        output = [
+            np.array(traits['age']),
+            np.array(traits['gender']),
+            np.array(traits['EducationalLevel']),
+            np.array(traits['artExperience']),
+            np.array(traits['photographyExperience']),
+            np.array(traits['personality-E-onehot']),
+            np.array(traits['personality-A-onehot']),
+            np.array(traits['personality-N-onehot']),
+            np.array(traits['personality-O-onehot']),
+            np.array(traits['personality-C-onehot']),
+            # np.array(traits['personality-E']),
+            # np.array(traits['personality-A']),
+            # np.array(traits['personality-N']),
+            # np.array(traits['personality-O']),
+            # np.array(traits['personality-C']),            
+        ]
+        output = np.concatenate(output)
+        users_traits.append(output)
+    
+    user_ids = np.array(user_ids_to_keep)
+    iaa_data = np.stack(users_traits)
 
-    # Initialize PCA instance for 2 components
-    if method == 'pacmap':    
-        embedding = pacmap.PaCMAP(n_components=n_components, n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0) 
-        X_transformed = embedding.fit_transform(iaa_data, init="pca")
-    else:
-        # Fit and transform the data using PCA
-        pca = PCA(n_components=n_components)
-        X_transformed = pca.fit_transform(iaa_data)
+    # Fit and transform the data using PCA
+    pca = PCA(n_components=n_components)
+    X_transformed = pca.fit_transform(iaa_data)
 
     # Extract the outer shell of the PCA-transformed data and the shell indices
     print('Compute Convex hull')
     outer_shell, shell_indices = extract_outer_shell(X_transformed)
     print('Finish Convex hull')
+
     # Calculate distances between each data point and all shell vertices
     distances = np.linalg.norm(X_transformed[:, np.newaxis] - outer_shell, axis=2)
 
@@ -103,11 +123,9 @@ if __name__ == '__main__':
     if is_reverse:
         closest_vertex_indices = np.flip(closest_vertex_indices)
     closest_vertex_indices = closest_vertex_indices[:num_user]
-    
+
     # Select the corresponding user IDs and data points for the unique closest vertices
-    # unique_closest_user_ids = data['userId'][closest_vertex_indices]
-    # unique_closest_data_points = X_transformed[closest_vertex_indices]
-    unique_closest_user_ids = data['userId'].iloc[closest_vertex_indices]
+    unique_closest_user_ids = user_ids[closest_vertex_indices]
     unique_closest_data_points = X_transformed[closest_vertex_indices]
 
     # Save the unique closest user IDs to a CSV file

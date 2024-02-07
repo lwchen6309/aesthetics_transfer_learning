@@ -2,8 +2,8 @@ import os
 import torch
 from torchvision import transforms
 import torch.nn.functional as F
-from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, split_data_by_user
-from torch.utils.data import DataLoader
+from PARA_PIAA_dataloader import PARA_PIAADataset, PARA_PIAADataset_precompute, split_dataset_by_user, split_dataset_by_images, split_data_by_user
+from torch.utils.data import DataLoader, Dataset
 import random
 import pickle
 from tqdm import tqdm
@@ -218,11 +218,10 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
 
     def _compute_item(self, idx, is_giaa=True):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
-        if not is_giaa:
-            # n_sample = random.randint(1, len(associated_indices)-1)
-            n_sample = random.randint(2, len(associated_indices)-1)
-            associated_indices = random.sample(associated_indices, n_sample)
-        
+        upper_bound = len(associated_indices) if is_giaa else len(associated_indices)-1
+        n_sample = random.randint(2, upper_bound)
+        associated_indices = random.sample(associated_indices, n_sample)
+
         # Initialize accumulators
         accumulated_histogram = {
             'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
@@ -439,7 +438,7 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
 
     def precompute_data(self):
         self.precomputed_data = []
-        for idx in tqdm(range(len(self))):
+        for idx in tqdm(range(len(self)), desc='Precompute images'):
             self.precomputed_data.append(self._compute_item(idx))
 
     def _compute_item(self, idx):
@@ -640,6 +639,171 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
         return accumulated_histogram
 
 
+class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None):
+        super().__init__(root_dir, transform)
+        if data is not None:
+            self.data = data
+        
+        # Create a dictionary mapping each unique image name to a list of indices corresponding to that image
+        if map_file and os.path.exists(map_file):
+            # Load precomputed map from file
+            print('Loading image to indices map from file...')
+            self.image_to_indices_map = self._load_map(map_file)
+            self.unique_images = [img for img in self.image_to_indices_map.keys()]
+        else:
+            self.unique_images = self.data['imageName'].unique()
+            # Compute the mapping from images to indices
+            self.image_to_indices_map = dict()
+            for image in tqdm(self.unique_images, desc='Processing images'):
+                indices_for_image = [i for i, img in enumerate(self.data['imageName']) if img == image]
+                # Check if any index is out of bounds
+                if any(not idx < len(self.data) for idx in indices_for_image):
+                    print(indices_for_image)
+                    raise Exception('Index out of bounds for the data.')
+                self.image_to_indices_map[image] = indices_for_image
+                
+            if map_file:
+                print(f"Saving image to indices map to {map_file}")
+                self._save_map(map_file)
+
+    def _discretize(self, value, bins):
+        """Helper function to discretize a value given specific bins"""
+        for i, bin_value in enumerate(bins):
+            if value <= bin_value:
+                return i
+        return len(bins) - 1
+
+    def _save_map(self, file_path):
+        """Save image to indices map to a file."""
+        with open(file_path, 'wb') as f:
+            pickle.dump(self.image_to_indices_map, f)
+
+    def _load_map(self, file_path):
+        """Load image to indices map from a file."""
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+
+    def __len__(self):
+        return len(self.unique_images)
+    
+    def __getitem__(self, idx):
+        # Determine the number of samples to draw (d)
+        associated_indices = self.image_to_indices_map[self.unique_images[idx]]
+        
+        # List to hold histograms for each sample
+        histograms_list = []
+
+        sample = super().__getitem__(associated_indices[0], use_image=True)
+        image = sample['image']
+        histogram_tmp = {
+            'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
+            'attributes': {
+                'qualityScore': torch.zeros(5),
+                'compositionScore': torch.zeros(5),
+                'colorScore': torch.zeros(5),
+                'dofScore': torch.zeros(5),
+                'contentScore': torch.zeros(5),
+                'lightScore': torch.zeros(5),
+                'contentPreference': torch.zeros(5),
+                'willingnessToShare': torch.zeros(5)
+            },
+            'traits': {
+                'personality-E': torch.zeros(10),
+                'personality-A': torch.zeros(10),
+                'personality-N': torch.zeros(10),
+                'personality-O': torch.zeros(10),
+                'personality-C': torch.zeros(10)
+            },
+            'onehot_traits': {
+                'age': torch.zeros(len(self.age_encoder)),
+                'gender': torch.zeros(len(self.gender_encoder)),
+                'EducationalLevel': torch.zeros(len(self.education_encoder)),
+                'artExperience': torch.zeros(len(self.art_experience_encoder)),
+                'photographyExperience': torch.zeros(len(self.photo_experience_encoder))
+            }
+        }
+        
+        for _idx, idx in enumerate(associated_indices):
+            # Initialize histogram for the current sample
+            histogram = copy.deepcopy(histogram_tmp)
+            sample = super().__getitem__(idx, use_image=False)
+            # Compute aesthetic score histogram
+            bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+            histogram['aestheticScore'][bin_idx] += 1
+
+            # Round the quality score to the nearest integer and update histogram
+            rounded_quality_score = round(sample['aestheticScores']['qualityScore'])
+            histogram['attributes']['qualityScore'][rounded_quality_score - 1] += 1
+
+            # Compute histograms for other attributes
+            for attribute in ['compositionScore', 'colorScore', 'dofScore', 'contentScore', 'lightScore', 'contentPreference', 'willingnessToShare']:
+                bin_idx = int(sample['aestheticScores'][attribute] - 1)
+                histogram['attributes'][attribute][bin_idx] += 1
+
+            # Compute histograms for traits
+            for trait, _ in histogram['traits'].items():
+                bin_idx = int(sample['userTraits'][trait] - 1)
+                histogram['traits'][trait][bin_idx] += 1
+
+            # Update onehot traits
+            for trait in histogram['onehot_traits'].keys():
+                histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+
+            # Convert histograms to stacked tensors
+            stacked_attributes = torch.cat(list(histogram['attributes'].values()))
+            stacked_traits = torch.cat(list(histogram['traits'].values()))
+            stacked_onehot_traits = torch.cat(list(histogram['onehot_traits'].values()))
+
+            # Replace dictionaries with stacked tensors
+            histogram['attributes'] = stacked_attributes
+            histogram['traits'] = stacked_traits
+            histogram['onehot_traits'] = stacked_onehot_traits
+
+            # Add the histogram for the current sample to the list
+            histograms_list.append(histogram)
+
+        # Now, stack the histograms after the loop
+        stacked_histogram = {
+            'image':image,
+            'aestheticScore': torch.stack([h['aestheticScore'] for h in histograms_list]),
+            'attributes': torch.stack([h['attributes'] for h in histograms_list]),
+            'traits': torch.stack([h['traits'] for h in histograms_list]),
+            'onehot_traits': torch.stack([h['onehot_traits'] for h in histograms_list]),
+            # 'aestheticScore': torch.stack([h['aestheticScore'] for h in histograms_list]).mean(dim=0),
+            # 'attributes': torch.stack([h['attributes'] for h in histograms_list]).mean(dim=0),
+            # 'traits': torch.stack([h['traits'] for h in histograms_list]).mean(dim=0),
+            # 'onehot_traits': torch.stack([h['onehot_traits'] for h in histograms_list]).mean(dim=0)
+        }
+
+        return stacked_histogram
+
+def collate_fn_imgsort(batch):
+    # Extracting individual components
+    aesthetic_scores = [item['aestheticScore'] for item in batch]
+    attributes = [item['attributes'] for item in batch]
+    traits_histograms = [item['traits'] for item in batch]
+    onehot_big5s = [item['onehot_traits'] for item in batch]
+
+    # Stacking images
+    images = [item['image'].unsqueeze(0).repeat(item['traits'].shape[0], 1, 1, 1) for item in batch]
+    images_stacked = torch.cat(images)
+
+    # Concatenating other data
+    aesthetic_scores_concatenated = torch.cat(aesthetic_scores)
+    attribute_concatenated = torch.cat(attributes)
+    traits_histograms_concatenated = torch.cat(traits_histograms)
+    onehot_big5s_concatenated = torch.cat(onehot_big5s)
+
+    return {
+        'image': images_stacked,
+        'aestheticScore': aesthetic_scores_concatenated,
+        'attributes': attribute_concatenated,
+        'traits': traits_histograms_concatenated,
+        'onehot_traits': onehot_big5s_concatenated
+    }
+
+
 class PARA_GSP_HistogramDataset(PARA_PIAA_HistogramDataset):
     def __init__(self, root_dir, transform=None, piaa_data=None, 
                  giaa_data=None, map_file=None, precompute_file=None):
@@ -681,7 +845,6 @@ class PARA_GSP_HistogramDataset(PARA_PIAA_HistogramDataset):
     def __len__(self):
         # The length is the same as that of the PIAA dataset
         return len(self.data)
-
 
 
 class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
@@ -856,8 +1019,8 @@ if __name__ == '__main__':
 
     train_users, test_users = split_data_by_user(train_piaa_dataset.data, test_count=40, seed=42)
     # Filter data by user IDs
-    train_piaa_dataset.data = train_piaa_dataset.data[train_piaa_dataset.data['userId'].isin(train_users)]
-    test_piaa_dataset.data = test_piaa_dataset.data[test_piaa_dataset.data['userId'].isin(test_users)]
+    # train_piaa_dataset.data = train_piaa_dataset.data[train_piaa_dataset.data['userId'].isin(train_users)]
+    # test_piaa_dataset.data = test_piaa_dataset.data[test_piaa_dataset.data['userId'].isin(test_users)]
     train_piaa_dataset, test_piaa_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     print(len(train_piaa_dataset), len(test_piaa_dataset))
 
@@ -866,9 +1029,8 @@ if __name__ == '__main__':
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl')
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
+    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
     # train_dataset.augment_and_save_dataset(os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct_augment.pkl'))
-    raise Exception
     train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
 
     # test_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
@@ -876,17 +1038,18 @@ if __name__ == '__main__':
     # piaa_sample, giaa_sample = test_dataset[0]
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file='testset_image_dct.pkl')
     # test_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    test_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_testuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_testuser_dct.pkl'))
-    raise Exception
-    # test_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data)
+    # test_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_testuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_testuser_dct.pkl'))
+    test_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data)
+    test_dataset_imgsort = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
+    
     # raise Exception
-    nworkers = 20
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=nworkers)
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=nworkers)
+    nworkers = 4
+    batch_size = 100
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=nworkers)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=nworkers)
+    test_piaa_imgsort_dataloader = DataLoader(test_dataset_imgsort, batch_size=5, shuffle=False, num_workers=nworkers, timeout=300, collate_fn=collate_fn_imgsort)
     # Iterate over the training dataloader
-    for sample in tqdm(test_dataloader):
+    for sample in tqdm(test_piaa_imgsort_dataloader):
         # Perform training operations here
-        piaa_sample, gsp_sample, giaa_sample = sample
-        
-
-        raise Exception
+        [print(k, v.shape) for k, v in sample.items()]
+        # raise Exception

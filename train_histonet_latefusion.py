@@ -1,6 +1,5 @@
 import argparse
 import os
-import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,9 +12,9 @@ from tqdm import tqdm
 import wandb
 from itertools import chain
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import load_usersplit_data, PARA_MIAA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_GSP_HistogramDataset
+from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_MIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
-import pandas as pd
+from time import time
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -174,6 +173,57 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
+def evaluate_PIAA_imgsort(model, dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
+    running_mse_loss = 0.0
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+    eval_srocc = True
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    with torch.no_grad():
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            onehot_big5 = sample['onehot_traits'].to(device)
+            attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+            traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
+
+            aesthetic_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
+            
+            if eval_srocc:
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+
+            running_emd_loss += loss.item()
+            # running_attr_emd_loss += loss_attribute.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+    
+    emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, emd_attr_loss, srocc, mse_loss
+
 # Evaluation Function
 def evaluate_subPIAA(model, dataloader, criterion, device):
     model.eval()
@@ -306,7 +356,7 @@ def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate
     return optimized_trait_histograms, accumulated_emd_results
 
 
-def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims = 2, num_user = 200, is_reverse=False):
+def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -325,16 +375,7 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
-    filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
-    if is_reverse:
-        filename = filename.replace('.csv', '_rev.csv')
-    filename = os.path.join('shell_users', filename)
-    shell_users_df = pd.read_csv(filename)
-    print('Read user from %s'%filename)
     
-    filtered_data = train_dataset.data[train_dataset.data['userId'].isin(shell_users_df['userId'])]
-    train_dataset.data = filtered_data
-
     _, test_user_piaa_dataset = split_dataset_by_user(
         PARA_PIAADataset(root_dir, transform=train_transform),  
         test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
@@ -345,19 +386,20 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
     print(len(train_dataset), len(test_dataset))
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
-    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+    train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+    # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
 
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     # test_piaa_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
     #                 giaa_data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-
+    
     # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
 
-    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset
+    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset, test_piaa_imgsort_dataset
 
 
 is_eval = False
@@ -371,16 +413,7 @@ resume = None
 criterion_mse = nn.MSELoss()
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Process dimensions and number of users.')
-    parser.add_argument('--dims', type=int, default=2, help='Number of dimensions')
-    parser.add_argument('--num_users', type=int, default=200, help='Number of users')
-    parser.add_argument('--is_reverse', action='store_true', help='Reverse the order of processing')
-    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca'],
-                        help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
-    
-    args = parser.parse_args()
-    
+if __name__ == '__main__':    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -393,7 +426,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell_%ddim_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method])
+                   tags = ["no_attr","PIAA"])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -403,12 +436,13 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset = load_data(method=args.method, dims=args.dims, num_user=args.num_users, is_reverse=args.is_reverse)
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset, test_piaa_imgsort_dataset = load_data()
     # Create dataloaders
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, timeout=300)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
-    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, timeout=300)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -425,7 +459,7 @@ if __name__ == '__main__':
     best_model = None
     best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
+    best_modelname += '.pth'   
     
     # Training loop
     best_test_loss = float('inf')
@@ -445,7 +479,8 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # # Testing
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+        # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_PIAA_imgsort(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({
                 "Test PIAA EMD Loss": test_piaa_emd_loss,
@@ -485,7 +520,8 @@ if __name__ == '__main__':
     
     # Testing
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_subPIAA(model, test_piaa_dataloader, earth_mover_distance, device)
-    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_PIAA_imgsort(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
     test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     
