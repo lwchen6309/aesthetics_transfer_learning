@@ -43,7 +43,7 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
         filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
         if is_reverse:
             filename = filename.replace('.csv', '_rev.csv')
-        filename = os.path.join('shell_users', '500imgs', filename)
+        filename = os.path.join('shell_users', '500imgs_%s'%method, filename)
     shell_users_df = pd.read_csv(filename)
     print('Read user from %s'%filename)
     
@@ -105,12 +105,12 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 8
+    n_workers = 4
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA_usersample", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell_DataSpace_%duser"%(args.num_users),'reverse=%d'%args.is_reverse, args.method, 
+                   tags = ["no_attr","PIAA","%dD_OuterShell_DataSpace_%duser"%(args.dims, args.num_users),'reverse=%d'%args.is_reverse, args.method, 
                            '500imgs'])
         wandb.config = {
             "learning_rate": lr,

@@ -164,7 +164,7 @@ if __name__ == '__main__':
     # Calculate the center of the original data (mean in each dimension)
     center = np.mean(iaa_data, axis=0)
     center_distances = np.linalg.norm(iaa_data - center, axis=1)
-
+    
     if args.convex_hull:
         # Extract the outer shell of the PCA-transformed data and the shell indices
         print('Compute Convex hull')
