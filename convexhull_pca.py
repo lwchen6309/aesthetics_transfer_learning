@@ -196,7 +196,7 @@ if __name__ == '__main__':
     filename = '%dD_shell_%duser_ids_%s.csv'%(n_components, num_user, method)
     if is_reverse:
         filename = filename.replace('.csv', '_rev.csv')
-    filename = os.path.join('shell_users', '500imgs', filename)
+    filename = os.path.join('shell_users', '500imgs_%s'%method, filename)
     unique_closest_user_ids_df.to_csv(filename, index=False)
 
     if args.isplot and n_components == 2:

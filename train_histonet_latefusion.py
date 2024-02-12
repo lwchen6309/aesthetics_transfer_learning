@@ -154,7 +154,7 @@ def evaluate(model, dataloader, criterion, device):
     with torch.no_grad():
         for sample in progress_bar:
             images = sample['image'].to(device)
-            userId = sample['userId']
+            # userId = sample['userId']
             userIds.extend(userId)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
@@ -187,12 +187,12 @@ def evaluate(model, dataloader, criterion, device):
                 'Test EMD Loss': loss.item(),
             })
 
-    traits_histograms = np.concatenate(traits_histograms)
-    emd_loss_data = np.concatenate(emd_loss_data)
-    save_results(userIds, traits_histograms, emd_loss_data)
-    print(traits_histograms.shape)
-    print(len(emd_loss_data))
-    print(len(userIds))
+    # traits_histograms = np.concatenate(traits_histograms)
+    # emd_loss_data = np.concatenate(emd_loss_data)
+    # save_results(userIds, traits_histograms, emd_loss_data)
+    # print(traits_histograms.shape)
+    # print(len(emd_loss_data))
+    # print(len(userIds))
     
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred, axis=0)
@@ -384,15 +384,15 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     return train_dataset, test_giaa_dataset, test_piaa_dataset, test_user_piaa_dataset, test_piaa_imgsort_dataset
 
 
-is_eval = True
-is_log = False
+is_eval = False
+is_log = True
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
 resume = None
 # resume = "best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_deep-paper-2.pth"
-resume = 'best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_lucky-peony-538.pth'
+# resume = 'best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_lucky-peony-538.pth'
 criterion_mse = nn.MSELoss()
 
 
@@ -427,7 +427,7 @@ if __name__ == '__main__':
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
@@ -495,7 +495,6 @@ if __name__ == '__main__':
     # Testing
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_subPIAA(model, test_piaa_dataloader, earth_mover_distance, device)
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    raise Exception
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
     test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
