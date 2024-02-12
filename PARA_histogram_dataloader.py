@@ -696,6 +696,7 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
 
         sample = super().__getitem__(associated_indices[0], use_image=True)
         image = sample['image']
+        
         histogram_tmp = {
             'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
             'attributes': {
@@ -759,6 +760,7 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
             histogram['attributes'] = stacked_attributes
             histogram['traits'] = stacked_traits
             histogram['onehot_traits'] = stacked_onehot_traits
+            histogram['userId'] = sample['userId']
 
             # Add the histogram for the current sample to the list
             histograms_list.append(histogram)
@@ -766,6 +768,7 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
         # Now, stack the histograms after the loop
         stacked_histogram = {
             'image':image,
+            'userId': [h['userId'] for h in histograms_list],
             'aestheticScore': torch.stack([h['aestheticScore'] for h in histograms_list]),
             'attributes': torch.stack([h['attributes'] for h in histograms_list]),
             'traits': torch.stack([h['traits'] for h in histograms_list]),
@@ -782,6 +785,9 @@ def collate_fn_imgsort(batch):
     # Extracting individual components
     aesthetic_scores = [item['aestheticScore'] for item in batch]
     attributes = [item['attributes'] for item in batch]
+    userId = []
+    for item in batch:
+        userId += item['userId'] 
     traits_histograms = [item['traits'] for item in batch]
     onehot_big5s = [item['onehot_traits'] for item in batch]
 
@@ -794,9 +800,10 @@ def collate_fn_imgsort(batch):
     attribute_concatenated = torch.cat(attributes)
     traits_histograms_concatenated = torch.cat(traits_histograms)
     onehot_big5s_concatenated = torch.cat(onehot_big5s)
-
+    
     return {
         'image': images_stacked,
+        'userId':userId,
         'aestheticScore': aesthetic_scores_concatenated,
         'attributes': attribute_concatenated,
         'traits': traits_histograms_concatenated,

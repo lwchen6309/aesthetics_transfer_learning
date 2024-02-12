@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import pacmap
 from sklearn.decomposition import PCA
 import numpy as np
 from scipy.spatial import ConvexHull
@@ -82,7 +83,7 @@ photo_experience_dict_rev = {v: k for k, v in photo_experience_dict.items()}
 if __name__ == '__main__':
     # Set up the argument parser
     parser = argparse.ArgumentParser(description='Process PCA or PaCMAP on data.')
-    parser.add_argument('--method', type=str, default='pac', choices=['random', 'pca'],
+    parser.add_argument('--method', type=str, default='pac', choices=['random', 'pca', 'pacmap'],
                         help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
     parser.add_argument('--num_user', type=int, default=50,
                         help='Number of users to consider (default: 200)')
@@ -147,17 +148,22 @@ if __name__ == '__main__':
             filename = os.path.join('shell_users', 'random_users', filename)
             unique_closest_user_ids_df.to_csv(filename, index=False)
         raise Exception('Pause by random user')
-
-    iaa_data = np.stack(users_traits)
-    # iaa_data[:, iaa_data.std(0) > 0]
+    elif method == 'pacmap':
+        iaa_data = np.stack(users_traits)
+        # Initialize PCA instance for 2 components
+        embedding = pacmap.PaCMAP(n_components=n_components, n_neighbors=None, MN_ratio=0.5, FP_ratio=2.0) 
+        # fit the data (The index of transformed data corresponds to the index of the original data)
+        X_transformed = embedding.fit_transform(iaa_data, init="pca")
+    else:
+        iaa_data = np.stack(users_traits)
+        # iaa_data[:, iaa_data.std(0) > 0]
+        # Fit and transform the data using PCA
+        pca = PCA(n_components=n_components)
+        X_transformed = pca.fit_transform(iaa_data)
 
     # Calculate the center of the original data (mean in each dimension)
     center = np.mean(iaa_data, axis=0)
     center_distances = np.linalg.norm(iaa_data - center, axis=1)
-
-    # Fit and transform the data using PCA
-    pca = PCA(n_components=n_components)
-    X_transformed = pca.fit_transform(iaa_data)
 
     if args.convex_hull:
         # Extract the outer shell of the PCA-transformed data and the shell indices

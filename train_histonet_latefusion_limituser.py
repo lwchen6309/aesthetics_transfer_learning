@@ -12,7 +12,7 @@ import wandb
 from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_MIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, limit_annotations_per_user
 import pandas as pd
-from train_histonet_latefusion import CombinedModel, earth_mover_distance, train, evaluate, evaluate_PIAA_imgsort
+from train_histonet_latefusion import CombinedModel, earth_mover_distance, train, evaluate
 
 
 def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims = 2, num_user = 200, is_reverse=False):
@@ -34,10 +34,16 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims 
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
-    filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
-    if is_reverse:
-        filename = filename.replace('.csv', '_rev.csv')
-    filename = os.path.join('shell_users', '500imgs', filename)
+    if method == 'random':
+        filename = 'shell_%duser_ids_%s_%d.csv'%(num_user, method, random_idx)
+        if is_reverse:
+            filename = filename.replace('.csv', '_rev.csv')
+        filename = os.path.join('shell_users', 'random_users', filename)
+    else:
+        filename = '%dD_shell_%duser_ids_%s.csv'%(dims, num_user, method)
+        if is_reverse:
+            filename = filename.replace('.csv', '_rev.csv')
+        filename = os.path.join('shell_users', '500imgs', filename)
     shell_users_df = pd.read_csv(filename)
     print('Read user from %s'%filename)
     
@@ -80,14 +86,14 @@ num_pt = 50 + 20
 resume = None
 # resume = "best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_deep-paper-2.pth"
 criterion_mse = nn.MSELoss()
-
+random_idx = 0
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process dimensions and number of users.')
     parser.add_argument('--dims', type=int, default=2, help='Number of dimensions')
     parser.add_argument('--num_users', type=int, default=50, help='Number of users')
     parser.add_argument('--is_reverse', action='store_true', help='Reverse the order of processing')
-    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca'],
+    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca', 'random'],
                         help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
     
     args = parser.parse_args()
@@ -99,12 +105,13 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 20
+    n_workers = 8
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA_usersample", 
                    notes="latefusion",
-                   tags = ["no_attr","PIAA","OuterShell_DataSpace_%duser"%(args.num_users),'reverse=%d'%args.is_reverse, args.method, '500imgs'])
+                   tags = ["no_attr","PIAA","OuterShell_DataSpace_%duser"%(args.num_users),'reverse=%d'%args.is_reverse, args.method, 
+                           '500imgs'])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -162,7 +169,7 @@ if __name__ == '__main__':
         
         # # Testing
         # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_PIAA_imgsort(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({
                 "Test PIAA EMD Loss": test_piaa_emd_loss,
@@ -203,7 +210,7 @@ if __name__ == '__main__':
     # Testing
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_subPIAA(model, test_piaa_dataloader, earth_mover_distance, device)
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
-    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_PIAA_imgsort(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     
