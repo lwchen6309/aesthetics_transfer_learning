@@ -30,11 +30,16 @@ class LAVIS_PIAADataset(Dataset):
         data = pd.read_excel(piaa_path)
         split_paths = [os.path.split(path) for path in data['image_filename'].values]
         data['art_type'], data['imageName'] = zip(*split_paths)
+        # Filter non-exsiting file, or the non-detected file caused by error code of filenames
+        image_names = list(data['imageName'].unique())
+        existing_image_names = [img for img in image_names if os.path.exists(os.path.join(root_dir, 'datasetImages_originalSize', img))]
+        data = data[data['imageName'].isin(existing_image_names)]
+        # Drop empty entries
         required_fields = ['image_id', 'response', 'participant_id', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         self.art_interest_fields = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
         required_fields += self.art_interest_fields
         self.data = data.dropna(subset=required_fields)
-
+        # Encode text columna
         self.trait_columns = ['image_id', 'response', 'participant_id', *self.art_interest_fields]
         self.encoded_trait_columns = ['art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         self.trait_encoders = [{group: idx for idx, group in enumerate(self.data[attribute].unique())} for attribute in self.encoded_trait_columns]
@@ -49,6 +54,7 @@ class LAVIS_PIAADataset(Dataset):
         sample.update({attribute:self.data.iloc[idx][attribute] for attribute in self.trait_columns})
         
         img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
+        sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
             sample['image'] = Image.open(img_path).convert('RGB')        
             if self.transform:
@@ -199,6 +205,7 @@ def split_dataset_by_trait(dataset, trait, value):
 
 def create_image_split_dataset(lavis_dataset):
     # Saving the lists to TrainImageSet.txt and TestImageSet.txt
+    root_dir = lavis_dataset.root_dir
     train_file_path = os.path.join(root_dir, 'TrainImageSet.txt')
     test_file_path = os.path.join(root_dir, 'TestImageSet.txt')
     # Check if train file exists
@@ -211,6 +218,9 @@ def create_image_split_dataset(lavis_dataset):
     else:
         print('Compute Image Set')
         image_names = list(lavis_dataset.data['imageName'].unique())
+        existing_image_names = [img for img in image_names if os.path.exists(os.path.join(lavis_dataset.root_dir, 'datasetImages_originalSize', img))]
+        # Printing out the number of dropped files
+        print('Total missing files: %d' % (len(image_names) - len(existing_image_names)))
         random.shuffle(image_names)
         # Splitting the list using a ratio of 10:1
         train_size = int(len(image_names) * 10 / 11)  # Calculate train size based on the 10:1 ratio
@@ -283,13 +293,13 @@ if __name__ == '__main__':
     plot_histogram_comparison(lavis_dataset)
     
     train_dataset, test_dataset = create_image_split_dataset(lavis_dataset)
-    # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
-    print(len(train_dataset), len(test_dataset))   
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=False)
 
+    # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
+    print(len(train_dataset), len(test_dataset))
+    train_dataloader = DataLoader(train_dataset, batch_size=32, num_workers=16, shuffle=False)
+    
     # Iterate over the training dataloader
-    for sample in train_dataloader:
+    for sample in tqdm(train_dataloader):
         # Perform training operations here
         # print(sample)
-        raise Exception
-
+        sample
