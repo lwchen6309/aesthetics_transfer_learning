@@ -3,7 +3,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from scipy.spatial import ConvexHull
 import matplotlib.pyplot as plt
-
+import seaborn as sns
 
 
 # Load the CSV file
@@ -37,18 +37,17 @@ hull_vertices = traits_pca[hull.vertices]
 unique_users_df['Distance_To_Hull'] = [distance_to_hull(point, hull_vertices) for point in traits_pca]
 
 # Plot 1: Mean EMD Loss with respect to Distance to the Mean Trait
-plt.figure(figsize=(10, 6))
-plt.scatter(unique_users_df['Distance_To_Mean_Trait'], unique_users_df['EMD_Loss_Data'], alpha=0.5, label='Distance to Mean Trait')
-plt.xlabel('Distance to Mean Trait')
-plt.ylabel('Mean EMD Loss')
-plt.title('Mean EMD Loss vs. Distance to Mean Trait')
-plt.legend()
+# Create histograms on the margins
+plt.figure()
+g = sns.jointplot(x=unique_users_df['Distance_To_Mean_Trait'], y=unique_users_df['EMD_Loss_Data'], kind="scatter")
+plt.xlabel('Distance(user, mean user)')
+plt.ylabel('EMD Loss')
+plt.tight_layout()
 
 # Plot 2: Mean EMD Loss with respect to Distance to the Closest Convex Hull Vertex
-plt.figure(figsize=(10, 6))
-plt.scatter(unique_users_df['Distance_To_Hull'], unique_users_df['EMD_Loss_Data'], alpha=0.5, label='Distance to Convex Hull Vertex')
-plt.xlabel('Distance to Closest Convex Hull Vertex')
-plt.ylabel('Mean EMD Loss')
-plt.title('Mean EMD Loss vs. Distance to Closest Convex Hull Vertex')
-plt.legend()
+# f = sns.jointplot(x=unique_users_df['Distance_To_Hull'], y=unique_users_df['EMD_Loss_Data'], kind="scatter")
+# plt.xlabel('Distance(user, mean user)')
+# plt.ylabel('EMD Loss')
+# plt.tight_layout()
+
 plt.show()

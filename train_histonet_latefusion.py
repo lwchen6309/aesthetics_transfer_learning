@@ -114,9 +114,6 @@ def train(model, dataloader, criterion, optimizer, device):
     
     epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
-    # print(epoch_ce_init)
-    # print(epoch_ce_improvement)
-    # raise Exception
     return epoch_emd_loss, epoch_total_emd_loss
 
 def save_results(userIds, traits_histograms, emd_loss_data):
@@ -155,20 +152,20 @@ def evaluate(model, dataloader, criterion, device):
         for sample in progress_bar:
             images = sample['image'].to(device)
             # userId = sample['userId']
-            userIds.extend(userId)
+            # userIds.extend(userId)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
             onehot_big5 = sample['onehot_traits'].to(device)
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
-            traits_histograms.append(traits_histogram.cpu().numpy())
+            # traits_histograms.append(traits_histogram.cpu().numpy())
 
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
-            emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
-            emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
+            # emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
+            # emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
             loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
             # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
             
@@ -368,8 +365,8 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
     # train_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'))
     
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
@@ -409,7 +406,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
-                   tags = ["no_attr","GIAA"])
+                   tags = ["no_attr","PIAA"])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -469,18 +466,18 @@ if __name__ == '__main__':
                 "Test PIAA EMD Loss": test_piaa_emd_loss,
                 "Test PIAA SROCC": test_piaa_srocc,
                        }, commit=False)
-        test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-        if is_log:
-            wandb.log({
-                "Test GIAA EMD Loss": test_giaa_emd_loss,
-                "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
-                "Test GIAA SROCC": test_giaa_srocc,
-                "Test GIAA MSE": test_giaa_mse,
-                       }, commit=True)
+        # test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        # if is_log:
+        #     wandb.log({
+        #         "Test GIAA EMD Loss": test_giaa_emd_loss,
+        #         "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
+        #         "Test GIAA SROCC": test_giaa_srocc,
+        #         "Test GIAA MSE": test_giaa_mse,
+        #                }, commit=True)
         
         # Early stopping check
-        if test_giaa_emd_loss < best_test_loss:
-            best_test_loss = test_giaa_emd_loss
+        if test_piaa_emd_loss < best_test_loss:
+            best_test_loss = test_piaa_emd_loss
             num_patience_epochs = 0
             torch.save(model.state_dict(), best_modelname)
         else:

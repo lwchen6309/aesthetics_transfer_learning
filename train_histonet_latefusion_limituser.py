@@ -93,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('--dims', type=int, default=2, help='Number of dimensions')
     parser.add_argument('--num_users', type=int, default=50, help='Number of users')
     parser.add_argument('--is_reverse', action='store_true', help='Reverse the order of processing')
-    parser.add_argument('--method', type=str, default='pacmap', choices=['pacmap', 'pca', 'random'],
+    parser.add_argument('--method', type=str, default='pca', choices=['pacmap', 'pca', 'random'],
                         help='Method for dimensionality reduction: pacmap or pca (default: pacmap)')
     
     args = parser.parse_args()
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 4
+    n_workers = 8
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA_usersample", 

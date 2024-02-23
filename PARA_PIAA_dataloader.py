@@ -94,11 +94,6 @@ class PARA_PIAADataset_precompute(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx, use_image=True):
-        session_dir = self.data.iloc[idx]['sessionId']
-        img_path = os.path.join(self.root_dir, 'imgs', session_dir, self.data.iloc[idx]['imageName'])
-        if use_image:
-            image = Image.open(img_path).convert('RGB')
-
         user_id = self.data.iloc[idx]['userId']
         user_traits = self.precomputed_data[user_id]['userTraits']
 
@@ -116,9 +111,11 @@ class PARA_PIAADataset_precompute(Dataset):
                 'difficultyOfJudgment': difficulty_of_judgment_onehot,
                 'semantic': semantic_onehot}
         }
-
+        
+        session_dir = self.data.iloc[idx]['sessionId']
+        img_path = os.path.join(self.root_dir, 'imgs', session_dir, self.data.iloc[idx]['imageName'])
         if use_image:
-            sample['image'] = image
+            sample['image'] = Image.open(img_path).convert('RGB')
             if self.transform:
                 sample['image'] = self.transform(sample['image'])
 
