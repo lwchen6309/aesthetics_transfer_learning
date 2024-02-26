@@ -64,6 +64,30 @@ class CombinedModel(nn.Module):
         return aesthetic_logits
 
 
+class NIMA(nn.Module):
+    def __init__(self, num_bins_aesthetic):
+        super(CombinedModel, self).__init__()
+        self.resnet = resnet50(pretrained=True)
+        self.resnet.fc = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features, 512),
+            nn.ReLU(),
+        )
+        self.num_bins_aesthetic = num_bins_aesthetic
+        
+        # For predicting aesthetic score histogram
+        self.fc_aesthetic = nn.Sequential(
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, num_bins_aesthetic)
+        )
+
+    def forward(self, images, traits_histogram):
+        # traits_histogram is dummy variable
+        x = self.resnet(images)
+        aesthetic_logits = self.fc_aesthetic(x)
+        return aesthetic_logits
+
+
 # Training Function
 def train(model, dataloader, criterion, optimizer, device):
     model.train()
@@ -77,9 +101,6 @@ def train(model, dataloader, criterion, optimizer, device):
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
-        print(images.device)
-        print(traits_histogram.device)
-        print(aesthetic_score_histogram.device)
         
         optimizer.zero_grad()
         aesthetic_logits = model(images, traits_histogram)
@@ -123,7 +144,8 @@ def evaluate(model, dataloader, criterion, device):
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
     running_mse_loss = 0.0
-    scale = torch.arange(1, 5.5, 0.5).to(device)
+    # scale = torch.arange(1, 5.5, 0.5).to(device)
+    scale = torch.arange(0, 10).to(device)
     eval_srocc = True
 
     progress_bar = tqdm(dataloader, leave=False)
@@ -202,23 +224,22 @@ def load_data(root_dir = '/home/lwchen/datasets/LAVIS'):
     # train_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     # train_dataset = LAVIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data)
     
-    # test_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
+    test_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
     test_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_imgsort_dataset = LAVIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = LAVIS_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data)
     
-    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
+    return train_dataset, test_giaa_dataset, test_sgiaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
 
 
-is_eval = True
-is_log = False
+is_eval = False
+is_log = True
 num_bins = 10
 num_attr = 8
 num_bins_attr = 5
-num_pt = 152
+num_pt = 132
 resume = None
-# resume = "best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_deep-paper-2.pth"
-# resume = 'best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_lucky-peony-538.pth'
+
 criterion_mse = nn.MSELoss()
 
 
@@ -231,11 +252,13 @@ if __name__ == '__main__':
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     n_workers = 8
+    eval_on_giaa = True
     
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
-                   notes="latefusion",
-                   tags = ["no_attr","GIAA"])
+                   notes="NIMA",
+                #    notes="latefusion",
+                   tags = ["no_arttype","GIAA"])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -245,19 +268,21 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data()
+    train_dataset, test_giaa_dataset, test_sgiaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data()
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
+    test_sgiaa_dataloader = DataLoader(test_sgiaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=2, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
-    
+    # model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    model = NIMA(num_bins).to(device)
+
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
@@ -266,9 +291,11 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    # best_modelname = 'lavis_best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'lavis_best_model_resnet50_NIMA_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'   
+    best_modelname += '.pth'
+    best_modelname = os.path.join('models_pth', best_modelname)
     
     # Training loop
     best_test_loss = float('inf')
@@ -302,10 +329,11 @@ if __name__ == '__main__':
                 "Test GIAA SROCC": test_giaa_srocc,
                 "Test GIAA MSE": test_giaa_mse,
                        }, commit=True)
-        
+        eval_loss = test_giaa_emd_loss if eval_on_giaa else test_piaa_emd_loss
+
         # Early stopping check
-        if test_piaa_emd_loss < best_test_loss:
-            best_test_loss = test_piaa_emd_loss
+        if eval_loss < best_test_loss:
+            best_test_loss = eval_loss
             num_patience_epochs = 0
             torch.save(model.state_dict(), best_modelname)
         else:
@@ -323,15 +351,19 @@ if __name__ == '__main__':
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
     # test_user_piaa_emd_loss, test_user_piaa_attr_emd_loss, test_user_piaa_srocc, test_user_piaa_mse = evaluate(model, test_user_piaa_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+    test_sgiaa_emd_loss, test_sgiaa_attr_emd_loss, test_sgiaa_srocc, test_sgiaa_mse = evaluate(model, test_sgiaa_dataloader, earth_mover_distance, device)
     
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
-            # "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
             "Test GIAA MSE": test_giaa_mse,
+            #
+            "Test sGIAA EMD Loss": test_sgiaa_emd_loss,
+            "Test sGIAA SROCC": test_sgiaa_srocc,
+            "Test sGIAA MSE": test_sgiaa_mse, 
+            #
             "Test PIAA EMD Loss": test_piaa_emd_loss,
-            # "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
             "Test PIAA SROCC": test_piaa_srocc,
             "Test PIAA MSE": test_piaa_mse,
             # "Test user PIAA EMD Loss": test_user_piaa_emd_loss,

@@ -62,11 +62,11 @@ class LAVIS_GIAA_HistogramDataset(LAVIS_PIAADataset):
         max_vaia_score = 7
         
         # Initialize accumulators for one-hot encoded vectors
-        accumulated_response = torch.zeros(max_response_score, dtype=torch.float16)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float16)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float16)  # For 2VAIAK1 to 2VAIAK4
+        accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
+        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         
-        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float16) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
         for ai in associated_indices:
             sample = super().__getitem__(ai, use_image=False)
 
@@ -215,11 +215,11 @@ class LAVIS_MIAA_HistogramDataset(LAVIS_PIAADataset):
         max_vaia_score = 7
         
         # Initialize accumulators for one-hot encoded vectors
-        accumulated_response = torch.zeros(max_response_score, dtype=torch.float16)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float16)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float16)  # For 2VAIAK1 to 2VAIAK4
+        accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
+        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         
-        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float16) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
         for ai in associated_indices:
             sample = super().__getitem__(ai, use_image=False)
 
@@ -318,11 +318,11 @@ class LAVIS_PIAA_HistogramDataset(LAVIS_PIAADataset):
         max_vaia_score = 7
         
         # Initialize accumulators for one-hot encoded vectors
-        accumulated_response = torch.zeros(max_response_score, dtype=torch.float16)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float16)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float16)  # For 2VAIAK1 to 2VAIAK4
+        accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
+        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         
-        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float16) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+        accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
         
         sample = super().__getitem__(idx, use_image=True)
 
@@ -408,10 +408,10 @@ class LAVIS_PIAA_HistogramDataset_imgsort(LAVIS_PIAADataset):
         histograms_list = []
         for ai in associated_indices:
             # Initialize accumulators for one-hot encoded vectors
-            accumulated_response = torch.zeros(max_response_score, dtype=torch.float16)
-            accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float16)  # For VAIAK1 to VAIAK7
-            accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float16)  # For 2VAIAK1 to 2VAIAK4
-            accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float16) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+            accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
+            accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+            accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
+            accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
 
             sample = super().__getitem__(ai, use_image=False)
 
@@ -496,13 +496,15 @@ def collate_fn(batch):
         torch.stack([item['onehot_traits'] for item in batch]),
         torch.stack([item['VAIAK'] for item in batch]),
         torch.stack([item['2VAIAK'] for item in batch]),
-        torch.stack([item['art_type'] for item in batch])], dim=1)
-        
+        ], dim=1)
+    
+    
     return {
         'imgName':[item['imgName'] for item in batch],
         'image': torch.stack([item['image'] for item in batch]),
         'aestheticScore': torch.stack([item['aestheticScore'] for item in batch]),
         'traits': traits_histograms_concatenated,
+        'art_type':torch.stack([item['art_type'] for item in batch])
     }
 
 
@@ -515,13 +517,14 @@ def collate_fn_imgsort(batch):
         torch.cat([item['onehot_traits'] for item in batch]),
         torch.cat([item['VAIAK'] for item in batch]),
         torch.cat([item['2VAIAK'] for item in batch]),
-        torch.cat([item['art_type'] for item in batch])], dim=1)
-        
+        ], dim=1)
+    
     return {
         'imgName':[item['imgName'] for item in batch],
         'image': images_stacked,
         'aestheticScore': torch.cat([item['aestheticScore'] for item in batch]),
         'traits': traits_histograms_concatenated,
+        'art_type': torch.cat([item['art_type'] for item in batch])
     }
 
 
@@ -546,12 +549,12 @@ if __name__ == '__main__':
     train_piaa_dataset, test_piaa_dataset = create_image_split_dataset(piaa_dataset)
     """Precompute"""
     pkl_dir = './LAVIS_dataset_pkl'
-    train_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    # train_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     train_piaa_dataset = LAVIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
     
     # test_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
-    test_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    # test_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_imgsort_dataset = LAVIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     
     train_dataloader = DataLoader(train_piaa_dataset, batch_size=32, shuffle=True, collate_fn=collate_fn, num_workers=8)
@@ -560,7 +563,7 @@ if __name__ == '__main__':
         # raise Exception
         pass
     for sample in tqdm(test_dataloader):
-        # raise Exception
+        raise Exception
         pass
     
     compare_giaa = False

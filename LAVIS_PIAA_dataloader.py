@@ -34,6 +34,7 @@ class LAVIS_PIAADataset(Dataset):
         image_names = list(data['imageName'].unique())
         existing_image_names = [img for img in image_names if os.path.exists(os.path.join(root_dir, 'datasetImages_originalSize', img))]
         data = data[data['imageName'].isin(existing_image_names)]
+
         # Drop empty entries
         required_fields = ['image_id', 'response', 'participant_id', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         self.art_interest_fields = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
@@ -287,19 +288,30 @@ if __name__ == '__main__':
         transforms.ToTensor(),
     ])
     
+    from glob import glob
     lavis_dataset = LAVIS_PIAADataset(root_dir, transform=train_transform)
+    print(len(lavis_dataset))
     # train_dataset, test_dataset = limit_annotations_per_user(lavis_dataset)
-    
-    plot_histogram_comparison(lavis_dataset)
+    image_names = set(lavis_dataset.data['imageName'].unique())
+    image_exist_list = set([os.path.basename(file) for file in glob(os.path.join(lavis_dataset.root_dir, 'datasetImages_originalSize','*.jpg'))])
+    print(image_exist_list - image_names)
+    print(image_names - image_exist_list)
     
     train_dataset, test_dataset = create_image_split_dataset(lavis_dataset)
-
+    
     # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
     print(len(train_dataset), len(test_dataset))
     train_dataloader = DataLoader(train_dataset, batch_size=32, num_workers=16, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, num_workers=16, shuffle=False)
     
     # Iterate over the training dataloader
     for sample in tqdm(train_dataloader):
+        # Perform training operations here
+        # print(sample)
+        sample
+
+    # Iterate over the training dataloader
+    for sample in tqdm(test_dataloader):
         # Perform training operations here
         # print(sample)
         sample
