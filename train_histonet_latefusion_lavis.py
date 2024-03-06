@@ -66,7 +66,7 @@ class CombinedModel(nn.Module):
 
 class NIMA(nn.Module):
     def __init__(self, num_bins_aesthetic):
-        super(CombinedModel, self).__init__()
+        super(NIMA, self).__init__()
         self.resnet = resnet50(pretrained=True)
         self.resnet.fc = nn.Sequential(
             nn.Linear(self.resnet.fc.in_features, 512),
