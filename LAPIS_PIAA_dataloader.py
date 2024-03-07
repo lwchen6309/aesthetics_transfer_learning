@@ -11,6 +11,7 @@ from tqdm import tqdm
 from scipy.stats import pearsonr, spearmanr
 import copy
 import matplotlib.pyplot as plt
+from sklearn.model_selection import KFold
 
 
 class LAPIS_PIAADataset(Dataset):
@@ -181,6 +182,73 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 
     test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
+def create_user_split_kfold(lavis_dataset, k=4):
+    root_dir = lavis_dataset.root_dir
+    
+    # Assuming 'participant_id' is a column in your dataset
+    user_ids = lavis_dataset.data['participant_id'].unique()
+    random.shuffle(user_ids)  # Shuffle the user IDs to randomize the distribution
+
+    kf = KFold(n_splits=k, shuffle=True, random_state=42)  # Prepare the KFold object
+    
+    all_files_exist = True
+    for fold in range(1, k+1):
+        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
+        
+        # Check if both files for this fold exist
+        if not (os.path.exists(train_ids_path) and os.path.exists(test_ids_path)):
+            all_files_exist = False
+            break
+    
+    if all_files_exist:
+        print("All fold files already exist, skipping computation.")
+        return
+
+    for fold, (train_index, test_index) in enumerate(kf.split(user_ids), start=1):
+        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
+        
+        print(f"Processing Fold {fold}")
+        
+        # Get train and test user IDs for the current fold
+        train_user_ids = user_ids[train_index]
+        test_user_ids = user_ids[test_index]
+        
+        # Save train user IDs to file
+        with open(train_ids_path, "w") as train_ids_file:
+            for user_id in train_user_ids:
+                train_ids_file.write(str(user_id) + "\n")
+        
+        # Save test user IDs to file
+        with open(test_ids_path, "w") as test_ids_file:
+            for user_id in test_user_ids:
+                test_ids_file.write(str(user_id) + "\n")
+        
+        print(f"Fold {fold}: Train User IDs: {len(train_user_ids)}, Test User IDs: {len(test_user_ids)}")
+
+def create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, fold_id, n_fold = 4):
+    
+    create_user_split_kfold(lavis_dataset, k=n_fold)
+    
+    # File paths for saving the user IDs
+    root_dir = lavis_dataset.root_dir
+    train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
+    test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
+    print('Read Image Set')
+    with open(train_ids_path, "r") as train_file:
+        train_user_id = train_file.read().splitlines()
+    with open(test_ids_path, "r") as test_file:
+        test_user_id = test_file.read().splitlines()
+    train_user_id = [int(x) for x in train_user_id]
+    test_user_id = [int(x) for x in test_user_id]
+
+    train_dataset = copy.deepcopy(train_dataset)
+    test_dataset = copy.deepcopy(test_dataset)
+    train_dataset.data = train_dataset.data[train_dataset.data['participant_id'].isin(train_user_id)]
+    test_dataset.data = test_dataset.data[test_dataset.data['participant_id'].isin(test_user_id)]
+    return train_dataset, test_dataset
+
 def split_dataset_by_images(dataset, train_img, testset_img):
     train_dataset, test_dataset = copy.deepcopy(dataset), copy.deepcopy(dataset)
     train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_img)]
@@ -299,20 +367,26 @@ if __name__ == '__main__':
     print(image_names - image_exist_list)
     
     train_dataset, test_dataset = create_image_split_dataset(lavis_dataset)
-    
-    # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
     print(len(train_dataset), len(test_dataset))
-    train_dataloader = DataLoader(train_dataset, batch_size=32, num_workers=16, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=32, num_workers=16, shuffle=False)
-    
-    # Iterate over the training dataloader
-    for sample in tqdm(train_dataloader):
-        # Perform training operations here
-        # print(sample)
-        sample
+    n_fold = 4
+    for fold_id in range(1, n_fold+1):
+        user_split_train_dataset, user_split_test_dataset = create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, fold_id, n_fold=n_fold)
+        print(len(user_split_train_dataset))
+        print(len(user_split_test_dataset))
+        
+        # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
+        print(len(train_dataset), len(test_dataset))
+        train_dataloader = DataLoader(user_split_train_dataset, batch_size=32, num_workers=16, shuffle=False)
+        test_dataloader = DataLoader(user_split_test_dataset, batch_size=32, num_workers=16, shuffle=False)
+        
+        # Iterate over the training dataloader
+        for sample in tqdm(train_dataloader):
+            # Perform training operations here
+            # print(sample)
+            sample
 
-    # Iterate over the training dataloader
-    for sample in tqdm(test_dataloader):
-        # Perform training operations here
-        # print(sample)
-        sample
+        # Iterate over the training dataloader
+        for sample in tqdm(test_dataloader):
+            # Perform training operations here
+            # print(sample)
+            sample

@@ -234,7 +234,7 @@ class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
                 offset = (i-1) * max_vaia_score
                 vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
                 accumulated_vaia[offset:offset+max_vaia_score] += vaia_one_hot
-                
+            
             # Encode and accumulate 2VAIAK1 to 2VAIAK4
             for i in range(1, 5):  # 2VAIAK1 to 2VAIAK4
                 vaia_score = sample[f'2VAIAK{i}']
