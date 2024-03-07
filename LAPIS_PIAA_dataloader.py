@@ -13,7 +13,7 @@ import copy
 import matplotlib.pyplot as plt
 
 
-class LAVIS_PIAADataset(Dataset):
+class LAPIS_PIAADataset(Dataset):
     def __init__(self, root_dir, transform=None):
         """
         Args:
@@ -64,7 +64,7 @@ class LAVIS_PIAADataset(Dataset):
         return sample
 
 
-def assert_score_to_GIAA(root_dir = '/home/lwchen/datasets/LAVIS'):
+def assert_score_to_GIAA(root_dir = '/home/lwchen/datasets/LAPIS'):
     annot_dir = os.path.join(root_dir, 'annotation')
     piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
     piaa_table = pd.read_excel(piaa_path)
@@ -200,7 +200,7 @@ def split_dataset_by_trait(dataset, trait, value):
         filtered_dataset (Dataset): A new dataset containing only the entries with the specified trait value.
     """
     filtered_data = dataset.data[dataset.data[trait] == value]
-    filtered_dataset = LAVIS_PIAADataset(dataset.root_dir, transform=dataset.transform)
+    filtered_dataset = LAPIS_PIAADataset(dataset.root_dir, transform=dataset.transform)
     filtered_dataset.data = filtered_data
     return filtered_dataset
 
@@ -247,7 +247,7 @@ def plot_histogram_comparison(lavis_dataset):
     number_user_per_image = [len(group) for _, group in lavis_dataset.data.groupby('imageName')]
     
     fig, axs = plt.subplots(2)
-    fig.suptitle('LAVIS Dataset')  # This adds a main title to the figure
+    fig.suptitle('LAPIS Dataset')  # This adds a main title to the figure
     axs[0].hist(number_image_per_user, bins=20)
     axs[0].set_xlabel('Number of Annotated Image per user')
     axs[0].set_ylabel('Frequency')
@@ -258,12 +258,13 @@ def plot_histogram_comparison(lavis_dataset):
     axs[1].set_title('Histogram of User')
     axs[1].set_title('Histogram of User (min %d, max %d)'%(min(number_user_per_image), max(number_user_per_image)))
     plt.tight_layout()
-    plt.savefig('LAVIS_histogram.jpg', dpi=300)
+    plt.savefig('LAPIS_histogram.jpg', dpi=300)
 
     root_dir = '/home/lwchen/datasets/PARA/'
     para_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-Images.csv'))
     number_image_per_user = [len(group) for _, group in para_df.groupby('userId')]
     number_user_per_image = [len(group) for _, group in para_df.groupby('imageName')]
+    
     fig, axs = plt.subplots(2)
     fig.suptitle('PARA dataset')
     axs[0].hist(number_image_per_user, bins=20)
@@ -281,7 +282,7 @@ def plot_histogram_comparison(lavis_dataset):
 
 
 if __name__ == '__main__':
-    root_dir = '/home/lwchen/datasets/LAVIS'
+    root_dir = '/home/lwchen/datasets/LAPIS'
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
         transforms.RandomResizedCrop(224),
@@ -289,7 +290,7 @@ if __name__ == '__main__':
     ])
     
     from glob import glob
-    lavis_dataset = LAVIS_PIAADataset(root_dir, transform=train_transform)
+    lavis_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     print(len(lavis_dataset))
     # train_dataset, test_dataset = limit_annotations_per_user(lavis_dataset)
     image_names = set(lavis_dataset.data['imageName'].unique())

@@ -2,7 +2,7 @@ import os
 import torch
 from torchvision import transforms
 import torch.nn.functional as F
-from LAVIS_PIAA_dataloader import LAVIS_PIAADataset, create_image_split_dataset
+from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset
 from torch.utils.data import DataLoader, Dataset
 import random
 import pickle
@@ -13,7 +13,7 @@ import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 
 
-class LAVIS_GIAA_HistogramDataset(LAVIS_PIAADataset):
+class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
@@ -154,7 +154,7 @@ class LAVIS_GIAA_HistogramDataset(LAVIS_PIAADataset):
             self.precomputed_data = pickle.load(f)
 
 
-class LAVIS_MIAA_HistogramDataset(LAVIS_PIAADataset):
+class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
@@ -306,7 +306,7 @@ class LAVIS_MIAA_HistogramDataset(LAVIS_PIAADataset):
             self.precomputed_data = pickle.load(f)
 
 
-class LAVIS_PIAA_HistogramDataset(LAVIS_PIAADataset):
+class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
@@ -369,7 +369,7 @@ class LAVIS_PIAA_HistogramDataset(LAVIS_PIAADataset):
         return accumulated_histogram
 
 
-class LAVIS_PIAA_HistogramDataset_imgsort(LAVIS_PIAADataset):
+class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
@@ -530,7 +530,7 @@ def collate_fn_imgsort(batch):
 
 if __name__ == '__main__':
     # Usage example:
-    root_dir = '/home/lwchen/datasets/LAVIS'
+    root_dir = '/home/lwchen/datasets/LAPIS'
     
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
@@ -545,17 +545,17 @@ if __name__ == '__main__':
     ])
 
     # Create datasets with the appropriate transformations
-    piaa_dataset = LAVIS_PIAADataset(root_dir, transform=train_transform)
+    piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     train_piaa_dataset, test_piaa_dataset = create_image_split_dataset(piaa_dataset)
     """Precompute"""
-    pkl_dir = './LAVIS_dataset_pkl'
-    # train_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
-    train_piaa_dataset = LAVIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
+    pkl_dir = './LAPIS_dataset_pkl'
+    train_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    # train_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
+    train_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
     
-    # test_sgiaa_dataset = LAVIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
-    # test_giaa_dataset = LAVIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    test_piaa_imgsort_dataset = LAVIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    # test_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
+    test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     
     train_dataloader = DataLoader(train_piaa_dataset, batch_size=32, shuffle=True, collate_fn=collate_fn, num_workers=8)
     test_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=3, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=8)

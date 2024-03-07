@@ -206,7 +206,7 @@ if __name__ == '__main__':
     # Load datasets
     # Create datasets with the appropriate transformations
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
     train_filtered_dataset = split_dataset_by_trait(train_piaa_dataset, args.trait, args.value)
     test_filtered_dataset = split_dataset_by_trait(test_piaa_dataset, args.trait, args.value)
     train_dataset, test_dataset = split_dataset_by_images(train_filtered_dataset, test_filtered_dataset, root_dir)

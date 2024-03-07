@@ -401,7 +401,7 @@ if __name__ == '__main__':
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
-    n_workers = 8
+    n_workers = 4
     
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
