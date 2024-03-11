@@ -39,29 +39,29 @@ class CombinedModel(nn.Module):
         )
         self.num_bins_aesthetic = num_bins_aesthetic
         self.num_attr = num_attr
-        self.num_bins_attr = num_bins_attr
+        # self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
         # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 512),
-            nn.ReLU(),
+        self.inv_coef_decoder = nn.Sequential(
+            nn.Linear(num_pt + num_bins_aesthetic, 512),
+            nn.ReLU(),   
             nn.Linear(512, 512),
-            nn.BatchNorm1d(512)
+            nn.ReLU(),
+            nn.Linear(512, 20)
         )
         
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
+            nn.Linear(512 + num_pt, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
-
+    
     def forward(self, images, traits_histogram):
         x = self.resnet(images)
-        pt_code = self.pt_encoder(traits_histogram)
-        xz = x + pt_code
-        aesthetic_logits = self.fc_aesthetic(xz)
-        return aesthetic_logits
+        aesthetic_logits = self.fc_aesthetic(torch.cat([x, traits_histogram], dim=1))
+        coef = self.inv_coef_decoder(torch.cat([aesthetic_logits, traits_histogram], dim=1))
+        return aesthetic_logits, coef
 
 
 class NIMA(nn.Module):
@@ -94,6 +94,8 @@ def train(model, dataloader, criterion, optimizer, device):
     running_aesthetic_emd_loss = 0.0
     running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
+    units_len = dataloader.dataset.traits_len()
+
     for sample in progress_bar:
         if is_eval:
             break
@@ -103,18 +105,34 @@ def train(model, dataloader, criterion, optimizer, device):
         traits_histogram = sample['traits'].to(device)
         
         optimizer.zero_grad()
-        aesthetic_logits = model(images, traits_histogram)
+        aesthetic_logits, inv_coef = model(images, traits_histogram)
+
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
         loss_aesthetic = torch.mean(criterion(prob_aesthetic, aesthetic_score_histogram))
-        total_loss = loss_aesthetic # Combining losses
+
+        inv_coef_transposed = inv_coef.transpose(0, 1)  # Transpose inv_coef to shape [20, B]
+        piaa_score = torch.matmul(inv_coef_transposed, aesthetic_logits).clamp(min=0)  # Resulting shape [20, S]
+        piaa_traits = torch.matmul(inv_coef_transposed, traits_histogram).clamp(min=0)  # Resulting shape [20, T]
         
+        # Compute self-entropy
+        piaa_traits = torch.split(piaa_traits, units_len, dim=1)
+        mean_entropy_piaa = 0
+        for traits in piaa_traits:
+            entropy_piaa_traits = -torch.sum(traits * torch.log(traits + 1e-9), dim=-1)
+            mean_entropy_piaa += torch.mean(entropy_piaa_traits)
+        
+        entropy_piaa_logits = -torch.sum(piaa_score * torch.log(piaa_score + 1e-9), dim=-1)
+        mean_entropy_piaa += torch.mean(entropy_piaa_logits)
+        total_loss = loss_aesthetic + mean_entropy_piaa
+
         total_loss.backward()
         optimizer.step()
         running_total_emd_loss += total_loss.item()
         running_aesthetic_emd_loss += loss_aesthetic.item()
 
         progress_bar.set_postfix({
-            'Train EMD Loss': total_loss.item(),
+            'Train EMD Loss': loss_aesthetic.item(),
+            'Train sCE Loss': mean_entropy_piaa.item(),
         })
     
     epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
@@ -160,7 +178,7 @@ def evaluate(model, dataloader, criterion, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
 
-            aesthetic_logits = model(images, traits_histogram)
+            aesthetic_logits, _ = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
@@ -227,6 +245,10 @@ def load_data(root_dir = '/home/lwchen/datasets/LAPIS', fold_id=1, n_fold=4):
     train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
         data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
         precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+    # train_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, 
+    #     data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+    #     precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_%dfold.pkl'%fold_id))
+
     # train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     # train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data)
@@ -242,7 +264,7 @@ def load_data(root_dir = '/home/lwchen/datasets/LAPIS', fold_id=1, n_fold=4):
 
 
 is_eval = False
-is_log = False
+is_log = True
 num_bins = 10
 num_attr = 8
 num_bins_attr = 5
@@ -261,7 +283,7 @@ if __name__ == '__main__':
     random_seed = 42
     lr = 5e-5
     batch_size = 100
-    num_epochs = 1
+    num_epochs = 20
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
@@ -270,9 +292,9 @@ if __name__ == '__main__':
     
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
-                   notes="NIMA",
-                #    notes="latefusion",
-                   tags = ["no_arttype","GIAA"])
+                #    notes="NIMA",
+                   notes="latefusion",
+                   tags = ["no_arttype", "EarlyFusion", "SimplexDecode", "GIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -293,8 +315,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    # model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
-    model = NIMA(num_bins).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    # model = NIMA(num_bins).to(device)
 
     if resume is not None:
         model.load_state_dict(torch.load(resume))

@@ -49,6 +49,11 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
                 print(f"Saving precomputed data to {precompute_file}")
                 self.save(precompute_file)
 
+    def traits_len(self):
+        units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
+        units_len.extend([7] * 11)  # Extending for VAIAK1 to VAIAK7 and 2VAIAK1 to 2VAIAK4, 11 in total
+        return units_len
+
     def precompute_data(self):
         self.precomputed_data = []
         for idx in tqdm(range(len(self)), desc='Precompute images'):
@@ -190,6 +195,11 @@ class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
                 print(f"Saving precomputed data to {precompute_file}")
                 self.save(precompute_file)
 
+    def traits_len(self):
+        units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
+        units_len.extend([7] * 11)  # Extending for VAIAK1 to VAIAK7 and 2VAIAK1 to 2VAIAK4, 11 in total
+        return units_len
+
     def precompute_data(self):
         self.precomputed_data = []
         for idx in tqdm(range(len(self))):
@@ -312,6 +322,11 @@ class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
         if data is not None:
             self.data = data
 
+    def traits_len(self):
+        units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
+        units_len.extend([7] * 11)  # Extending for VAIAK1 to VAIAK7 and 2VAIAK1 to 2VAIAK4, 11 in total
+        return units_len
+
     def __getitem__(self, idx):
         # Assuming maximum scores for response and VAIAK/2VAIAK ratings for proper one-hot encoding
         max_response_score = 10  # Adjust based on your data
@@ -394,7 +409,12 @@ class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
             if map_file:
                 print(f"Saving image to indices map to {map_file}")
                 self._save_map(map_file)
-    
+
+    def traits_len(self):
+        units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
+        units_len.extend([7] * 11)  # Extending for VAIAK1 to VAIAK7 and 2VAIAK1 to 2VAIAK4, 11 in total
+        return units_len
+
     def __getitem__(self, idx):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
         sample = super().__getitem__(associated_indices[0], use_image=True)
@@ -552,7 +572,7 @@ if __name__ == '__main__':
     train_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     train_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
-    
+
     # test_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
     test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
