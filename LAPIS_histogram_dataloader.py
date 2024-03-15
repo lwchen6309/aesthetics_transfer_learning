@@ -385,7 +385,7 @@ class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
 
 
 class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
