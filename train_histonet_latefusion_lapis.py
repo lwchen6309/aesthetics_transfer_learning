@@ -214,13 +214,9 @@ def evaluate(model, dataloader, criterion, device):
     # scale = torch.arange(1, 5.5, 0.5).to(device)
     scale = torch.arange(0, 10).to(device)
     eval_srocc = True
-    log_user_emd = True
     progress_bar = tqdm(dataloader, leave=False)
     mean_pred = []
     mean_target = []
-    userIds = []
-    emd_loss_data = []
-    traits_histograms = []
     with torch.no_grad():
         for sample in progress_bar:
             images = sample['image'].to(device)
@@ -230,12 +226,6 @@ def evaluate(model, dataloader, criterion, device):
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
-
-            if log_user_emd:
-                userIds.append(sample[''])
-                emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
-                emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
-                traits_histograms.append(traits_histogram.cpu().numpy())
             loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
             # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
             
@@ -253,13 +243,6 @@ def evaluate(model, dataloader, criterion, device):
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
-    
-    traits_histograms = np.concatenate(traits_histograms)
-    emd_loss_data = np.concatenate(emd_loss_data)
-    save_results(userIds, traits_histograms, emd_loss_data)
-    print(traits_histograms.shape)
-    print(len(emd_loss_data))
-    print(len(userIds))
     
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred, axis=0)
