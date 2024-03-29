@@ -58,6 +58,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_image_split_dataset(piaa_dataset)
     orig_train, orig_test = len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset)
+    args.value = float(args.value) if 'VAIAK' in args.trait else args.value
     train_lavis_piaa_dataset.data = train_lavis_piaa_dataset.data[train_lavis_piaa_dataset.data[args.trait] != args.value]
     test_lavis_piaa_dataset.data = test_lavis_piaa_dataset.data[test_lavis_piaa_dataset.data[args.trait] == args.value]
     print('trainset %d->%d, testset %d->%d'%(orig_train, len(train_lavis_piaa_dataset), orig_test, len(test_lavis_piaa_dataset)))
@@ -65,7 +66,8 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl/trait_split'
     suffix = '%s_%s'%(args.trait, args.value)
-    train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix))    
+    # train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix))    
+    train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data)
     test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix))
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix))
     test_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data)
@@ -102,7 +104,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="NIMA",
-                   tags = ["no_attr","GIAA", "Test trait: %s_%s"%(args.trait, args.value)]) 
+                   tags = ["no_attr","PIAA", "Test trait: %s_%s"%(args.trait, args.value)]) 
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,

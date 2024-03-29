@@ -368,6 +368,21 @@ if __name__ == '__main__':
     
     train_dataset, test_dataset = create_image_split_dataset(lavis_dataset)
     print(len(train_dataset), len(test_dataset))
+
+    traits = ['demo_gender', 'demo_edu']
+    for t in traits:
+        values = lavis_dataset.data[t].unique()
+        print(values)
+        for v in values:
+            print(sum(lavis_dataset.data[t] == v))
+
+
+    traits=["VAIAK1", "VAIAK2", "VAIAK3", "VAIAK4", "VAIAK5", "VAIAK6", "VAIAK7", "2VAIAK1", "2VAIAK2", "2VAIAK3", "2VAIAK4"]
+    values=["0.0", "1.0", "2.0", "3.0", "4.0", "5.0", "6.0"]
+    for t in traits:
+        for v in values:
+            print(sum(test_dataset.data[t] == float(v)))
+    raise Exception
     n_fold = 4
     for fold_id in range(1, n_fold+1):
         user_split_train_dataset, user_split_test_dataset = create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, fold_id, n_fold=n_fold)

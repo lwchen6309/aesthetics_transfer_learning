@@ -1,28 +1,29 @@
 #!/bin/bash
 #run_script="train_histonet_attr_latefusion_traitsample.py"
-run_script="train_nima_traitsample.py"
+# run_script="train_nima_traitsample.py"
+run_script="train_histonet_traitsample.py"
 
-python $run_script --trait gender --value male
-python $run_script --trait gender --value female
+# Gender
+for value in male female; do
+    python $run_script --trait gender --value $value
+done
 
-python $run_script --trait age --value "18-21"
-python $run_script --trait age --value "22-25"
-python $run_script --trait age --value "26-29"
-python $run_script --trait age --value "30-34"
-python $run_script --trait age --value "35-40"
+# Age
+for value in "18-21" "22-25" "26-29" "30-34" "35-40"; do
+    python $run_script --trait age --value "$value"
+done
 
-python $run_script --trait EducationalLevel --value junior_college
-python $run_script --trait EducationalLevel --value junior_high_school
-python $run_script --trait EducationalLevel --value senior_high_school
-python $run_script --trait EducationalLevel --value technical_secondary_school
-python $run_script --trait EducationalLevel --value university
+# Educational Level
+for value in junior_college junior_high_school senior_high_school technical_secondary_school university; do
+    python $run_script --trait EducationalLevel --value $value
+done
 
-python $run_script --trait artExperience --value beginner
-python $run_script --trait artExperience --value competent
-python $run_script --trait artExperience --value proficient
-python $run_script --trait artExperience --value expert
+# Art Experience
+for value in beginner competent proficient expert; do
+    python $run_script --trait artExperience --value $value
+done
 
-python $run_script --trait photographyExperience --value beginner
-python $run_script --trait photographyExperience --value competent
-python $run_script --trait photographyExperience --value proficient
-python $run_script --trait photographyExperience --value expert
+# Photography Experience
+for value in beginner competent proficient expert; do
+    python $run_script --trait photographyExperience --value $value
+done

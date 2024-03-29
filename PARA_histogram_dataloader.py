@@ -523,6 +523,14 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
 
         return accumulated_histogram
 
+    def decode_onhot_traits(self):        
+        trait_encoders = [self.age_encoder, self.gender_encoder, self.education_encoder, self.art_experience_encoder, self.photo_experience_encoder]
+        traits = []
+        for encoders in trait_encoders:
+            decoder = {v: k for k, v in encoders.items()}
+            traits.extend([decoder[i] for i in range(len(decoder))])
+        return traits
+
     def __getitem__(self, idx):
         item_data = copy.deepcopy(self.precomputed_data[idx])
         img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)

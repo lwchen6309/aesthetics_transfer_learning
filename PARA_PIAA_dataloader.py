@@ -228,6 +228,14 @@ class PARA_PIAADataset(Dataset):
         
         return sample
 
+    def print_trait_encoders(self):
+        # Encoding personal traits
+        print(self.age_encoder)
+        print(self.gender_encoder)
+        print(self.education_encoder)
+        print(self.art_experience_encoder)
+        print(self.photo_experience_encoder)
+
 
 def collect_batch_personal_trait(sample,
         personal_traits = ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience'],
@@ -443,6 +451,9 @@ if __name__ == '__main__':
     dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
+
+    train_dataset.print_trait_encoders()
+
     print(len(train_dataset), len(test_dataset))
     train_dataset, test_dataset = split_dataset_by_images(train_dataset, test_dataset, root_dir)
     print(len(train_dataset), len(test_dataset))
