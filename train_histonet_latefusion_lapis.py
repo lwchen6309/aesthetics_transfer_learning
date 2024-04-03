@@ -125,6 +125,13 @@ class CombinedModel(nn.Module):
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
+        # For predicting attribute histograms for each attribute
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(num_pt, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.BatchNorm1d(512)
+        )
         
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
@@ -133,18 +140,8 @@ class CombinedModel(nn.Module):
             nn.Linear(512, num_bins_aesthetic)
         )
 
-        # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.BatchNorm1d(512),
-        )
-
-    
     def forward(self, images, traits_histogram):
         x = self.resnet(images)
-        aesthetic_logits = self.fc_aesthetic(x)
         pt_code = self.pt_encoder(traits_histogram)
         xz = x + pt_code
         aesthetic_logits = self.fc_aesthetic(xz)
@@ -192,7 +189,6 @@ def train(model, dataloader, criterion, optimizer, device):
         traits_histogram = sample['traits'].to(device)
         art_type = sample['art_type'].to(device)
         traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
-        # traits_histogram = art_type
         
         optimizer.zero_grad()
         if proj_simplex:
@@ -271,7 +267,6 @@ def evaluate(model, dataloader, criterion, device):
             traits_histogram = sample['traits'].to(device)
             art_type = sample['art_type'].to(device)
             traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
-            # traits_histogram = art_type
 
             # aesthetic_logits, _ = model(images, traits_histogram)
             aesthetic_logits = model(images, traits_histogram)
@@ -328,12 +323,12 @@ def load_data(root_dir = '/home/lwchen/datasets/LAPIS', fold_id=1, n_fold=4):
     
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl'
-    train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
-        data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
-        precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
-    # train_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, 
+    # train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
     #     data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
-    #     precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_%dfold.pkl'%fold_id))
+    #     precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+    train_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, 
+        data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+        precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_%dfold.pkl'%fold_id))
     
     # train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
@@ -354,8 +349,8 @@ is_log = True
 num_bins = 10
 num_attr = 8
 num_bins_attr = 5
-# num_pt = 132
-num_pt = 152
+num_pt = 132
+# num_pt = 152
 # num_pt = 20
 resume = None
 
@@ -371,7 +366,7 @@ if __name__ == '__main__':
     random_seed = 42
     lr = 5e-5
     batch_size = 100
-    num_epochs = 10
+    num_epochs = 20
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
@@ -381,7 +376,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="latefusion",
-                   tags = ["arttype", "GIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
+                   tags = ["arttype", "sGIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,

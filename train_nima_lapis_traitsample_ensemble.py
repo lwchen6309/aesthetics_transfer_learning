@@ -14,32 +14,86 @@ import wandb
 from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import LAPIS_GIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset, LAPIS_MIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset_imgsort, collate_fn_imgsort, collate_fn
 from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold
-from train_histonet_latefusion_lapis import train, evaluate, earth_mover_distance
+from train_histonet_latefusion_lapis import NIMA, train, earth_mover_distance
 # from time import time
 
 
-class NIMA(nn.Module):
-    def __init__(self, num_bins_aesthetic):
-        super(NIMA, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
-        
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
+def load_model(model_path, device):
+    model = NIMA(num_bins).to(device)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    return model
 
-    def forward(self, images, traits_histogram):
-        # traits_histogram is dummy variable
-        x = self.resnet(images)
-        aesthetic_logits = self.fc_aesthetic(x)
-        return aesthetic_logits
+
+def evaluate(model, dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
+    running_mse_loss = 0.0
+    # scale = torch.arange(1, 5.5, 0.5).to(device)
+    scale = torch.arange(0, 10).to(device)
+    eval_srocc = True
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    with torch.no_grad():
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            art_type = sample['art_type'].to(device)
+            traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
+            # traits_histogram = art_type
+
+            # aesthetic_logits, _ = model(images, traits_histogram)
+            aesthetic_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
+            
+            if eval_srocc:
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+            
+            running_emd_loss += loss.item()
+            # running_attr_emd_loss += loss_attribute.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+    
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+    
+    emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, emd_attr_loss, srocc, mse_loss, predicted_scores, true_scores
+
+
+def ensemble_predictions(model_paths, dataloader, device):
+    all_predictions = []
+    for path in model_paths:
+        model = load_model(path, device)
+        _, _, _, _, predicted_scores, true_scores = evaluate(model, dataloader, earth_mover_distance, device)
+        all_predictions.append(predicted_scores)
+    # Average the predictions across all models
+    ensemble_pred = np.stack(all_predictions)
+    print('---'*3)
+    for pred in ensemble_pred:
+        srocc, _ = spearmanr(pred, true_scores)
+        print(srocc)
+    srocc, _ = spearmanr(ensemble_pred.mean(0), true_scores)
+    print('Ensemble', srocc)
+    return ensemble_pred, srocc
+
 
 def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     # Dataset transformations
@@ -59,8 +113,8 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_image_split_dataset(piaa_dataset)
     orig_train, orig_test = len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset)
     args.value = float(args.value) if 'VAIAK' in args.trait else args.value
-
-    trait_disjoint = True
+    
+    trait_disjoint = False
     if trait_disjoint:
         train_lavis_piaa_dataset.data = train_lavis_piaa_dataset.data[train_lavis_piaa_dataset.data[args.trait] != args.value]
     else:
@@ -84,7 +138,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
 
 
 is_eval = False
-is_log = True
+is_log = False
 num_bins = 10
 num_attr = 8
 num_bins_attr = 5
@@ -97,6 +151,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)
+    # Adding argument to receive a list of model paths
+    parser.add_argument('--model_paths', nargs='+', required=True, help='Paths to pretrained NIMA model files')
     args = parser.parse_args()
 
     random_seed = 42
@@ -132,6 +188,9 @@ if __name__ == '__main__':
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=2, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    ensemble_pred, srocc = ensemble_predictions(args.model_paths, test_giaa_dataloader, device)
+    raise Exception
 
     # Initialize the combined model
     model = NIMA(num_bins).to(device)

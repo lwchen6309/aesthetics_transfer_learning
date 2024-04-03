@@ -2,14 +2,14 @@ import argparse
 import os
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+# import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
+# import numpy as np
+# import pandas as pd
+# from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import LAPIS_GIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset, LAPIS_MIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset_imgsort, collate_fn_imgsort, collate_fn
@@ -18,15 +18,26 @@ from train_histonet_latefusion_lapis import train, evaluate, earth_mover_distanc
 # from time import time
 
 
-class NIMA(nn.Module):
-    def __init__(self, num_bins_aesthetic):
-        super(NIMA, self).__init__()
+class CombinedModel(nn.Module):
+    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
+        super(CombinedModel, self).__init__()
         self.resnet = resnet50(pretrained=True)
         self.resnet.fc = nn.Sequential(
             nn.Linear(self.resnet.fc.in_features, 512),
             nn.ReLU(),
+            # nn.Linear(512, num_bins_aesthetic),
         )
         self.num_bins_aesthetic = num_bins_aesthetic
+        self.num_attr = num_attr
+        self.num_bins_attr = num_bins_attr
+        self.num_pt = num_pt
+        # For predicting attribute histograms for each attribute
+        self.pt_encoder = nn.Sequential(
+            nn.Linear(num_pt, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.BatchNorm1d(512),
+        )
         
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
@@ -35,11 +46,25 @@ class NIMA(nn.Module):
             nn.Linear(512, num_bins_aesthetic)
         )
 
+        # For predicting attribute histograms for each attribute
+        # self.inv_coef_decoder = nn.Sequential(
+        #     nn.Linear(num_pt + num_bins_aesthetic, 512),
+        #     nn.ReLU(),   
+        #     nn.Linear(512, 512),
+        #     nn.ReLU(),
+        #     nn.Linear(512, 20)
+        # )
+
+    
     def forward(self, images, traits_histogram):
-        # traits_histogram is dummy variable
         x = self.resnet(images)
-        aesthetic_logits = self.fc_aesthetic(x)
+        pt_code = self.pt_encoder(traits_histogram)
+        xz = x + pt_code
+        aesthetic_logits = self.fc_aesthetic(xz)
+        # coef = self.inv_coef_decoder(torch.cat([aesthetic_logits, traits_histogram], dim=1))
         return aesthetic_logits
+        # return aesthetic_logits, coef
+
 
 def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     # Dataset transformations
@@ -53,29 +78,20 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
-
+    
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_image_split_dataset(piaa_dataset)
     orig_train, orig_test = len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset)
     args.value = float(args.value) if 'VAIAK' in args.trait else args.value
-
-    trait_disjoint = True
-    if trait_disjoint:
-        train_lavis_piaa_dataset.data = train_lavis_piaa_dataset.data[train_lavis_piaa_dataset.data[args.trait] != args.value]
-    else:
-        train_lavis_piaa_dataset.data = train_lavis_piaa_dataset.data[train_lavis_piaa_dataset.data[args.trait] == args.value]
+    train_lavis_piaa_dataset.data = train_lavis_piaa_dataset.data[train_lavis_piaa_dataset.data[args.trait] != args.value]
     test_lavis_piaa_dataset.data = test_lavis_piaa_dataset.data[test_lavis_piaa_dataset.data[args.trait] == args.value]
     print('trainset %d->%d, testset %d->%d'%(orig_train, len(train_lavis_piaa_dataset), orig_test, len(test_lavis_piaa_dataset)))
-
+    
     """Precompute"""
-    if trait_disjoint:
-        pkl_dir = './LAPIS_dataset_pkl/trait_split'
-    else:
-        pkl_dir = './LAPIS_dataset_pkl/trait_specific'
+    pkl_dir = './LAPIS_dataset_pkl/trait_split'
     suffix = '%s_%s'%(args.trait, args.value)
-    train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix))
-    # train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data)
+    train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix))    
     test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix))
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix))
     test_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data)
@@ -111,8 +127,8 @@ if __name__ == '__main__':
     
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
-                   notes="NIMA",
-                   tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]) 
+                   notes="latefusion",
+                   tags = ["no_attr","GIAA", "Simplex", "Test trait: %s_%s"%(args.trait, args.value)]) 
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -134,7 +150,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = NIMA(num_bins).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    # model = NIMA(num_bins).to(device)
 
     if resume is not None:
         model.load_state_dict(torch.load(resume))
@@ -144,9 +161,8 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'lapis_best_model_resnet50_nima_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'lapis_best_model_resnet50_histonet_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
-    best_modelname += '%s_%s'%(args.trait, args.value)
     best_modelname += '.pth'
     best_modelname = os.path.join('models_pth', best_modelname)
     

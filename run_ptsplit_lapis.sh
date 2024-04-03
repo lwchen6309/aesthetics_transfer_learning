@@ -1,6 +1,6 @@
 #!/bin/bash
-# run_script="train_nima_lapis_traitsample.py"
-run_script="train_histonet_lapis_traitsample.py"
+run_script="train_nima_lapis_traitsample.py"
+# run_script="train_histonet_lapis_traitsample.py"
 
 
 list=("male" "female" "non-binary") # "other/would prefer not to disclose"
@@ -10,7 +10,7 @@ done
 
 list=("primary education" "secondary education" "Bachelor's or equivalent" "Master's or equivalent" "Doctorate")
 for value in "${list[@]}"; do
-    python $run_script --trait demo_edu --value $value
+    python $run_script --trait demo_edu --value "$value"
 done
 
 # Define an array of traits

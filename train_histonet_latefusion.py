@@ -379,7 +379,7 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', fold_id=1, n_fold=4):
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
     train_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-
+    
     # _, test_user_piaa_dataset = split_dataset_by_user(
     #     PARA_PIAADataset(root_dir, transform=train_transform),  
     #     test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
@@ -393,9 +393,13 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', fold_id=1, n_fold=4):
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
     # train_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'))
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, 
+
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, 
+    #     data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+    #     precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+    train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, 
         data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
-        precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+        precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_%dfold.pkl'%fold_id))
 
     # test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     # test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
@@ -442,7 +446,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
-                   tags = ["no_attr","GIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
+                   tags = ["no_attr","MIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,
@@ -476,9 +480,9 @@ if __name__ == '__main__':
     best_model = None
     best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'   
+    best_modelname += '.pth'
+    best_modelname = os.path.join('models_pth', best_modelname)
     
-    # Training loop
     # Training loop
     best_test_srocc = 0
     for epoch in range(num_epochs):
