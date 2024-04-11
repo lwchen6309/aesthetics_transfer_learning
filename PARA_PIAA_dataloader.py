@@ -8,119 +8,8 @@ import torch.nn.functional as F
 import random
 from tqdm import tqdm
 import copy
-import pickle
 from time import time
 from sklearn.model_selection import KFold
-
-
-class PARA_PIAADataset_precompute(Dataset):
-    def __init__(self, root_dir, transform=None, precomputed_file='precomputed_trait_encodings.pkl'):
-        """
-        Args:
-            root_dir (string): Directory with all the images and CSVs.
-            transform (callable, optional): Optional transform to be applied on a sample.
-        """
-        self.root_dir = root_dir
-        self.transform = transform
-        self.precomputed_file = precomputed_file
-
-        # Load data
-        self.images_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-Images.csv'))
-        self.user_info_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-UserInfo.csv'))
-        self.data = pd.merge(self.images_df, self.user_info_df, on='userId', how='inner')
-
-        # Encoding personal traits
-        self.age_encoder = {group: idx for idx, group in enumerate(self.user_info_df['age'].unique())}
-        self.gender_encoder = {gender: idx for idx, gender in enumerate(self.user_info_df['gender'].unique())}
-        self.education_encoder = {level: idx for idx, level in enumerate(self.user_info_df['EducationalLevel'].unique())}
-        self.art_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['artExperience'].unique())}
-        self.photo_experience_encoder = {experience: idx for idx, experience in enumerate(self.user_info_df['photographyExperience'].unique())}
-        
-        # Encoding image attributes
-        self.img_emotion_encoder = {emotion: idx for idx, emotion in enumerate(self.images_df['imgEmotion'].unique())}
-        self.difficulty_of_judgment_encoder = {difficulty: idx for idx, difficulty in enumerate(self.images_df['difficultyOfJudgment'].unique())}
-        self.semantic_encoder = {content: idx for idx, content in enumerate(self.images_df['semantic'].unique())}
-
-        # Check if precomputed data exists
-        
-        if os.path.exists(self.precomputed_file):
-            with open(self.precomputed_file, 'rb') as file:
-                self.precomputed_data = pickle.load(file)
-        else:
-            self.precompute_and_save()
-
-    def precompute_and_save(self):
-        self.precomputed_data = {}
-        for _, row in self.user_info_df.iterrows():
-            user_id = row['userId']
-            self.precomputed_data[user_id] = {
-                'userTraits': {
-                    'age': F.one_hot(torch.tensor(self.age_encoder[row['age']]), num_classes=len(self.age_encoder)),
-                    'gender': F.one_hot(torch.tensor(self.gender_encoder[row['gender']]), num_classes=len(self.gender_encoder)),
-                    'EducationalLevel': F.one_hot(torch.tensor(self.education_encoder[row['EducationalLevel']]), num_classes=len(self.education_encoder)),
-                    'artExperience': F.one_hot(torch.tensor(self.art_experience_encoder[row['artExperience']]), num_classes=len(self.art_experience_encoder)),
-                    'photographyExperience': F.one_hot(torch.tensor(self.photo_experience_encoder[row['photographyExperience']]), num_classes=len(self.photo_experience_encoder)),
-                    'personality-E': row['personality-E'],
-                    'personality-A': row['personality-A'],
-                    'personality-N': row['personality-N'],
-                    'personality-O': row['personality-O'],
-                    'personality-C': row['personality-C'],
-                    'personality-E-onehot': self.one_hot_personality(row['personality-E']),
-                    'personality-A-onehot': self.one_hot_personality(row['personality-A']),
-                    'personality-N-onehot': self.one_hot_personality(row['personality-N']),
-                    'personality-O-onehot': self.one_hot_personality(row['personality-O']),
-                    'personality-C-onehot': self.one_hot_personality(row['personality-C'])
-                },
-            }
-
-        # Save the precomputed data using pickle
-        with open(self.precomputed_file, 'wb') as file:
-            pickle.dump(self.precomputed_data, file)
-    
-    def one_hot_personality(self, trait_value):
-        """
-        One-hot encode the personality trait values.
-
-        Args:
-            trait_value (int): Personality trait value.
-
-        Returns:
-            torch.Tensor: One-hot encoded tensor for the trait.
-        """
-        if trait_value < 1 or trait_value > 10:
-            raise ValueError("Personality trait value must be between 1 and 10")
-        return F.one_hot(torch.tensor(trait_value - 1), num_classes=10)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx, use_image=True):
-        user_id = self.data.iloc[idx]['userId']
-        user_traits = self.precomputed_data[user_id]['userTraits']
-
-        row = self.data.iloc[idx]
-        img_emotion_onehot = F.one_hot(torch.tensor(self.img_emotion_encoder[row['imgEmotion']]), num_classes=len(self.img_emotion_encoder))
-        difficulty_of_judgment_onehot = F.one_hot(torch.tensor(self.difficulty_of_judgment_encoder[row['difficultyOfJudgment']]), num_classes=len(self.difficulty_of_judgment_encoder))
-        semantic_onehot = F.one_hot(torch.tensor(self.semantic_encoder[row['semantic']]), num_classes=len(self.semantic_encoder))
-
-        sample = {
-            'userId': user_id,
-            'aestheticScores': self.data.iloc[idx][['aestheticScore', 'qualityScore', 'compositionScore', 'colorScore', 'dofScore', 'contentScore', 'lightScore', 'contentPreference', 'willingnessToShare']].to_dict(),
-            'userTraits': user_traits,
-            'imageAttributes': {
-                'imgEmotion': img_emotion_onehot,
-                'difficultyOfJudgment': difficulty_of_judgment_onehot,
-                'semantic': semantic_onehot}
-        }
-        
-        session_dir = self.data.iloc[idx]['sessionId']
-        img_path = os.path.join(self.root_dir, 'imgs', session_dir, self.data.iloc[idx]['imageName'])
-        if use_image:
-            sample['image'] = Image.open(img_path).convert('RGB')
-            if self.transform:
-                sample['image'] = self.transform(sample['image'])
-
-        return sample
 
 
 class PARA_PIAADataset(Dataset):
@@ -202,6 +91,7 @@ class PARA_PIAADataset(Dataset):
 
         sample = {
             'userId': self.data.iloc[idx]['userId'],
+            'image_path': img_path,
             'aestheticScores': {
                 'aestheticScore': self.data.iloc[idx]['aestheticScore'],
                 'qualityScore': self.data.iloc[idx]['qualityScore'],
@@ -462,7 +352,6 @@ if __name__ == '__main__':
     raise Exception
 
     train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_bak_dataset = PARA_PIAADataset_precompute(root_dir, transform=test_transform)
     # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=[10,50])
     # train_dataset = split_dataset_by_trait(train_dataset, 'gender', 'male')
     # test_dataset = split_dataset_by_trait(test_dataset, 'gender', 'male')    

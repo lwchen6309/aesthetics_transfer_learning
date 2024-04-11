@@ -37,13 +37,21 @@ class LAPIS_PIAADataset(Dataset):
         data = data[data['imageName'].isin(existing_image_names)]
 
         # Drop empty entries
-        required_fields = ['image_id', 'response', 'participant_id', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
+        required_fields = ['image_id', 'response', 'participant_id', 'age', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         self.art_interest_fields = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
         required_fields += self.art_interest_fields
         self.data = data.dropna(subset=required_fields)
         # Encode text columna
         self.trait_columns = ['image_id', 'response', 'participant_id', *self.art_interest_fields]
-        self.encoded_trait_columns = ['art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
+        self.encoded_trait_columns = ['art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
+
+        # Categorize ages into 5 bins
+        min_age, max_age = data['age'].min(), data['age'].max()
+        interval_edges = np.linspace(min_age, max_age, num=6)
+        interval_labels = [f'{int(interval_edges[i])}-{int(interval_edges[i+1])-1}' for i in range(len(interval_edges)-1)]
+        age_intervals = pd.cut(data['age'], bins=interval_edges, labels=interval_labels, include_lowest=True)
+        self.data['age'] = age_intervals
+        
         self.trait_encoders = [{group: idx for idx, group in enumerate(self.data[attribute].unique())} for attribute in self.encoded_trait_columns]
 
     def __len__(self):
@@ -58,7 +66,7 @@ class LAPIS_PIAADataset(Dataset):
         img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
         sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
-            sample['image'] = Image.open(img_path).convert('RGB')        
+            sample['image'] = Image.open(img_path).convert('RGB')
             if self.transform:
                 sample['image'] = self.transform(sample['image'])
 
@@ -359,6 +367,7 @@ if __name__ == '__main__':
     
     from glob import glob
     lavis_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    raise Exception
     print(len(lavis_dataset))
     # train_dataset, test_dataset = limit_annotations_per_user(lavis_dataset)
     image_names = set(lavis_dataset.data['imageName'].unique())

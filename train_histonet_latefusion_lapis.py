@@ -15,6 +15,10 @@ from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import LAPIS_GIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset, LAPIS_MIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset_imgsort, collate_fn_imgsort, collate_fn
 from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold
 # from time import time
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import random
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -188,7 +192,7 @@ def train(model, dataloader, criterion, optimizer, device):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
         art_type = sample['art_type'].to(device)
-        traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
+        # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
         
         optimizer.zero_grad()
         if proj_simplex:
@@ -266,7 +270,7 @@ def evaluate(model, dataloader, criterion, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
             art_type = sample['art_type'].to(device)
-            traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
+            # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
 
             # aesthetic_logits, _ = model(images, traits_histogram)
             aesthetic_logits = model(images, traits_histogram)
@@ -295,6 +299,122 @@ def evaluate(model, dataloader, criterion, device):
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
     
+    emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, emd_attr_loss, srocc, mse_loss
+
+
+def evaluate_each_datum(model, dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
+    running_mse_loss = 0.0
+    # scale = torch.arange(1, 5.5, 0.5).to(device)
+    scale = torch.arange(0, 10).to(device)
+    eval_srocc = True
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    emd_loss_data = []
+    with torch.no_grad():
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            art_type = sample['art_type'].to(device)
+            # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
+
+            # aesthetic_logits, _ = model(images, traits_histogram)
+            aesthetic_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
+            emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
+            emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
+
+            if eval_srocc:
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+            
+            running_emd_loss += loss.item()
+            # running_attr_emd_loss += loss_attribute.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+    
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+    emd_loss_data = np.concatenate(emd_loss_data)
+
+    # Create a jointplot
+    # g = sns.JointGrid(x=true_scores, y=emd_loss_data)
+    # g.plot_joint(sns.kdeplot, bw_adjust=0.5)
+    # g.plot_marginals(sns.histplot, kde=False)
+    # g.set_axis_labels('PIAA Scores', 'EMD Loss Data', fontsize=12)
+    # plt.subplots_adjust(top=0.9)
+    # g.fig.suptitle('PIAA Scores vs EMD Loss Data', fontsize=16)
+    # plt.tight_layout()
+    # random_int = random.randint(1, 100000)
+    # filename = 'LAPIS_KDE_plot_%d.jpg'%random_int
+    # print('Save figure to %s'%filename)
+    # plt.savefig(filename)
+
+    # Assuming true_scores and emd_loss_data are numpy arrays
+    unique_scores = np.unique(true_scores)
+    mean_emd_loss = []
+    std_emd_loss = []
+    
+    # Group data and compute mean and std for each group
+    for score in unique_scores:
+        group_emd_loss = emd_loss_data[true_scores == score]
+        mean_emd_loss.append(np.mean(group_emd_loss))
+        std_emd_loss.append(np.std(group_emd_loss))
+
+    # Convert to numpy arrays for plotting
+    mean_emd_loss = np.array(mean_emd_loss)
+    std_emd_loss = np.array(std_emd_loss)
+
+    # Creating a figure to hold both subplots
+    plt.figure(figsize=(10, 12))
+
+    # First subplot for the histogram of true_scores
+    plt.subplot(2, 1, 1)  # 2 rows, 1 column, first plot
+    plt.hist(true_scores, bins=20, color='skyblue', edgecolor='black')
+    plt.title('Histogram of PIAA Scores', fontsize=16)
+    plt.xlabel('PIAA Scores', fontsize=12)
+    plt.ylabel('Frequency', fontsize=12)
+
+    # Second subplot for the mean and std of EMD Loss Data
+    plt.subplot(2, 1, 2)  # 2 rows, 1 column, second plot
+    plt.errorbar(unique_scores, mean_emd_loss, yerr=std_emd_loss, fmt='-o', ecolor='red', capsize=5, capthick=2, label='Mean EMD Loss with STD')
+    plt.xlabel('PIAA Scores', fontsize=12)
+    plt.ylabel('EMD Loss Data', fontsize=12)
+    plt.title('PIAA Scores vs EMD Loss Data (Mean and STD)', fontsize=16)
+    plt.legend()
+
+    # Adjusting layout
+    plt.tight_layout()
+    
+    i = 1  # Starting index
+    filename = f'LAPIS_KDE_plot_cv{i}.jpg'
+    # Loop until a filename is found that does not exist
+    while os.path.exists(filename):
+        i += 1  # Increment the counter if the file exists
+        filename = f'LAPIS_KDE_plot_cv{i}.jpg'  # Update the filename with the new counter
+    # Once a unique filename is determined, proceed with saving the plot
+    print(f'Save figure to {filename}')
+    plt.savefig(filename)
+
+
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
@@ -376,7 +496,7 @@ if __name__ == '__main__':
     if is_log:
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="latefusion",
-                   tags = ["arttype", "sGIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
+                   tags = ["no_arttype", "sGIAA", "CV%d/%d"%(args.fold_id, args.n_fold)])
         wandb.config = {
             "learning_rate": lr,
             "batch_size": batch_size,

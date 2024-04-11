@@ -11,11 +11,13 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import wandb
-from itertools import chain
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_MIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
 from PARA_PIAA_dataloader import PARA_PIAADataset, create_user_split_dataset_kfold, split_dataset_by_images
-from time import time
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import random
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -105,7 +107,7 @@ def train(model, dataloader, criterion, optimizer, device):
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
-        onehot_big5 = sample['onehot_traits'].to(device)
+        onehot_big5 = sample['big5'].to(device)
         attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         total_traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
         # traits_histogram = traits_histogram[:,:5]
@@ -140,25 +142,78 @@ def train(model, dataloader, criterion, optimizer, device):
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
     return epoch_emd_loss, epoch_total_emd_loss
 
-def save_results(userIds, traits_histograms, emd_loss_data):
-    # Convert traits_histograms into a DataFrame
-    traits_df = pd.DataFrame(traits_histograms, columns=[f'Trait_{i+1}' for i in range(70)])
-
-    # Add userIds and emd_loss_data to the DataFrame
-    traits_df['UserId'] = userIds
-    traits_df['EMD_Loss_Data'] = emd_loss_data
-
-    # Reorder DataFrame if you want 'UserId' and 'EMD_Loss_Data' at the beginning
-    cols = traits_df.columns.tolist()
-    cols = cols[-2:] + cols[:-2]
-    traits_df = traits_df[cols]
-
+def save_results(dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores):
+    
+    df = dataset.decode_batch_to_dataframe(traits_histograms[:,:20])
+    df['userID'] = userIds
+    df['EMD_Loss_Data'] = emd_loss_data
+    df['PIAA_Score'] = true_scores
+    df['PIAA_Pred'] = predicted_scores
+    
+    i = 1  # Starting index
+    filename = f'evaluation_results{i}.csv'
+    # Loop until a filename is found that does not exist
+    while os.path.exists(filename):
+        i += 1  # Increment the counter if the file exists
+        filename = f'evaluation_results{i}.csv'  # Update the filename with the new counter
+    # Once a unique filename is determined, proceed with saving the plot
+    print(f'Save EMD loss to {filename}')
     # Save to CSV
-    traits_df.to_csv('evaluation_results.csv', index=False)
+    df.to_csv(filename, index=False)
 
 
 # Evaluation Function
 def evaluate(model, dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
+    running_mse_loss = 0.0
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+    eval_srocc = True
+
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    with torch.no_grad():
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            onehot_big5 = sample['big5'].to(device)
+            # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+            traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
+            
+            aesthetic_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            
+            if eval_srocc:
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+            
+            running_emd_loss += loss.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+    
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+    
+    emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, emd_attr_loss, srocc, mse_loss
+
+
+# Evaluation Function
+def evaluate_each_datum(model, dataloader, criterion, device):
     model.eval()
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
@@ -175,23 +230,21 @@ def evaluate(model, dataloader, criterion, device):
     with torch.no_grad():
         for sample in progress_bar:
             images = sample['image'].to(device)
-            # userId = sample['userId']
-            # userIds.extend(userId)
+            userId = sample['userId']
+            userIds.extend(userId)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
-            onehot_big5 = sample['onehot_traits'].to(device)
+            onehot_big5 = sample['big5'].to(device)
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
-            # traits_histograms.append(traits_histogram.cpu().numpy())
+            traits_histograms.append(traits_histogram.cpu().numpy())
 
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
 
-            # emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
-            # emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
+            emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
+            emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
             loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
-            # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -203,22 +256,18 @@ def evaluate(model, dataloader, criterion, device):
                 running_mse_loss += mse.item()
             
             running_emd_loss += loss.item()
-            # running_attr_emd_loss += loss_attribute.item()
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
-
-    # traits_histograms = np.concatenate(traits_histograms)
-    # emd_loss_data = np.concatenate(emd_loss_data)
-    # save_results(userIds, traits_histograms, emd_loss_data)
-    # print(traits_histograms.shape)
-    # print(len(emd_loss_data))
-    # print(len(userIds))
     
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
+
+    traits_histograms = np.concatenate(traits_histograms)
+    emd_loss_data = np.concatenate(emd_loss_data)
+    save_results(dataloader.dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores)
     
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
@@ -256,7 +305,7 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', fold_id=1, n_fold=4):
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
     print(len(train_dataset), len(test_dataset))
-    pkl_dir = './dataset_pkl'
+    pkl_dir = './dataset_pkl/user_4fold'
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
@@ -279,15 +328,10 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/', fold_id=1, n_fold=4):
     return train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
 
 
-is_eval = False
-is_log = True
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
 num_pt = 50 + 20
-resume = None
-# resume = "best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_deep-paper-2.pth"
-# resume = 'best_model_resnet50_histo_latefusion_lr5e-05_decay_20epoch_lucky-peony-538.pth'
 criterion_mse = nn.MSELoss()
 
 
@@ -295,7 +339,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
     parser.add_argument('--fold_id', type=int, default=1)
     parser.add_argument('--n_fold', type=int, default=4)
+    parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
+    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
     args = parser.parse_args()
+
+    resume = args.resume
+    is_eval = args.is_eval
+    is_log = args.is_log
 
     random_seed = 42
     lr = 5e-5
@@ -397,6 +448,8 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    raise Exception
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     

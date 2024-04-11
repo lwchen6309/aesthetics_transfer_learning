@@ -2,14 +2,40 @@ import os
 import torch
 from torchvision import transforms
 import torch.nn.functional as F
-from PARA_PIAA_dataloader import PARA_PIAADataset, PARA_PIAADataset_precompute, split_dataset_by_user, split_dataset_by_images, split_data_by_user
+from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, split_data_by_user
 from torch.utils.data import DataLoader, Dataset
 import random
 import pickle
 from tqdm import tqdm
 import copy
-from scipy.optimize import minimize, Bounds
 from time import time
+import numpy as np
+import smogn
+from sklearn.preprocessing import OneHotEncoder
+import pandas as pd
+
+
+# Function to load the data, encode specified columns using one-hot encoding, and append them to the original dataframe
+def encode_and_append_onehot(data, columns_to_encode):
+    # Initialize the OneHotEncoder
+    encoder = OneHotEncoder(sparse=False)
+    
+    # Fit and transform the data for the specified columns
+    encoded_data = encoder.fit_transform(data[columns_to_encode])
+    
+    # Convert the encoded data into a DataFrame with column names
+    encoded_columns = encoder.get_feature_names_out(columns_to_encode)
+    encoded_df = pd.DataFrame(encoded_data, columns=encoded_columns)
+    
+    # Append the encoded DataFrame to the original DataFrame
+    data.reset_index(drop=True, inplace=True)
+    encoded_df.reset_index(drop=True, inplace=True)
+    updated_data = pd.concat([data, encoded_df], axis=1)
+    
+    # Drop the original columns that were encoded
+    updated_data.drop(columns=columns_to_encode, inplace=True)
+    
+    return updated_data
 
 
 class PARA_HistogramDataset(PARA_PIAADataset):
@@ -79,14 +105,14 @@ class PARA_HistogramDataset(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -113,35 +139,35 @@ class PARA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histogram['attributes'][attribute][bin_idx] += 1
 
             # Compute histograms for traits
-            for trait, _ in accumulated_histogram['traits'].items():
+            for trait, _ in accumulated_histogram['big5'].items():
                 bin_idx = int(sample['userTraits'][trait] - 1)
-                accumulated_histogram['traits'][trait][bin_idx] += 1
+                accumulated_histogram['big5'][trait][bin_idx] += 1
             
             # Update onehot traits
-            for trait in accumulated_histogram['onehot_traits'].keys():
-                accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+            for trait in accumulated_histogram['traits'].keys():
+                accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
 
         # Average out histograms over the number of samples
         accumulated_histogram['aestheticScore'] /= n_sample
-        for trait in accumulated_histogram['onehot_traits'].keys():
-            accumulated_histogram['onehot_traits'][trait] /= n_sample
+        for trait in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][trait] /= n_sample
         for key in accumulated_histogram['attributes'].keys():
             accumulated_histogram['attributes'][key] /= n_sample
-        for key in accumulated_histogram['traits'].keys():
-            accumulated_histogram['traits'][key] /= n_sample
+        for key in accumulated_histogram['big5'].keys():
+            accumulated_histogram['big5'][key] /= n_sample
 
         accumulated_histogram['n_samples'] = n_sample
         accumulated_histogram['image'] = img_sample['image']
 
         # Convert histograms to stacked tensors
         stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
 
         # Replace dictionaries with stacked tensors
         accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['traits'] = stacked_traits
-        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+        accumulated_histogram['big5'] = stacked_traits
+        accumulated_histogram['traits'] = stacked_onehot_traits
 
         return accumulated_histogram
 
@@ -200,22 +226,6 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histograms.append(self._compute_item(idx, is_giaa=True))
         return accumulated_histograms
 
-    def augment_entire_dataset(self, num_trial=400):
-        tot_count = 0
-        for idx, histograms in enumerate(tqdm(self.precomputed_data, desc="Augmenting Dataset")):
-            count = 0
-            augment_list = []
-            for _ in range(num_trial):
-                augmented_histogram = self.augment_data(histograms)
-                if augmented_histogram:
-                    # Extend the original histograms with the augmented one
-                    augment_list.append(augmented_histogram)
-                    count += 1
-            if count > 0:
-                self.precomputed_data[idx].extend(augment_list)        
-                tot_count += count
-        print('augment %d data'%tot_count)
-
     def _compute_item(self, idx, is_giaa=True):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
         upper_bound = len(associated_indices) if is_giaa else len(associated_indices)-1
@@ -235,14 +245,14 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -268,36 +278,36 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histogram['attributes'][attribute][bin_idx] += 1
 
             # Compute histograms for traits
-            for trait, _ in accumulated_histogram['traits'].items():
+            for trait, _ in accumulated_histogram['big5'].items():
                 bin_idx = int(sample['userTraits'][trait] - 1)
-                accumulated_histogram['traits'][trait][bin_idx] += 1
+                accumulated_histogram['big5'][trait][bin_idx] += 1
             
             # Update onehot traits
-            for trait in accumulated_histogram['onehot_traits'].keys():
-                accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+            for trait in accumulated_histogram['traits'].keys():
+                accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
 
         # Average out histograms over the number of samples
         total_samples = len(associated_indices)
         accumulated_histogram['aestheticScore'] /= total_samples
-        for trait in accumulated_histogram['onehot_traits'].keys():
-            accumulated_histogram['onehot_traits'][trait] /= total_samples
+        for trait in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][trait] /= total_samples
         for key in accumulated_histogram['attributes'].keys():
             accumulated_histogram['attributes'][key] /= total_samples
-        for key in accumulated_histogram['traits'].keys():
-            accumulated_histogram['traits'][key] /= total_samples
+        for key in accumulated_histogram['big5'].keys():
+            accumulated_histogram['big5'][key] /= total_samples
 
         accumulated_histogram['n_samples'] = total_samples
         # accumulated_histogram['image'] = img_sample['image']
 
         # Convert histograms to stacked tensors
         stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
 
         # Replace dictionaries with stacked tensors
         accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['traits'] = stacked_traits
-        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+        accumulated_histogram['big5'] = stacked_traits
+        accumulated_histogram['traits'] = stacked_onehot_traits
 
         return accumulated_histogram
 
@@ -309,67 +319,6 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
         selected_histogram['semantic'] = img_sample['imageAttributes']['semantic']
         return selected_histogram
     
-    def augment_data(self, histograms):
-        # Randomly select two histograms from the provided list
-        x0, x1 = random.sample(histograms, 2)
-
-        # Define lengths of each component in traits and onehot_traits
-        len_traits = {'personality-E': 10, 'personality-A': 10, 'personality-N': 10, 'personality-O': 10, 'personality-C': 10}
-        len_onehot_traits = {'age': len(self.age_encoder), 'gender': len(self.gender_encoder), 'EducationalLevel': len(self.education_encoder), 
-                             'artExperience': len(self.art_experience_encoder), 'photographyExperience': len(self.photo_experience_encoder)}
-
-        # Function to split concatenated tensor into its components
-        def split_tensor(tensor, lengths):
-            split_tensors = {}
-            start = 0
-            for key, length in lengths.items():
-                split_tensors[key] = tensor[start:start + length]
-                start += length
-            return split_tensors
-
-        # Define the objective function for minimization
-        def objective_function(c1):
-            c0 = 1
-            c1_tensor = torch.tensor(c1, dtype=torch.float32)  # Convert c1 to a PyTorch tensor
-
-            d = {key: (c0 * x0[key] - c1_tensor * x1[key]) / (c0 - c1_tensor) for key in ['aestheticScore', 'traits', 'onehot_traits', 'attributes']}
-            std_components = []
-            std_components.append(torch.std(d['aestheticScore']))
-
-            d_traits = split_tensor(d['traits'], len_traits)
-            d_onehot_traits = split_tensor(d['onehot_traits'], len_onehot_traits)
-            
-            for component in d_traits.values():
-                std_components.append(torch.std(component))
-            for component in d_onehot_traits.values():
-                std_components.append(torch.std(component))
-            return sum(std_components).item()  # Ensure to return a Python scalar
-
-        # Initial standard deviation without augmentation
-        initial_std = objective_function(0)
-
-        # Find coefficient c1 that minimizes the objective function
-        result = minimize(objective_function, [random.random()-0.5], bounds=Bounds(-1, 0.9))
-
-        # Check if the optimization was successful and actually reduces the standard deviation
-        if result.success and result.fun < initial_std:
-            c1 = result.x[0]
-            selected_histogram = {key: (x0[key] - c1 * x1[key]) / (1 - c1) for key in ['aestheticScore', 'traits', 'onehot_traits', 'attributes']}
-            for key in selected_histogram:
-                selected_histogram[key] = torch.clamp(selected_histogram[key], min=0)
-
-            # Split traits and onehot_traits back into their components
-            selected_histogram['traits'] = split_tensor(selected_histogram['traits'], len_traits)
-            selected_histogram['onehot_traits'] = split_tensor(selected_histogram['onehot_traits'], len_onehot_traits)
-            return selected_histogram
-        else:
-            return None
-
-    def augment_and_save_dataset(self, save_file):
-        self.augment_entire_dataset()
-        self.save(save_file)
-        print(f"Augmented data saved to {save_file}")
-
     def _discretize(self, value, bins):
         for i, bin_value in enumerate(bins):
             if value <= bin_value:
@@ -457,14 +406,14 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -490,36 +439,36 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histogram['attributes'][attribute][bin_idx] += 1
 
             # Compute histograms for traits
-            for trait, _ in accumulated_histogram['traits'].items():
+            for trait, _ in accumulated_histogram['big5'].items():
                 bin_idx = int(sample['userTraits'][trait] - 1)
-                accumulated_histogram['traits'][trait][bin_idx] += 1
+                accumulated_histogram['big5'][trait][bin_idx] += 1
             
             # Update onehot traits
-            for trait in accumulated_histogram['onehot_traits'].keys():
-                accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+            for trait in accumulated_histogram['traits'].keys():
+                accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
 
         # Average out histograms over the number of samples
         total_samples = len(associated_indices)
         accumulated_histogram['aestheticScore'] /= total_samples
-        for trait in accumulated_histogram['onehot_traits'].keys():
-            accumulated_histogram['onehot_traits'][trait] /= total_samples
+        for trait in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][trait] /= total_samples
         for key in accumulated_histogram['attributes'].keys():
             accumulated_histogram['attributes'][key] /= total_samples
-        for key in accumulated_histogram['traits'].keys():
-            accumulated_histogram['traits'][key] /= total_samples
+        for key in accumulated_histogram['big5'].keys():
+            accumulated_histogram['big5'][key] /= total_samples
 
         accumulated_histogram['n_samples'] = total_samples
         # accumulated_histogram['image'] = img_sample['image']
 
         # Convert histograms to stacked tensors
         stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
 
         # Replace dictionaries with stacked tensors
         accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['traits'] = stacked_traits
-        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+        accumulated_histogram['big5'] = stacked_traits
+        accumulated_histogram['traits'] = stacked_onehot_traits
 
         return accumulated_histogram
 
@@ -583,14 +532,14 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -623,26 +572,26 @@ class PARA_PIAA_HistogramDataset(PARA_PIAADataset):
             accumulated_histogram['attributes'][attribute][bin_idx] += 1
 
         # Compute histograms for traits
-        for trait, _ in accumulated_histogram['traits'].items():
+        for trait, _ in accumulated_histogram['big5'].items():
             bin_idx = int(sample['userTraits'][trait] - 1)
-            accumulated_histogram['traits'][trait][bin_idx] += 1
+            accumulated_histogram['big5'][trait][bin_idx] += 1
         
         # Update onehot traits
-        for trait in accumulated_histogram['onehot_traits'].keys():
-            accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+        for trait in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
 
         accumulated_histogram['n_samples'] = 1
         accumulated_histogram['image'] = sample['image']
 
         # Convert histograms to stacked tensors
         stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
 
         # Replace dictionaries with stacked tensors
         accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['traits'] = stacked_traits
-        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+        accumulated_histogram['big5'] = stacked_traits
+        accumulated_histogram['traits'] = stacked_onehot_traits
 
         return accumulated_histogram
 
@@ -704,7 +653,8 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
 
         sample = super().__getitem__(associated_indices[0], use_image=True)
         image = sample['image']
-        
+        img_path = sample['image_path']
+
         histogram_tmp = {
             'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
             'attributes': {
@@ -717,14 +667,14 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -751,23 +701,23 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
                 histogram['attributes'][attribute][bin_idx] += 1
 
             # Compute histograms for traits
-            for trait, _ in histogram['traits'].items():
+            for trait, _ in histogram['big5'].items():
                 bin_idx = int(sample['userTraits'][trait] - 1)
-                histogram['traits'][trait][bin_idx] += 1
+                histogram['big5'][trait][bin_idx] += 1
 
             # Update onehot traits
-            for trait in histogram['onehot_traits'].keys():
-                histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+            for trait in histogram['traits'].keys():
+                histogram['traits'][trait] += sample['userTraits'][trait]
 
             # Convert histograms to stacked tensors
             stacked_attributes = torch.cat(list(histogram['attributes'].values()))
-            stacked_traits = torch.cat(list(histogram['traits'].values()))
-            stacked_onehot_traits = torch.cat(list(histogram['onehot_traits'].values()))
-
+            stacked_traits = torch.cat(list(histogram['big5'].values()))
+            stacked_onehot_traits = torch.cat(list(histogram['traits'].values()))
+            
             # Replace dictionaries with stacked tensors
             histogram['attributes'] = stacked_attributes
-            histogram['traits'] = stacked_traits
-            histogram['onehot_traits'] = stacked_onehot_traits
+            histogram['big5'] = stacked_traits
+            histogram['traits'] = stacked_onehot_traits
             histogram['userId'] = sample['userId']
 
             # Add the histogram for the current sample to the list
@@ -776,18 +726,49 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
         # Now, stack the histograms after the loop
         stacked_histogram = {
             'image':image,
+            'image_path':img_path,
             'userId': [h['userId'] for h in histograms_list],
             'aestheticScore': torch.stack([h['aestheticScore'] for h in histograms_list]),
             'attributes': torch.stack([h['attributes'] for h in histograms_list]),
+            'big5': torch.stack([h['big5'] for h in histograms_list]),
             'traits': torch.stack([h['traits'] for h in histograms_list]),
-            'onehot_traits': torch.stack([h['onehot_traits'] for h in histograms_list]),
-            # 'aestheticScore': torch.stack([h['aestheticScore'] for h in histograms_list]).mean(dim=0),
-            # 'attributes': torch.stack([h['attributes'] for h in histograms_list]).mean(dim=0),
-            # 'traits': torch.stack([h['traits'] for h in histograms_list]).mean(dim=0),
-            # 'onehot_traits': torch.stack([h['onehot_traits'] for h in histograms_list]).mean(dim=0)
         }
-
+        
         return stacked_histogram
+
+    def decode_batch_to_dataframe(self, batch_features):
+        # Invert the encoders to create decoders
+        age_decoder = {idx: group for group, idx in self.age_encoder.items()}
+        gender_decoder = {idx: gender for gender, idx in self.gender_encoder.items()}
+        education_decoder = {idx: level for level, idx in self.education_encoder.items()}
+        art_experience_decoder = {idx: experience for experience, idx in self.art_experience_encoder.items()}
+        photo_experience_decoder = {idx: experience for experience, idx in self.photo_experience_encoder.items()}
+
+        # Calculate the splits for each segment based on the number of features
+        num_features = [len(self.age_encoder), len(self.gender_encoder), len(self.education_encoder),
+                        len(self.art_experience_encoder), len(self.photo_experience_encoder)]
+
+        splits = np.cumsum(num_features)[:-1]
+
+        decoded_batch = []
+        for onehot_encoded_vector in batch_features:
+            # Split the one-hot encoded vector into segments
+            segments = np.split(onehot_encoded_vector, splits)
+            
+            # Decode each segment
+            decoded_features = {
+                "age": age_decoder[np.argmax(segments[0])],
+                "gender": gender_decoder[np.argmax(segments[1])],
+                "education": education_decoder[np.argmax(segments[2])],
+                "art_experience": art_experience_decoder[np.argmax(segments[3])],
+                "photo_experience": photo_experience_decoder[np.argmax(segments[4])],
+            }
+            decoded_batch.append(decoded_features)
+
+        # Convert the list of dictionaries to a pandas DataFrame
+        decoded_df = pd.DataFrame(decoded_batch)
+        return decoded_df
+
 
 def collate_fn_imgsort(batch):
     # Extracting individual components
@@ -796,11 +777,11 @@ def collate_fn_imgsort(batch):
     userId = []
     for item in batch:
         userId += item['userId'] 
-    traits_histograms = [item['traits'] for item in batch]
-    onehot_big5s = [item['onehot_traits'] for item in batch]
+    traits_histograms = [item['big5'] for item in batch]
+    onehot_big5s = [item['traits'] for item in batch]
 
     # Stacking images
-    images = [item['image'].unsqueeze(0).repeat(item['traits'].shape[0], 1, 1, 1) for item in batch]
+    images = [item['image'].unsqueeze(0).repeat(item['big5'].shape[0], 1, 1, 1) for item in batch]
     images_stacked = torch.cat(images)
 
     # Concatenating other data
@@ -814,52 +795,9 @@ def collate_fn_imgsort(batch):
         'userId':userId,
         'aestheticScore': aesthetic_scores_concatenated,
         'attributes': attribute_concatenated,
-        'traits': traits_histograms_concatenated,
-        'onehot_traits': onehot_big5s_concatenated
+        'big5': traits_histograms_concatenated,
+        'traits': onehot_big5s_concatenated
     }
-
-
-class PARA_GSP_HistogramDataset(PARA_PIAA_HistogramDataset):
-    def __init__(self, root_dir, transform=None, piaa_data=None, 
-                 giaa_data=None, map_file=None, precompute_file=None):
-        super().__init__(root_dir, transform, piaa_data)
-        
-        # Store the GIAA dataset as a member attribute
-        self.giaa_dataset = PARA_GIAA_HistogramDataset(
-            root_dir, transform, giaa_data, map_file, precompute_file)
-
-        # Build a mapping from PIAA indices to GIAA indices
-        self.piaa_to_giaa_index_map = self._build_index_map()
-    
-    def _build_index_map(self):
-        piaa_to_giaa_index_map = {}
-        print(len(self.data['imageName']))
-        for idx, piaa_image_name in enumerate(self.data['imageName']):
-            # Find the corresponding index in GIAA dataset
-            giaa_indices = [i for i, img in enumerate(self.giaa_dataset.unique_images) if img == piaa_image_name]
-            if giaa_indices:
-                piaa_to_giaa_index_map[idx] = giaa_indices[0]  # Assuming one-to-one mapping for simplicity
-        return piaa_to_giaa_index_map
-
-    def __getitem__(self, idx):
-        # First get the PIAA histogram data
-        piaa_sample = super().__getitem__(idx)
-
-        # Now, get the corresponding GIAA data
-        giaa_idx = self.piaa_to_giaa_index_map.get(idx)
-        giaa_sample = self.giaa_dataset[giaa_idx]
-        # Return the combined sample data
-        
-        gsp_sample = copy.deepcopy(giaa_sample)
-        n_samples = giaa_sample['n_samples']
-        gsp_sample['n_samples'] -= 1
-        for key in ['traits', 'onehot_traits', 'attributes', 'aestheticScore']:
-            gsp_sample[key] = (n_samples * gsp_sample[key] - piaa_sample[key]) / (n_samples - 1)
-        return piaa_sample, gsp_sample, giaa_sample
-
-    def __len__(self):
-        # The length is the same as that of the PIAA dataset
-        return len(self.data)
 
 
 class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
@@ -881,14 +819,14 @@ class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
                 'contentPreference': torch.zeros(5),
                 'willingnessToShare': torch.zeros(5)
             },
-            'traits': {
+            'big5': {
                 'personality-E': torch.zeros(10),
                 'personality-A': torch.zeros(10),
                 'personality-N': torch.zeros(10),
                 'personality-O': torch.zeros(10),
                 'personality-C': torch.zeros(10)
             },
-            'onehot_traits': {
+            'traits': {
                 'age': torch.zeros(len(self.age_encoder)),
                 'gender': torch.zeros(len(self.gender_encoder)),
                 'EducationalLevel': torch.zeros(len(self.education_encoder)),
@@ -938,26 +876,26 @@ class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
             accumulated_histogram['attributes'][attribute][bin_idx] += 1
 
         # Compute histograms for traits
-        for trait, _ in accumulated_histogram['traits'].items():
+        for trait, _ in accumulated_histogram['big5'].items():
             bin_idx = int(sample['userTraits'][trait] - 1)
-            accumulated_histogram['traits'][trait][bin_idx] += 1
+            accumulated_histogram['big5'][trait][bin_idx] += 1
 
         # Update onehot traits
-        for trait in accumulated_histogram['onehot_traits'].keys():
-            accumulated_histogram['onehot_traits'][trait] += sample['userTraits'][trait]
+        for trait in accumulated_histogram['traits'].keys():
+            accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
 
         accumulated_histogram['n_samples'] = 1
         accumulated_histogram['image'] = sample['image']
 
         # Convert histograms to stacked tensors
         stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['onehot_traits'].values()))
+        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
+        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
 
         # Replace dictionaries with stacked tensors
         accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['traits'] = stacked_traits
-        accumulated_histogram['onehot_traits'] = stacked_onehot_traits
+        accumulated_histogram['big5'] = stacked_traits
+        accumulated_histogram['traits'] = stacked_onehot_traits
 
         return accumulated_histogram
 
@@ -966,7 +904,6 @@ class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
         if self.save_file:
             with open(self.save_file, 'wb') as f:
                 pickle.dump(self.precomputed_histograms, f)
-
 
 
 def load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=True):
@@ -1026,7 +963,7 @@ if __name__ == '__main__':
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
-    
+
     # Create datasets with the appropriate transformations
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
@@ -1040,16 +977,46 @@ if __name__ == '__main__':
     print(len(train_piaa_dataset), len(test_piaa_dataset))
 
     """Precompute"""
+    # data = list(train_piaa_dataset.data.groupby('imageName'))
+    # data[0][1].to_csv('image1.csv')
+
+    # test_data = data[0][1][['aestheticScore', 'qualityScore', 'compositionScore', 'colorScore', 'dofScore', 'contentScore', 'personality-E', 'personality-A', 'personality-N', 'personality-O','personality-C']]
+    # housing_smogn = smogn.smoter(
+    #     data = test_data,
+    #     y = 'aestheticScore',     ## string ('header name')
+    #     k = 7,                    ## positive integer (k < n)
+    #     samp_method = 'balance',  ## string ('balance' or 'extreme')
+    # )
+    
+    # rg_mtrx = [
+    #     [35000,  1, 0],  ## over-sample ("minority")
+    #     [125000, 0, 0],  ## under-sample ("majority")
+    #     [200000, 0, 0],  ## under-sample
+    #     [250000, 0, 0],  ## under-sample
+    # ]
+
+    # housing_smogn = smogn.smoter(
+    #     data = test_data,
+    #     y = 'aestheticScore',     ## string ('header name')
+    #     k = 7,                    ## positive integer (k < n)
+    #     pert = 0.04,              ## real number (0 < R < 1)
+    #     # samp_method = 'balance',  ## string ('balance' or 'extreme')
+    #     drop_na_col = True,       ## boolean (True or False)
+    #     drop_na_row = True,       ## boolean (True or False)
+    #     replace = False,          ## boolean (True or False)
+    #     # rel_thres = 0.10,         ## real number (0 < R < 1)
+    #     rel_method = 'manual',    ## string ('auto' or 'manual')
+    #     rel_ctrl_pts_rg = rg_mtrx, ## 2d array (format: [x, y])
+    # )
+
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl')
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
-    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
     # train_dataset.augment_and_save_dataset(os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct_augment.pkl'))
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
-
-    # test_dataset = PARA_GSP_HistogramDataset(root_dir, transform=test_transform, piaa_data=test_piaa_dataset.data, 
-    #                 giaa_data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
+    
     # piaa_sample, giaa_sample = test_dataset[0]
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file='testset_image_dct.pkl')
     # test_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
@@ -1057,7 +1024,49 @@ if __name__ == '__main__':
     test_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data)
     test_dataset_imgsort = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
     
+    """Compute the overlap between the train and the test user traits."""
+    # unique_df = test_dataset.data.reset_index()
+    # ids = unique_df.drop_duplicates(subset='userId').index
+    # userIds = test_dataset.data.iloc[ids]['userId']
+    # samples = [test_dataset[i] for i in ids]
+    # user_traits = torch.stack([torch.cat([sample['big5'], sample['traits']], dim=0) for sample in samples])
+    # userIds_map = {user:idx for idx,user in enumerate(userIds)}
+
+    # # test_dataset.data['userId']
+    # for fold_id in range(1,5):
+    #     train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
+    #     test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
+    #     print('Read Image Set')
+    #     with open(train_ids_path, "r") as train_file:
+    #         train_user_id = train_file.read().splitlines()
+    #     with open(test_ids_path, "r") as test_file:
+    #         test_user_id = test_file.read().splitlines()
+
+    #     # Extract traits for train and test users
+    #     train_traits = user_traits[torch.tensor([userIds_map[user] for user in train_user_id])].numpy()
+    #     test_traits = user_traits[torch.tensor([userIds_map[user] for user in test_user_id])].numpy()
+        
+    #     # Assuming train_traits and test_traits are numpy arrays representing your traits data
+    #     mean_train = np.mean(train_traits, axis=0)
+    #     std_train = np.std(train_traits, axis=0)
+
+    #     mean_test = np.mean(test_traits, axis=0)
+    #     std_test = np.std(test_traits, axis=0)
+
+    #     kept_ch = np.logical_and(mean_train>0, std_test>0)
+    #     mean_train = mean_train[kept_ch]
+    #     mean_test = mean_test[kept_ch]
+    #     std_train = std_train[kept_ch]
+    #     std_test = std_test[kept_ch]
+
+    #     # Compute the Bhattacharyya coefficient for each dimension and take the mean for simplicity
+    #     BCs = np.exp(-0.25 * ((mean_train - mean_test) ** 2) / (std_train**2 + std_test**2)) * np.sqrt(2 * std_train * std_test / (std_train**2 + std_test**2))
+    #     mean_BC = np.mean(BCs)
+
+    #     print(f'Average Cosine Similarity for Fold {fold_id}: {mean_BC:.4f}')
     # raise Exception
+
+    
     nworkers = 4
     batch_size = 100
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=nworkers)
