@@ -11,31 +11,8 @@ import copy
 from time import time
 import numpy as np
 import smogn
-from sklearn.preprocessing import OneHotEncoder
 import pandas as pd
-
-
-# Function to load the data, encode specified columns using one-hot encoding, and append them to the original dataframe
-def encode_and_append_onehot(data, columns_to_encode):
-    # Initialize the OneHotEncoder
-    encoder = OneHotEncoder(sparse=False)
-    
-    # Fit and transform the data for the specified columns
-    encoded_data = encoder.fit_transform(data[columns_to_encode])
-    
-    # Convert the encoded data into a DataFrame with column names
-    encoded_columns = encoder.get_feature_names_out(columns_to_encode)
-    encoded_df = pd.DataFrame(encoded_data, columns=encoded_columns)
-    
-    # Append the encoded DataFrame to the original DataFrame
-    data.reset_index(drop=True, inplace=True)
-    encoded_df.reset_index(drop=True, inplace=True)
-    updated_data = pd.concat([data, encoded_df], axis=1)
-    
-    # Drop the original columns that were encoded
-    updated_data.drop(columns=columns_to_encode, inplace=True)
-    
-    return updated_data
+import matplotlib.pyplot as plt
 
 
 class PARA_HistogramDataset(PARA_PIAADataset):
@@ -172,11 +149,14 @@ class PARA_HistogramDataset(PARA_PIAADataset):
         return accumulated_histogram
 
 
-class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
+class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None, 
+                importance_sampling=False, num_samples=40):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
+        self.importance_sampling = importance_sampling
+        self.num_samples = num_samples
         
         if map_file and os.path.exists(map_file):
             print('Loading image to indices map from file...')
@@ -215,22 +195,52 @@ class PARA_MIAA_HistogramDataset(PARA_PIAADataset):
     def precompute_data(self):
         self.precomputed_data = []
         for idx in tqdm(range(len(self))):
-            self.precomputed_data.append(self._compute_miaa_item(idx))
+            self.precomputed_data.append(self._compute_sgiaa_item(idx, num_samples=self.num_samples, importance_sampling=self.importance_sampling))
 
-    def _compute_miaa_item(self, idx, num_samples=40):
+    def _compute_sgiaa_item(self, idx, num_samples=40, importance_sampling=False):
         accumulated_histograms = []
+        associated_indices = self.image_to_indices_map[self.unique_images[idx]]
+        if importance_sampling:
+            sample_prob = self._compute_importance_prob(associated_indices)
+        else:
+            sample_prob = None
+
         for i in range(num_samples):
             if i > 0:
-                accumulated_histograms.append(self._compute_item(idx, is_giaa=False))
+                accumulated_histograms.append(self._compute_item(idx, is_giaa=False, sample_prob=sample_prob))
             else:
-                accumulated_histograms.append(self._compute_item(idx, is_giaa=True))
+                accumulated_histograms.append(self._compute_item(idx, is_giaa=True, sample_prob=sample_prob))
         return accumulated_histograms
 
-    def _compute_item(self, idx, is_giaa=True):
+    def _compute_importance_prob(self, associated_indices):
+        bin_indecies = []
+        for random_idx in associated_indices:
+            sample = super().__getitem__(random_idx, use_image=False)
+            bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+            bin_indecies.append(bin_idx)
+        scores = np.array(bin_indecies)
+        
+        unique_scores = np.unique(scores)
+        hist_values = np.zeros_like(unique_scores, dtype=np.float32)
+        for i, s in enumerate(unique_scores):
+            hist_values[i] = sum(scores == s)
+        inv_prob = 1 / hist_values
+        sample_prob = np.zeros_like(scores, dtype=np.float32)
+        for s, p in zip(unique_scores, inv_prob):
+            sample_prob[scores == s] = p
+        sample_prob = sample_prob / sample_prob.sum()
+        
+        return sample_prob
+
+    def _compute_item(self, idx, is_giaa=True, sample_prob=None):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
         upper_bound = len(associated_indices) if is_giaa else len(associated_indices)-1
         n_sample = random.randint(2, upper_bound)
-        associated_indices = random.sample(associated_indices, n_sample)
+        if sample_prob is not None:
+            associated_indices = random.choices(associated_indices, weights=sample_prob, k=n_sample)
+        else:
+            associated_indices = random.sample(associated_indices, n_sample)
+            # associated_indices = random.choices(associated_indices, k=n_sample)
 
         # Initialize accumulators
         accumulated_histogram = {
@@ -800,112 +810,6 @@ def collate_fn_imgsort(batch):
     }
 
 
-class PARA_PIAA_HistogramDataset_Precomputed(PARA_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, save_file=None):
-        super().__init__(root_dir, transform)
-        if data is not None:
-            self.data = data
-
-        # Initialize accumulators
-        self.accumulated_histogram_template = {
-            'aestheticScore': torch.zeros(len([1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])),
-            'attributes': {
-                'qualityScore': torch.zeros(5),
-                'compositionScore': torch.zeros(5),
-                'colorScore': torch.zeros(5),
-                'dofScore': torch.zeros(5),
-                'contentScore': torch.zeros(5),
-                'lightScore': torch.zeros(5),
-                'contentPreference': torch.zeros(5),
-                'willingnessToShare': torch.zeros(5)
-            },
-            'big5': {
-                'personality-E': torch.zeros(10),
-                'personality-A': torch.zeros(10),
-                'personality-N': torch.zeros(10),
-                'personality-O': torch.zeros(10),
-                'personality-C': torch.zeros(10)
-            },
-            'traits': {
-                'age': torch.zeros(len(self.age_encoder)),
-                'gender': torch.zeros(len(self.gender_encoder)),
-                'EducationalLevel': torch.zeros(len(self.education_encoder)),
-                'artExperience': torch.zeros(len(self.art_experience_encoder)),
-                'photographyExperience': torch.zeros(len(self.photo_experience_encoder))
-            }
-        }
-
-        self.save_file = save_file
-        if self.save_file:
-            if os.path.exists(self.save_file):
-                # Load precomputed histograms if the file exists
-                with open(self.save_file, 'rb') as f:
-                    self.precomputed_histograms = pickle.load(f)
-            else:
-                # Precompute and save the histograms
-                self.precompute_histograms()
-        else:
-            # Precompute histograms without saving
-            self.precomputed_histograms = [self.__getitem__(i) for i in tqdm(range(len(self)))]
-
-    def _discretize(self, value, bins):
-        """Helper function to discretize a value given specific bins"""
-        for i, bin_value in enumerate(bins):
-            if value <= bin_value:
-                return i
-        return len(bins) - 1
-
-    def __getitem__(self, idx):
-        if hasattr(self, 'precomputed_histograms'):
-            return self.precomputed_histograms[idx]
-        
-        accumulated_histogram = copy.deepcopy(self.accumulated_histogram_template)
-        sample = super().__getitem__(idx)
-        
-        # Compute aesthetic score histogram
-        bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
-        accumulated_histogram['aestheticScore'][bin_idx] += 1
-
-        # Round the quality score to the nearest integer and update histogram
-        rounded_quality_score = round(sample['aestheticScores']['qualityScore'])
-        accumulated_histogram['attributes']['qualityScore'][rounded_quality_score - 1] += 1
-
-        # Compute histograms for other attributes
-        for attribute in ['compositionScore', 'colorScore', 'dofScore', 'contentScore', 'lightScore', 'contentPreference', 'willingnessToShare']:
-            bin_idx = int(sample['aestheticScores'][attribute] - 1)
-            accumulated_histogram['attributes'][attribute][bin_idx] += 1
-
-        # Compute histograms for traits
-        for trait, _ in accumulated_histogram['big5'].items():
-            bin_idx = int(sample['userTraits'][trait] - 1)
-            accumulated_histogram['big5'][trait][bin_idx] += 1
-
-        # Update onehot traits
-        for trait in accumulated_histogram['traits'].keys():
-            accumulated_histogram['traits'][trait] += sample['userTraits'][trait]
-
-        accumulated_histogram['n_samples'] = 1
-        accumulated_histogram['image'] = sample['image']
-
-        # Convert histograms to stacked tensors
-        stacked_attributes = torch.cat(list(accumulated_histogram['attributes'].values()))
-        stacked_traits = torch.cat(list(accumulated_histogram['big5'].values()))
-        stacked_onehot_traits = torch.cat(list(accumulated_histogram['traits'].values()))
-
-        # Replace dictionaries with stacked tensors
-        accumulated_histogram['attributes'] = stacked_attributes
-        accumulated_histogram['big5'] = stacked_traits
-        accumulated_histogram['traits'] = stacked_onehot_traits
-
-        return accumulated_histogram
-
-    def precompute_histograms(self):
-        self.precomputed_histograms = [self.__getitem__(i) for i in tqdm(range(len(self)))]
-        if self.save_file:
-            with open(self.save_file, 'wb') as f:
-                pickle.dump(self.precomputed_histograms, f)
-
-
 def load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=True):
     # Define transformations for training set and test set
     train_transform = transforms.Compose([
@@ -933,14 +837,14 @@ def load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=True):
     """Precompute"""
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl')
-    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+    # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     test_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_testuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_testuser_dct.pkl'))
     
     train_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=train_piaa_dataset.data)
     test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data)
     if miaa:
-        train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
+        train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
     else:
         train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
     return train_dataset, test_dataset, train_user_piaa_dataset, test_user_piaa_dataset
@@ -1011,9 +915,11 @@ if __name__ == '__main__':
 
     pkl_dir = './dataset_pkl'
     # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file='trainset_image_dct.pkl')
-    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
-    train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
+    # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+    # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+    # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
+    train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_uniform_dct.pkl'), importance_sampling=True)
+    raise Exception
     # train_dataset.augment_and_save_dataset(os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct_augment.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))
     

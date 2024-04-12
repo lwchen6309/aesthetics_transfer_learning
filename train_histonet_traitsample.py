@@ -12,7 +12,7 @@ from tqdm import tqdm
 import wandb
 from itertools import chain
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_MIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
+from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_sGIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, split_dataset_by_trait
 from train_nima import NIMA, earth_mover_distance, train, evaluate
 from train_histonet_latefusion import CombinedModel

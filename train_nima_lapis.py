@@ -41,7 +41,7 @@ class NIMA(nn.Module):
         aesthetic_logits = self.fc_aesthetic(x)
         return aesthetic_logits
 
-def load_data(root_dir = '/home/lwchen/datasets/LAPIS', args=None):
+def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -200,7 +200,7 @@ if __name__ == '__main__':
     if is_log:
         tags = ["no_arttype", "GIAA"]
         if args.use_cv:
-            tags += "CV%d/%d"%(args.fold_id, args.n_fold)
+            tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="NIMA",
                    tags = tags)
@@ -213,7 +213,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args=args)
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
@@ -237,7 +237,10 @@ if __name__ == '__main__':
     best_modelname = 'lapis_best_model_resnet50_nima_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-    best_modelname = os.path.join('models_pth', best_modelname)
+    dirname = 'models_pth'
+    if args.use_cv:
+        dirname = os.path.join(dirname, 'random_cvs')
+    best_modelname = os.path.join(dirname, best_modelname)
     
     # Training loop
     best_test_loss = float('inf')
@@ -285,10 +288,8 @@ if __name__ == '__main__':
     if not is_eval:
         model.load_state_dict(torch.load(best_modelname))   
     
-    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    # raise Exception
-
     # Testing
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_subPIAA(model, test_piaa_dataloader, earth_mover_distance, device)
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)

@@ -12,7 +12,7 @@ from tqdm import tqdm
 import wandb
 from itertools import chain
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import PARA_MIAA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
+from PARA_histogram_dataloader import PARA_sGIAA_HistogramDataset, PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images
 
 
@@ -276,7 +276,7 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
     # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
     print(len(train_dataset), len(test_dataset))
     pkl_dir = './dataset_pkl'
-    # train_dataset = PARA_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
+    # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     train_dataset = Extended_PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
