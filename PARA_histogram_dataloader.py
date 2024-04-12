@@ -212,7 +212,7 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
                 accumulated_histograms.append(self._compute_item(idx, is_giaa=True, sample_prob=sample_prob))
         return accumulated_histograms
 
-    def _compute_importance_prob(self, associated_indices):
+    def compute_score_hist(self, associated_indices):
         bin_indecies = []
         for random_idx in associated_indices:
             sample = super().__getitem__(random_idx, use_image=False)
@@ -224,12 +224,15 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
         hist_values = np.zeros_like(unique_scores, dtype=np.float32)
         for i, s in enumerate(unique_scores):
             hist_values[i] = sum(scores == s)
+        return scores, unique_scores, hist_values
+
+    def _compute_importance_prob(self, associated_indices):
+        scores, unique_scores, hist_values = self.compute_score_hist(associated_indices)
         inv_prob = 1 / hist_values
         sample_prob = np.zeros_like(scores, dtype=np.float32)
         for s, p in zip(unique_scores, inv_prob):
             sample_prob[scores == s] = p
         sample_prob = sample_prob / sample_prob.sum()
-        
         return sample_prob
 
     def _compute_item(self, idx, is_giaa=True, sample_prob=None):
@@ -241,6 +244,24 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
         else:
             associated_indices = random.sample(associated_indices, n_sample)
             # associated_indices = random.choices(associated_indices, k=n_sample)
+        
+        # scores, unique_scores, hist_values = self.compute_score_hist(associated_indices)
+        # prob = hist_values / hist_values.sum()
+        # entropy = sum(prob * np.log(prob))
+        # print(entropy)
+        # ent = []
+        # for j in range(100):
+        #     if sample_prob is not None:
+        #         indices = random.choices(associated_indices, weights=sample_prob, k=n_sample)
+        #     else:
+        #         indices = random.sample(associated_indices, n_sample)
+        #         # associated_indices = random.choices(associated_indices, k=n_sample)
+        #     scores, unique_scores, hist_values = self.compute_score_hist(indices)
+        #     prob = hist_values / hist_values.sum()
+        #     entropy = sum(prob * np.log(prob))
+        #     ent.append(entropy)
+        # ent = np.array(ent)
+        # print(ent.mean(), ent.std())
 
         # Initialize accumulators
         accumulated_histogram = {
