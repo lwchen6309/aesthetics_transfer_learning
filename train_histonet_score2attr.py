@@ -60,7 +60,7 @@ def train(model, dataloader, criterion, optimizer, device):
         attributes_histogram = sample['attributes'].to(device)
         attributes_histogram = attributes_histogram.view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         # traits_histogram = sample['traits'].to(device)
-        # onehot_traits_histogram = sample['onehot_traits'].to(device)
+        # onehot_traits_histogram = sample['big5'].to(device)
         # traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         
         optimizer.zero_grad()

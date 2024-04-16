@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
-from LAPIS_histogram_dataloader import LAPIS_GIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset, LAPIS_MIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset_imgsort, collate_fn_imgsort, collate_fn
+from LAPIS_histogram_dataloader import LAPIS_GIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset, LAPIS_sGIAA_HistogramDataset, LAPIS_PIAA_HistogramDataset_imgsort, collate_fn_imgsort, collate_fn
 from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold
 from train_histonet_latefusion_lapis import NIMA, train, earth_mover_distance
 # from time import time

@@ -31,42 +31,6 @@ def earth_mover_distance(x, y, dim=-1):
     return emd
 
 
-class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
-        super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-            # nn.Linear(512, num_bins_aesthetic),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
-        self.num_attr = num_attr
-        self.num_bins_attr = num_bins_attr
-        self.num_pt = num_pt
-        # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.BatchNorm1d(512)
-        )
-        
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
-
-    def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        pt_code = self.pt_encoder(traits_histogram)
-        xz = x + pt_code
-        aesthetic_logits = self.fc_aesthetic(xz)
-        return aesthetic_logits
-
-
 class NIMA(nn.Module):
     def __init__(self, num_bins_aesthetic):
         super(NIMA, self).__init__()
@@ -344,7 +308,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
     args = parser.parse_args()
-
+    
     resume = args.resume
     is_eval = args.is_eval
     is_log = args.is_log
@@ -375,7 +339,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(fold_id=args.fold_id, n_fold=args.n_fold)
+    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
@@ -387,7 +351,6 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    # model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
     model = NIMA(num_bins).to(device)
 
     if resume is not None:
@@ -457,7 +420,7 @@ if __name__ == '__main__':
     
     # Testing
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    raise Exception
+    # raise Exception
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     

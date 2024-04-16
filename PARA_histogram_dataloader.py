@@ -900,7 +900,7 @@ if __name__ == '__main__':
     # test_piaa_dataset.data = test_piaa_dataset.data[test_piaa_dataset.data['userId'].isin(test_users)]
     train_piaa_dataset, test_piaa_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     print(len(train_piaa_dataset), len(test_piaa_dataset))
-
+    
     """Precompute"""
     # data = list(train_piaa_dataset.data.groupby('imageName'))
     # data[0][1].to_csv('image1.csv')
@@ -939,7 +939,35 @@ if __name__ == '__main__':
     # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
     # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct.pkl'))
-    train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_uniform_dct.pkl'), importance_sampling=True)
+    # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_uniform_dct.pkl'), importance_sampling=True)
+    
+    pkl_dir = 'dataset_pkl/user_cv'
+    train_IS_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, 
+            map_file=os.path.join(pkl_dir,'trainset_image_dct_1fold.pkl'), 
+            precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_1fold_IS.pkl'), importance_sampling=True)
+    train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, 
+            map_file=os.path.join(pkl_dir,'trainset_image_dct_1fold.pkl'), 
+            precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct_1fold.pkl'), importance_sampling=False)
+    
+    def accumulate_score(dataset):
+        s_hist = 0
+        for idx, img in enumerate(dataset.precomputed_data):
+            for dct in img:
+                p = dct['aestheticScore']
+                s_hist += p
+            if idx > 2000:
+                break
+        return s_hist
+    s_hist = accumulate_score(train_dataset)
+    s_hist_IS = accumulate_score(train_IS_dataset)
+    s_hist = s_hist / sum(s_hist)
+    s_hist_IS = s_hist_IS / sum(s_hist_IS)
+    score = np.arange(1,5.5,0.5)
+    width = 0.2  # Width of each bar
+    plt.bar(score - width/2, s_hist, width, label='sGIAA')  # Shift bar to the left
+    plt.bar(score + width/2, s_hist_IS, width, label='sGIAA-IS')  # Shift bar to the right
+    plt.legend()
+    plt.show()
     raise Exception
     # train_dataset.augment_and_save_dataset(os.path.join(pkl_dir,'trainset_MIAA_nopiaa_trainuser_dct_augment.pkl'))
     # train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_trainuser_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_trainuser_dct.pkl'))

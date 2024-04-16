@@ -92,7 +92,7 @@ def train(model, dataloader, criterion, optimizer, device):
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
-        onehot_big5 = sample['onehot_traits'].to(device)
+        onehot_big5 = sample['big5'].to(device)
         attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         total_traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
         traits_histogram = traits_histogram[:,:5]
@@ -146,7 +146,7 @@ def evaluate(model, dataloader, criterion, device):
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
-            onehot_big5 = sample['onehot_traits'].to(device)
+            onehot_big5 = sample['big5'].to(device)
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
             

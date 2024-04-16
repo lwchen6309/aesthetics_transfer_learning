@@ -52,7 +52,7 @@ def train(model, dataloader, criterion, optimizer, device):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         attributes_histogram = sample['attributes'].to(device)
         traits_histogram = sample['traits'].to(device)
-        onehot_traits_histogram = sample['onehot_traits'].to(device)
+        onehot_traits_histogram = sample['big5'].to(device)
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         
         optimizer.zero_grad()
@@ -90,7 +90,7 @@ def evaluate(model, dataloader, criterion, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             attributes_histogram = sample['attributes'].to(device)
             traits_histogram = sample['traits'].to(device)
-            onehot_traits_histogram = sample['onehot_traits'].to(device)
+            onehot_traits_histogram = sample['big5'].to(device)
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
             logits = model(images, attributes_histogram, traits_histogram)

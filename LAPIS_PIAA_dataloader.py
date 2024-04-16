@@ -356,7 +356,6 @@ def plot_histogram_comparison(lavis_dataset):
     plt.savefig('PARA_histogram.jpg', dpi=300)
 
 
-
 if __name__ == '__main__':
     root_dir = '/home/lwchen/datasets/LAPIS'
     # Define transformations for training set and test set

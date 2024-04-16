@@ -160,12 +160,15 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
             self.precomputed_data = pickle.load(f)
 
 
-class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
+class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None,
+                importance_sampling=False, num_samples=40):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
-        
+        self.importance_sampling = importance_sampling
+        self.num_samples = num_samples
+
         if map_file and os.path.exists(map_file):
             print('Loading image to indices map from file...')
             self.image_to_indices_map = self._load_map(map_file)
@@ -195,7 +198,7 @@ class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
             if precompute_file:
                 print(f"Saving precomputed data to {precompute_file}")
                 self.save(precompute_file)
-
+    
     def traits_len(self):
         units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
         units_len.extend([7] * 11)  # Extending for VAIAK1 to VAIAK7 and 2VAIAK1 to 2VAIAK4, 11 in total
@@ -204,23 +207,56 @@ class LAPIS_MIAA_HistogramDataset(LAPIS_PIAADataset):
     def precompute_data(self):
         self.precomputed_data = []
         for idx in tqdm(range(len(self))):
-            self.precomputed_data.append(self._compute_miaa_item(idx))
-    
-    def _compute_miaa_item(self, idx, num_samples=40):
+            self.precomputed_data.append(self._compute_sgiaa_item(idx, num_samples=self.num_samples, importance_sampling=self.importance_sampling))
+
+    def compute_score_hist(self, associated_indices):
+        bin_indecies = []
+        for random_idx in associated_indices:
+            sample = super().__getitem__(random_idx, use_image=False)
+            round_score = min(int(sample['response'])//10, 9)
+            bin_indecies.append(round_score)
+        scores = np.array(bin_indecies)
+        
+        unique_scores = np.unique(scores)
+        hist_values = np.zeros_like(unique_scores, dtype=np.float32)
+        for i, s in enumerate(unique_scores):
+            hist_values[i] = sum(scores == s)
+        return scores, unique_scores, hist_values
+
+    def _compute_importance_prob(self, associated_indices):
+        scores, unique_scores, hist_values = self.compute_score_hist(associated_indices)
+        inv_prob = 1 / hist_values
+        sample_prob = np.zeros_like(scores, dtype=np.float32)
+        for s, p in zip(unique_scores, inv_prob):
+            sample_prob[scores == s] = p
+        sample_prob = sample_prob / sample_prob.sum()
+        return sample_prob
+
+    def _compute_sgiaa_item(self, idx, num_samples=40, importance_sampling=False):
         accumulated_histograms = []
+        associated_indices = self.image_to_indices_map[self.unique_images[idx]]
+        if importance_sampling:
+            sample_prob = self._compute_importance_prob(associated_indices)
+        else:
+            sample_prob = None
+
         for i in range(num_samples):
             if i > 0:
-                accumulated_histograms.append(self._compute_item(idx, is_giaa=False))
+                accumulated_histograms.append(self._compute_item(idx, is_giaa=False, sample_prob=sample_prob))
             else:
-                accumulated_histograms.append(self._compute_item(idx, is_giaa=True))
+                accumulated_histograms.append(self._compute_item(idx, is_giaa=True, sample_prob=sample_prob))
         return accumulated_histograms
-    
-    def _compute_item(self, idx, is_giaa=True):
+
+    def _compute_item(self, idx, is_giaa=True, sample_prob=None):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
         upper_bound = len(associated_indices) if is_giaa else len(associated_indices)-1
         n_sample = random.randint(2, upper_bound)
-        associated_indices = random.sample(associated_indices, n_sample)
-
+        if sample_prob is not None:
+            associated_indices = random.choices(associated_indices, weights=sample_prob, k=n_sample)
+        else:
+            associated_indices = random.sample(associated_indices, n_sample)
+            # associated_indices = random.choices(associated_indices, k=n_sample)
+        
         # Assuming maximum scores for response and VAIAK/2VAIAK ratings for proper one-hot encoding
         max_response_score = 10  # Adjust based on your data
         max_vaia_score = 7
@@ -601,10 +637,12 @@ if __name__ == '__main__':
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl'
     train_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
+    # train_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
     train_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
-
-    # test_sgiaa_dataset = LAPIS_MIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
+    
+    # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'), importance_sampling=False)
+    test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct_IS.pkl'), importance_sampling=True)
+    raise Exception
     test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
     

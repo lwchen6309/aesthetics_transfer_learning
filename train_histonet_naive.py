@@ -38,7 +38,7 @@ def evaluate(model, dataloader, criterion, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             attributes_histogram = sample['attributes'].to(device)
             traits_histogram = sample['traits'].to(device)
-            onehot_traits_histogram = sample['onehot_traits'].to(device)
+            onehot_traits_histogram = sample['big5'].to(device)
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
             logits = model(images)
@@ -162,7 +162,7 @@ def evaluate_emd(model, dataloader, criterion, device):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         attributes_histogram = sample['attributes'].to(device)
         traits_histogram = sample['traits'].to(device)
-        onehot_traits_histogram = sample['onehot_traits'].to(device)
+        onehot_traits_histogram = sample['big5'].to(device)
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         semantic_value = torch.argmax(sample['semantic'], dim=1).cpu().numpy()
         semantic_values.append(semantic_value)
@@ -226,13 +226,13 @@ def analyze_histograms(dataset, emd_losses, ratio=0.3):
     total_aesthetic_score_histogram = torch.zeros_like(dataset[0]['aestheticScore'])
     total_attributes_histogram = torch.zeros_like(dataset[0]['attributes'])
     total_traits_histogram = torch.zeros_like(dataset[0]['traits'])
-    total_onehot_traits_histogram = torch.zeros_like(dataset[0]['onehot_traits'])
+    total_onehot_traits_histogram = torch.zeros_like(dataset[0]['big5'])
     total_semantic_histogram = torch.zeros_like(dataset[0]['semantic'])
 
     topn_aesthetic_score_histogram = torch.zeros_like(dataset[0]['aestheticScore'])
     topn_attributes_histogram = torch.zeros_like(dataset[0]['attributes'])
     topn_traits_histogram = torch.zeros_like(dataset[0]['traits'])
-    topn_onehot_traits_histogram = torch.zeros_like(dataset[0]['onehot_traits'])
+    topn_onehot_traits_histogram = torch.zeros_like(dataset[0]['big5'])
     topn_semantic_histogram = torch.zeros_like(dataset[0]['semantic'])
 
     # Iterate over the dataset to accumulate histograms
@@ -240,7 +240,7 @@ def analyze_histograms(dataset, emd_losses, ratio=0.3):
         total_aesthetic_score_histogram += sample['aestheticScore']
         total_attributes_histogram += sample['attributes']
         total_traits_histogram += sample['traits']
-        total_onehot_traits_histogram += sample['onehot_traits']
+        total_onehot_traits_histogram += sample['big5']
         total_semantic_histogram += sample['semantic']
     
         # Check if the current batch index is in the top 30% indices
@@ -248,7 +248,7 @@ def analyze_histograms(dataset, emd_losses, ratio=0.3):
             topn_aesthetic_score_histogram += sample['aestheticScore']
             topn_attributes_histogram += sample['attributes']
             topn_traits_histogram += sample['traits']
-            topn_onehot_traits_histogram += sample['onehot_traits']
+            topn_onehot_traits_histogram += sample['big5']
             topn_semantic_histogram += sample['semantic']
 
     results = {

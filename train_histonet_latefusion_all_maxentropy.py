@@ -38,7 +38,7 @@ class Extended_PARA_GIAA_HistogramDataset(PARA_GIAA_HistogramDataset):
     def process_traits(self, sample):
         # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         traits_histogram = sample['traits']
-        onehot_traits_histogram = sample['onehot_traits']
+        onehot_traits_histogram = sample['big5']
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=0)
         return traits_histogram  # Return the processed traits_histogram without modifying the sample
 
@@ -162,7 +162,7 @@ def train(model, dataloader, criterion, optimizer, device):
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
-        onehot_traits_histogram = sample['onehot_traits'].to(device)
+        onehot_traits_histogram = sample['big5'].to(device)
         attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
         coef = sample['coef'].to(device)
@@ -212,7 +212,7 @@ def evaluate(model, dataloader, criterion, device):
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
-            onehot_traits_histogram = sample['onehot_traits'].to(device)
+            onehot_traits_histogram = sample['big5'].to(device)
             attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_traits_histogram], dim=1)
             
