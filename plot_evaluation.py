@@ -166,5 +166,8 @@ if __name__ == '__main__':
     para_results = [para_nima_results, para_lf_results, para_lf_IS_results]
     plot_results(para_results, dataname='PARA')
     
-    # lapis_nima_results = eval_LAPIS()
-    # plot_results(lapis_nima_results, dataname='LAPIS')
+    lapis_nima_results = eval_LAPIS()
+    lapis_lf_results = eval_LAPIS('LF')
+    lapis_lf_IS_results = eval_LAPIS('LF_IS')
+    lapis_results = [lapis_nima_results, lapis_lf_results, lapis_lf_IS_results]
+    plot_results(lapis_results, dataname='LAPIS')

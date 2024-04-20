@@ -365,9 +365,10 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_image_split_dataset(piaa_dataset)
-    print(len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset))
-    train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_user_split_dataset_kfold(piaa_dataset, train_lavis_piaa_dataset, test_lavis_piaa_dataset, fold_id, n_fold=n_fold)
-    print(len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset))
+    # print(len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset))
+    if args.use_cv:
+        train_lavis_piaa_dataset, test_lavis_piaa_dataset = create_user_split_dataset_kfold(piaa_dataset, train_lavis_piaa_dataset, test_lavis_piaa_dataset, fold_id, n_fold=n_fold)
+    # print(len(train_lavis_piaa_dataset), len(test_lavis_piaa_dataset))
     
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl'
@@ -389,6 +390,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))
     else:
         if args.trainset == 'GIAA':
+            precompute_file = 'trainset_GIAA_dct.pkl'
             train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir, precompute_file))
         elif args.trainset == 'sGIAA':
             importance_sampling = args.importance_sampling
@@ -398,7 +400,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_lavis_piaa_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
         test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-        test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
+        test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
     test_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data)
     
     return train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
@@ -441,6 +443,8 @@ if __name__ == '__main__':
         tags = ["no_arttype", args.trainset]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        if args.importance_sampling:
+            tags += ["IS"]
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="latefusion",
                    tags = tags)
@@ -474,10 +478,13 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
+    dirname = 'models_pth'
+    if args.use_cv:
+        dirname = os.path.join(dirname, 'random_cvs')
     best_modelname = 'lapis_best_model_resnet50_histo_lr%1.0e_decay_%depoch' % (lr, num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
-    best_modelname = os.path.join('models_pth', best_modelname)
+    best_modelname = os.path.join(dirname, best_modelname)
     
     # Training loop
     best_test_srocc = 0
@@ -529,7 +536,8 @@ if __name__ == '__main__':
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device, prefix='LF_IS')
+    prefix = 'LF_IS' if args.importance_sampling else 'LF'
+    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device, prefix=prefix)
     
     if is_log:
         wandb.log({

@@ -66,7 +66,7 @@ def train(model, train_dataloader, optimizer, device):
         mean_scores = mean_scores.to(device)
         std_scores = std_scores.to(device)
         score_prob = score_prob.to(device)
-
+        
         attr_mean_scores = mean_scores[:,1:] # Remove aesthetic score
         aesthetic_mean_scores = mean_scores[:,0][:,None]
         aesthetic_std_scores = std_scores[:,0][:,None]
@@ -166,16 +166,7 @@ def evaluate(model, dataloader, num_bins, num_attr, device, eval_srocc=True):
     return emd_loss, attr_mse_loss, mse_loss, srocc
 
 
-is_eval = False
-is_log = True
-num_bins = 9
-num_attr = 8
-use_attr = True
-use_hist = True
-# resume = 'best_model_resnet50_giaa_lr5e-05_decay_20epoch.pth'
-resume = None
-
-def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
+def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     # Define the root directory of the PARA dataset
 
     # Define transformations for training set and test set
@@ -199,10 +190,22 @@ def load_data(root_dir = '/home/lwchen/datasets/PARA/'):
                                use_hist=use_hist, random_seed=random_seed)
     return train_dataset, test_dataset
 
+num_bins = 9
+num_attr = 8
+use_attr = True
+use_hist = True
+
 
 if __name__ == '__main__':
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Train and Evaluate the Combined Model')
+    parser.add_argument('--fold_id', type=int, default=1)
+    parser.add_argument('--n_fold', type=int, default=4)
+    parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
+    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
+    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
+
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
     parser.add_argument('--num_epochs', type=int, default=20, help='Number of epochs')
@@ -210,6 +213,10 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decay_factor', type=float, default=0.1, help='Factor by which to decay the learning rate')
     parser.add_argument('--max_patience_epochs', type=int, default=10, help='Max patience epochs for early stopping')
     args = parser.parse_args()
+
+    is_eval = args.is_eval
+    is_log = args.is_log
+    resume = args.resume
 
     lr = args.lr
     batch_size = args.batch_size
@@ -232,7 +239,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, test_dataset = load_data()
+    train_dataset, test_dataset = load_data(args)
     # Create dataloaders for training and test sets
     n_workers = 4
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, pin_memory=True)
@@ -287,9 +294,7 @@ if __name__ == '__main__':
 
         # Print the epoch loss
         print(f"Epoch [{epoch + 1}/{num_epochs}], "
-            #   f"Train MSE Mean Loss: {train_mse_mean_loss:.4f}, "
               f"Train EMD Loss: {train_emd_loss:.4f}, "
-            #   f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
               f"Test EMD Loss: {test_emd_loss:.4f}, "
               f"Test MSE Mean Attr Loss: {test_attr_mse_loss:.4f}, "
               f"Test SROCC: {test_srocc:.4f}")
@@ -323,9 +328,7 @@ if __name__ == '__main__':
 
     # Print the epoch loss
     print(f"Epoch [{epoch + 1}/{num_epochs}], "
-        #   f"Train MSE Mean Loss: {train_mse_mean_loss:.4f}, "
             f"Train EMD Loss: {train_emd_loss:.4f}, "
-        #   f"Test MSE Mean Loss: {test_mse_mean_loss:.4f}, "
             f"Test EMD Loss: {test_emd_loss:.4f}, "
             f"Test MSE Mean Attr Loss: {test_attr_mse_loss:.4f}, "
             f"Test SROCC: {test_srocc:.4f}")

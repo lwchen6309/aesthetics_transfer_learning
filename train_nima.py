@@ -62,8 +62,6 @@ def train(model, dataloader, criterion, optimizer, device):
     running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
     # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
-    running_ce_improvement = 0
-    running_ce_init = 0
     for sample in progress_bar:
         if is_eval:
             break
@@ -75,12 +73,6 @@ def train(model, dataloader, criterion, optimizer, device):
         attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         total_traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
         # traits_histogram = traits_histogram[:,:5]
-
-        # Optimize the traits_histogram for maximal entropy
-        # coef, ce_improvement, ce_init = optimize_entropy_for_batch(traits_histogram)
-        # running_ce_improvement += ce_improvement
-        # running_ce_init += ce_init
-        # coef = coef * len(images)
 
         optimizer.zero_grad()
         aesthetic_logits = model(images, total_traits_histogram)
@@ -99,8 +91,6 @@ def train(model, dataloader, criterion, optimizer, device):
         progress_bar.set_postfix({
             'Train EMD Loss': total_loss.item(),
         })
-    epoch_ce_improvement = running_ce_improvement / len(dataloader)
-    epoch_ce_init = running_ce_init / len(dataloader)
     
     epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
@@ -258,12 +248,12 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     # Create datasets with the appropriate transformations
     dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
     train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
     if args.use_cv:
         train_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-
+    
     # _, test_user_piaa_dataset = split_dataset_by_user(
     #     PARA_PIAADataset(root_dir, transform=train_transform),  
     #     test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
@@ -275,6 +265,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     pkl_dir = './dataset_pkl'
     if args.use_cv:
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
+        print(pkl_dir)
         train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))

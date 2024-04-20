@@ -65,6 +65,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl'
     if args.use_cv:
+        pkl_dir = os.path.join(pkl_dir, 'user_cv')
         train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
             data=train_lavis_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
             precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))        
@@ -82,7 +83,6 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     test_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_lavis_piaa_dataset.data)
 
     return train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
-
 
 
 num_bins = 10
@@ -212,7 +212,6 @@ if __name__ == '__main__':
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     # test_sgiaa_emd_loss, test_sgiaa_attr_emd_loss, test_sgiaa_srocc, test_sgiaa_mse = evaluate(model, test_sgiaa_dataloader, earth_mover_distance, device)
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
