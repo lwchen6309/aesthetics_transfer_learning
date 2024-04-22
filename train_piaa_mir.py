@@ -74,17 +74,9 @@ def train(model, dataloader, criterion_mse, optimizer, device):
         sample_score = sample_score.to(device).float()
         sample_attr = sample_attr.to(device)
         sample_pt = sample_pt.to(device)
-        batch_size = len(images)
         optimizer.zero_grad()
 
         y_ij = model(images, sample_pt)
-        # logit, attr_mean_pred = model(images)
-        # prob = F.softmax(logit, dim=1)
-
-        # # Interation_map
-        # A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
-        # I_ij = A_ij.view(batch_size,-1)
-        # y_ij = mlp1(I_ij) + mlp2(prob * scale)
         
         # MSE loss
         loss = criterion_mse(y_ij, sample_score)
@@ -123,12 +115,6 @@ def evaluate(model, dataloader, criterion_mse, device):
             batch_size = len(images)
 
             y_ij = model(images, sample_pt)
-            # logit, attr_mean_pred = model(images)
-            # prob = F.softmax(logit, dim=1)
-            # # Interaction_map
-            # A_ij = attr_mean_pred.unsqueeze(2) * sample_pt.unsqueeze(1)
-            # I_ij = A_ij.view(batch_size, -1)
-            # y_ij = mlp1(I_ij) + mlp2(prob * scale)
 
             # MSE loss
             loss = criterion_mse(y_ij, sample_score)
@@ -216,7 +202,7 @@ if __name__ == '__main__':
     
     lr = 5e-5
     batch_size = 100
-    num_epochs = 5
+    num_epochs = 20
     if is_log:
         tags = ["no_attr","PIAA"]
         if args.use_cv:
@@ -248,23 +234,13 @@ if __name__ == '__main__':
     model = CombinedModel(num_bins, num_attr, num_pt).to(device)
     model.nima_attr.load_state_dict(torch.load(pretrained_model))
     model = model.to(device)
-    # # Define two MLPs
-    # d_interaction = num_attr * num_pt
-    # mlp1 = MLP(d_interaction, 1024, 1)
-    # mlp2 = MLP(num_bins, 1024, 1)
-    
-    # # Move the model to the device
-    # model = model.to(device)
-    # mlp1 = mlp1.to(device)
-    # mlp2 = mlp2.to(device)
-    
+
     # Define the loss functions
     criterion_mse = nn.MSELoss()
 
     # Define the optimizer
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    # optimizer = optim.Adam(chain([*model.parameters(), *mlp1.parameters(), *mlp2.parameters()]), lr=lr)
-    
+
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (lr, num_epochs)
