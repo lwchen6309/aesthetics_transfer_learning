@@ -229,12 +229,30 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 
     test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
-def split_dataset_by_images(train_dataset, test_dataset, root_dir):
+def split_dataset_by_images(dataset, root_dir, validation_split=0.1, random_seed=42):
+    # Read train and test CSV files
     trainset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTrain.csv'))
     testset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTest.csv'))
-    train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(trainset['imageName'])]
+    
+    # Create copies of the original dataset
+    train_dataset = copy.deepcopy(dataset)
+    val_dataset = copy.deepcopy(dataset)
+    test_dataset = copy.deepcopy(dataset)
+
+    # Split trainset['imageName'] into train and validation sets
+    train_image_names = trainset['imageName']
+    train_image_names = train_image_names.sample(frac=1, random_state=random_seed)  # Shuffle the names
+    num_train_samples = int(len(train_image_names) * (1 - validation_split))
+    train_image_names_train = train_image_names[:num_train_samples]
+    train_image_names_val = train_image_names[num_train_samples:]
+
+    # Filter datasets based on image names
+    train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_image_names_train)]
+    val_dataset.data = val_dataset.data[val_dataset.data['imageName'].isin(train_image_names_val)]
     test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(testset['imageName'])]
-    return train_dataset, test_dataset
+    
+    return train_dataset, val_dataset, test_dataset
+
 
 def split_dataset_by_trait(dataset, trait, value):
     """
@@ -298,7 +316,7 @@ def create_user_split_kfold(dataset, k=4):
         
         print(f"Fold {fold}: Train User IDs: {len(train_user_ids)}, Test User IDs: {len(test_user_ids)}")
 
-def create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id, n_fold = 4):
+def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id, n_fold = 4):
     
     create_user_split_kfold(dataset, k=n_fold)
     
@@ -312,11 +330,13 @@ def create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_i
     with open(test_ids_path, "r") as test_file:
         test_user_id = test_file.read().splitlines()
 
-    train_dataset = copy.deepcopy(train_dataset)
-    test_dataset = copy.deepcopy(test_dataset)
+    # train_dataset = copy.deepcopy(train_dataset)
+    # val_dataset = copy.deepcopy(val_dataset)
+    # test_dataset = copy.deepcopy(test_dataset)
     train_dataset.data = train_dataset.data[train_dataset.data['userId'].isin(train_user_id)]
+    val_dataset.data = val_dataset.data[val_dataset.data['userId'].isin(train_user_id)]
     test_dataset.data = test_dataset.data[test_dataset.data['userId'].isin(test_user_id)]
-    return train_dataset, test_dataset
+    return train_dataset, val_dataset, test_dataset
 
 
 if __name__ == '__main__':

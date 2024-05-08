@@ -85,20 +85,12 @@ def train(model, dataloader, criterion, optimizer, device):
         attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         total_traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
         # traits_histogram = traits_histogram[:,:5]
-
-        # Optimize the traits_histogram for maximal entropy
-        # coef, ce_improvement, ce_init = optimize_entropy_for_batch(traits_histogram)
-        # running_ce_improvement += ce_improvement
-        # running_ce_init += ce_init
-        # coef = coef * len(images)
-
+        
         optimizer.zero_grad()
         aesthetic_logits = model(images, total_traits_histogram)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
         # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
         loss_aesthetic = torch.mean(criterion(prob_aesthetic, aesthetic_score_histogram))
-        # loss_attribute = torch.mean(coef[:,None] * criterion(prob_attribute, attributes_target_histogram))
-        # total_loss = loss_aesthetic + loss_attribute # Combining losses
         total_loss = loss_aesthetic # Combining losses
         
         total_loss.backward()
@@ -170,13 +162,6 @@ def evaluate(model, dataloader, criterion, device):
             progress_bar.set_postfix({
                 'Test EMD Loss': loss.item(),
             })
-
-    # traits_histograms = np.concatenate(traits_histograms)
-    # emd_loss_data = np.concatenate(emd_loss_data)
-    # save_results(userIds, traits_histograms, emd_loss_data)
-    # print(traits_histograms.shape)
-    # print(len(emd_loss_data))
-    # print(len(userIds))
     
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred, axis=0)
@@ -187,6 +172,77 @@ def evaluate(model, dataloader, criterion, device):
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
+
+
+def evaluate_with_prior(model, dataloader, prior_dataloader, criterion, device):
+    model.eval()
+    running_emd_loss = 0.0
+    running_attr_emd_loss = 0.0
+    running_mse_loss = 0.0
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+    eval_srocc = True
+
+    progress_bar = tqdm(dataloader, leave=False)
+    mean_pred = []
+    mean_target = []
+    traits_histograms = []
+    with torch.no_grad():
+        for sample in tqdm(prior_dataloader, leave=False):
+            # images = sample['image'].to(device)
+            # aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            try:
+                onehot_big5 = sample['big5'].to(device)
+            except KeyError:
+                print(sample.keys())
+            traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
+            traits_histograms.append(traits_histogram)
+        mean_traits_histogram = torch.mean(torch.cat(traits_histograms, dim=0), dim=0)
+        
+        for sample in progress_bar:
+            images = sample['image'].to(device)
+            # userId = sample['userId']
+            # userIds.extend(userId)
+            aesthetic_score_histogram = sample['aestheticScore'].to(device)
+            traits_histogram = sample['traits'].to(device)
+            try:
+                onehot_big5 = sample['big5'].to(device)
+            except KeyError:
+                print(sample.keys())
+            # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+            traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
+            bs = images.shape[0]
+            traits_histogram = mean_traits_histogram.repeat(batch_size, 1)  # Repeat mean_traits_histogram for each sample in the batch
+
+            aesthetic_logits = model(images, traits_histogram)
+            prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
+            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            
+            if eval_srocc:
+                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+                mean_target.append(target_mean.view(-1).cpu().numpy())
+                # MSE
+                mse = criterion_mse(outputs_mean, target_mean)
+                running_mse_loss += mse.item()
+            
+            running_emd_loss += loss.item()
+            # running_attr_emd_loss += loss_attribute.item()
+            progress_bar.set_postfix({
+                'Test EMD Loss': loss.item(),
+            })
+    
+    # Calculate SROCC
+    predicted_scores = np.concatenate(mean_pred, axis=0)
+    true_scores = np.concatenate(mean_target, axis=0)
+    srocc, _ = spearmanr(predicted_scores, true_scores)
+    
+    emd_loss = running_emd_loss / len(dataloader)
+    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, emd_attr_loss, srocc, mse_loss
+
 
 
 def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate=1e-4):
@@ -342,60 +398,44 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
+
     fold_id = args.fold_id
     n_fold = args.n_fold
-
     # Load datasets
     # Create datasets with the appropriate transformations
     dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, test_dataset = split_dataset_by_images(train_piaa_dataset, test_piaa_dataset, root_dir)
+    piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
+
     # Assuming shell_users_df contains the shell user DataFrame
-    train_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-    
-    # _, test_user_piaa_dataset = split_dataset_by_user(
-    #     PARA_PIAADataset(root_dir, transform=train_transform),  
-    #     test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
-    
-    # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    print(len(train_dataset), len(test_dataset))
+    if args.use_cv:
+        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
+
+    print(len(train_dataset), len(val_dataset), len(test_dataset))
     pkl_dir = './dataset_pkl'
     if args.use_cv:
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
-        if args.trainset == 'GIAA':
-            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, 
-                data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
-                precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
-        elif args.trainset == 'sGIAA':
-            importance_sampling = args.importance_sampling
-            precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
-            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, importance_sampling=importance_sampling,
-                data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
-                precompute_file=os.path.join(pkl_dir,precompute_file))
-        else:
-            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        print(pkl_dir)
+        train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'val_GIAA_dct_%dfold.pkl'%fold_id))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))
+        # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
     else:
-        if args.trainset == 'GIAA':
-            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-        elif args.trainset == 'sGIAA':
-            importance_sampling = args.importance_sampling
-            precompute_file = 'trainset_MIAA_nopiaa_dct_IS.pkl' if importance_sampling else 'trainset_MIAA_nopiaa_dct.pkl'
-            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,precompute_file))
-        else:
-            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
+        # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
+        # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        # train_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'))
+
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
-
     test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
     # test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
     
-    # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
-    return train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
+    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
 
 
 num_bins = 9
@@ -416,7 +456,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
     args = parser.parse_args()
-
+    
     resume = args.resume
     is_eval = args.is_eval
     is_log = args.is_log
@@ -429,8 +469,11 @@ if __name__ == '__main__':
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     n_workers = 8
-    eval_on_giaa = True
-
+    if args.trainset == 'PIAA':
+        eval_on_giaa = False
+    else:
+        eval_on_giaa = True
+    
     if is_log:
         tags = ["no_attr", args.trainset]
         if args.use_cv:
@@ -446,14 +489,19 @@ if __name__ == '__main__':
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
+
+    # train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
+    train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     
-    train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    # test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -494,22 +542,16 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # Testing
-        test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+        val_giaa_emd_loss, val_giaa_attr_emd_loss, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, earth_mover_distance, device)
+        val_piaa_emd_loss, val_piaa_attr_emd_loss, val_piaa_srocc, val_piaa_mse = evaluate(model, val_piaa_imgsort_dataloader, earth_mover_distance, device)
         if is_log:
             wandb.log({
-                "Test GIAA EMD Loss": test_giaa_emd_loss,
-                "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
-                "Test GIAA SROCC": test_giaa_srocc,
-                "Test GIAA MSE": test_giaa_mse,
-                       }, commit=True)        
-        test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-        if is_log:
-            wandb.log({
-                "Test PIAA EMD Loss": test_piaa_emd_loss,
-                "Test PIAA SROCC": test_piaa_srocc,
-                       }, commit=False)
-        
-        eval_srocc = test_giaa_srocc if eval_on_giaa else test_piaa_srocc
+                "Val GIAA EMD Loss": val_giaa_emd_loss,
+                "Val GIAA SROCC": val_giaa_srocc,
+                "Val PIAA EMD Loss": val_piaa_emd_loss,
+                "Val PIAA SROCC": val_piaa_srocc,                
+            }, commit=True)
+        eval_srocc = val_giaa_srocc if eval_on_giaa else val_piaa_srocc
         
         # Early stopping check
         if eval_srocc > best_test_srocc:
@@ -526,30 +568,24 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
+    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    test_giaa_emd_loss_wprior, _, test_giaa_srocc_wprior, _ = evaluate_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, earth_mover_distance, device)
+    test_piaa_emd_loss, _, test_piaa_srocc, _ = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    test_giaa_emd_loss, _, test_giaa_srocc, _ = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
     
     if is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
-            "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
-            "Test GIAA MSE": test_giaa_mse,
+            "Test GIAA EMD Loss (Prior)": test_giaa_emd_loss_wprior,
+            "Test GIAA SROCC (Prior)": test_giaa_srocc_wprior,
             "Test PIAA EMD Loss": test_piaa_emd_loss,
-            "Test PIAA Attr EMD Loss": test_piaa_attr_emd_loss,
             "Test PIAA SROCC": test_piaa_srocc,
-            "Test PIAA MSE": test_piaa_mse,
         }, commit=True)
 
     # Print the epoch loss
     print(f"Epoch [{epoch + 1}/{num_epochs}], "
-            f"Test GIAA EMD Loss: {test_giaa_emd_loss:.4f}, "
-            f"Test GIAA Attr EMD Loss: {test_giaa_attr_emd_loss:.4f}, "
             f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-            f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-            f"Test PIAA EMD Loss: {test_piaa_emd_loss:.4f}, "
-            f"Test PIAA EMD Loss: {test_piaa_attr_emd_loss:.4f}, "
+            f"Test GIAA SROCC Loss with Prior: {test_giaa_srocc_wprior:.4f}, "
             f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-            f"Test PIAA MSE Loss: {test_piaa_mse:.4f}, "
             )

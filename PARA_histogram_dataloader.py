@@ -510,10 +510,11 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
             decoder = {v: k for k, v in encoders.items()}
             traits.extend([decoder[i] for i in range(len(decoder))])
         return traits
-
+    
     def __getitem__(self, idx):
         item_data = copy.deepcopy(self.precomputed_data[idx])
         img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+        item_data['image_path'] = img_sample['image_path']
         item_data['image'] = img_sample['image']
         item_data['semantic'] = img_sample['imageAttributes']['semantic']
         return item_data
@@ -814,7 +815,8 @@ def collate_fn_imgsort(batch):
     # Stacking images
     images = [item['image'].unsqueeze(0).repeat(item['big5'].shape[0], 1, 1, 1) for item in batch]
     images_stacked = torch.cat(images)
-
+    img_path = [[item['image_path']] * item['big5'].shape[0] for item in batch]
+    
     # Concatenating other data
     aesthetic_scores_concatenated = torch.cat(aesthetic_scores)
     attribute_concatenated = torch.cat(attributes)
@@ -823,6 +825,7 @@ def collate_fn_imgsort(batch):
     
     return {
         'image': images_stacked,
+        'image_path':img_path,
         'userId':userId,
         'aestheticScore': aesthetic_scores_concatenated,
         'attributes': attribute_concatenated,

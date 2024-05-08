@@ -428,7 +428,7 @@ if __name__ == '__main__':
     resume = args.resume
     is_eval = args.is_eval
     is_log = args.is_log
-
+    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -437,7 +437,10 @@ if __name__ == '__main__':
     lr_decay_factor = 0.5
     max_patience_epochs = 10
     n_workers = 8
-    eval_on_giaa = True
+    if args.trainset == 'PIAA':
+        eval_on_giaa = False
+    else:
+        eval_on_giaa = True
     
     if is_log:
         tags = ["no_arttype", args.trainset]
