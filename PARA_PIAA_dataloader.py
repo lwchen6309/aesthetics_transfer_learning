@@ -229,28 +229,48 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 
     test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
-def split_dataset_by_images(dataset, root_dir, validation_split=0.1, random_seed=42):
+def split_dataset_by_images(dataset, root_dir, validation_split=0.1):
     # Read train and test CSV files
     trainset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTrain.csv'))
     testset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTest.csv'))
     
-    # Create copies of the original dataset
+    # Create copies of the original dataset for training, validation, and testing
     train_dataset = copy.deepcopy(dataset)
     val_dataset = copy.deepcopy(dataset)
     test_dataset = copy.deepcopy(dataset)
 
-    # Split trainset['imageName'] into train and validation sets
-    train_image_names = trainset['imageName']
-    train_image_names = train_image_names.sample(frac=1, random_state=random_seed)  # Shuffle the names
+    # Shuffle trainset['imageName'] and split into train and validation sets
+    train_image_names = trainset['imageName'].sample(frac=1, random_state=42)
     num_train_samples = int(len(train_image_names) * (1 - validation_split))
     train_image_names_train = train_image_names[:num_train_samples]
     train_image_names_val = train_image_names[num_train_samples:]
-
+    
     # Filter datasets based on image names
     train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_image_names_train)]
     val_dataset.data = val_dataset.data[val_dataset.data['imageName'].isin(train_image_names_val)]
     test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(testset['imageName'])]
-    
+
+    # Path to the validation images file
+    validation_images_file = os.path.join(root_dir, 'validation_images.txt')
+
+    # Check if validation images file already exists
+    if os.path.exists(validation_images_file):
+        # Read the existing validation image names
+        with open(validation_images_file, 'r') as file:
+            existing_validation_images = {line.strip() for line in file.readlines()}
+        
+        # Compare the existing names with the newly generated ones
+        new_validation_images = set(train_image_names_val.tolist())
+        if existing_validation_images != new_validation_images:
+            raise ValueError("Validation set inconsistency detected. Existing validation images do not match newly generated validation images.")
+        else:
+            print('Assert fixed validation images')
+    else:
+        # Save validation image names to a txt file if not exist
+        with open(validation_images_file, 'w') as file:
+            for image_name in train_image_names_val:
+                file.write(image_name + '\n')
+
     return train_dataset, val_dataset, test_dataset
 
 

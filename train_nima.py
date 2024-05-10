@@ -8,17 +8,12 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.models import resnet50
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_sGIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
-from PARA_PIAA_dataloader import PARA_PIAADataset, create_user_split_dataset_kfold, split_dataset_by_images
+from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
-import random
-import pickle
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -289,65 +284,6 @@ def evaluate_each_datum(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-    # Dataset transformations
-    train_transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
-
-    fold_id = args.fold_id
-    n_fold = args.n_fold
-    # Load datasets
-    # Create datasets with the appropriate transformations
-    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
-
-    # Assuming shell_users_df contains the shell user DataFrame
-    if args.use_cv:
-        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-    
-    # _, test_user_piaa_dataset = split_dataset_by_user(
-    #     PARA_PIAADataset(root_dir, transform=train_transform),  
-    #     test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
-    
-    # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
-    print(len(train_dataset), len(val_dataset), len(test_dataset))
-    pkl_dir = './dataset_pkl'
-    if args.use_cv:
-        pkl_dir = os.path.join(pkl_dir, 'user_cv')
-        print(pkl_dir)
-        train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'val_GIAA_dct_%dfold.pkl'%fold_id))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
-        test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id))
-        test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))
-        # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
-    else:
-        train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-        # train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_nopiaa_dct.pkl'))
-        # train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        # train_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'))
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'))
-
-        test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-        test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
-    test_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data)
-    # test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    
-    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
-
-
 num_bins = 9
 num_attr = 8
 num_bins_attr = 5
@@ -357,6 +293,7 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':    
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
+    parser.add_argument('--trainset', type=str, default='GIAA', choices=["GIAA", "sGIAA", "PIAA"])
     parser.add_argument('--fold_id', type=int, default=1)
     parser.add_argument('--n_fold', type=int, default=4)
     parser.add_argument('--resume', type=str, default=None)
@@ -404,7 +341,6 @@ if __name__ == '__main__':
     val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-    test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     # test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     
@@ -431,6 +367,7 @@ if __name__ == '__main__':
     
     # Training loop
     best_test_srocc = 0
+    num_patience_epochs = 0
     for epoch in range(num_epochs):
         if is_eval:
             break
