@@ -305,7 +305,7 @@ if __name__ == '__main__':
     resume = args.resume
     is_eval = args.is_eval
     is_log = args.is_log
-
+    
     random_seed = 42
     lr = 5e-5
     batch_size = 100
@@ -367,7 +367,6 @@ if __name__ == '__main__':
     
     # Training loop
     best_test_srocc = 0
-    num_patience_epochs = 0
     for epoch in range(num_epochs):
         if is_eval:
             break

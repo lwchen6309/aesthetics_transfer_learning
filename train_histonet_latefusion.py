@@ -450,7 +450,7 @@ if __name__ == '__main__':
     # test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
 
@@ -472,7 +472,6 @@ if __name__ == '__main__':
 
     # Training loop
     best_test_srocc = 0
-    num_patience_epochs = 0
     for epoch in range(num_epochs):
         if is_eval:
             break
