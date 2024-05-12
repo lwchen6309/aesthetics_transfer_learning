@@ -5,15 +5,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import transforms
+# from torchvision import transforms
 from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
-import matplotlib.pyplot as plt
-import pandas as pd
+# import matplotlib.pyplot as plt
+# import pandas as pd
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -59,9 +59,6 @@ def train(model, dataloader, criterion, optimizer, device):
     progress_bar = tqdm(dataloader, leave=False)
     # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
     for sample in progress_bar:
-        if is_eval:
-            break
-        
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
@@ -390,7 +387,7 @@ if __name__ == '__main__':
                 "Val GIAA EMD Loss": val_giaa_emd_loss,
                 "Val GIAA SROCC": val_giaa_srocc,
                 "Val PIAA EMD Loss": val_piaa_emd_loss,
-                "Val PIAA SROCC": val_piaa_srocc,                
+                "Val PIAA SROCC": val_piaa_srocc,
             }, commit=True)
         
         eval_srocc = val_giaa_srocc if eval_on_giaa else val_piaa_srocc
