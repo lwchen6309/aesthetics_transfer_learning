@@ -14,6 +14,7 @@ from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from train_nima import earth_mover_distance
 import math
+from itertools import zip_longest
 
 
 class AesModel(nn.Module):
@@ -139,49 +140,46 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
     model.train()
     running_aesthetic_dist_mse_loss = 0.0
     running_big5_mse_loss = 0.0
-    progress_bar = tqdm(dataloader, leave=False)
-    # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)    
 
-    # Train aesthetic score
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
+    # Use zip to ensure both dataloaders are used up to the length of the shorter one
+    combined_dataloader = zip(dataloader, piaa_dataloader)
+    progress_bar = tqdm(combined_dataloader, leave=False)
+    
+    for (sample_aesthetic, sample_big5) in progress_bar:
+        # Update for aesthetic score
+        images_aesthetic = sample_aesthetic['image'].to(device)
+        aesthetic_score_histogram = sample_aesthetic['aestheticScore'].to(device)
 
         optimizer.zero_grad()
-        aesthetic_logits, big5_pred = model(images)
+        aesthetic_logits, _ = model(images_aesthetic)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-        loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
-        # loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
-        
+        # loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
+        loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
         loss_aesthetic.backward()
         optimizer.step()
         running_aesthetic_dist_mse_loss += loss_aesthetic.item()
 
         progress_bar.set_postfix({
-            'Train EMD Loss for aesthetic': loss_aesthetic.item(),
+            'Aesthetic Loss': loss_aesthetic.item(),
         })
-
-    # Train big5
-    progress_bar = tqdm(piaa_dataloader, leave=False)
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        onehot_big5 = sample['big5'].to(device)
+        
+        # Update for Big5
+        images_big5 = sample_big5['image'].to(device)
+        onehot_big5 = sample_big5['big5'].to(device)
         batch_size = onehot_big5.shape[0]
-        big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() # 1 - 10
-        
+        big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float()
+
         optimizer.zero_grad()
-        aesthetic_logits, big5_pred = model(images)
+        _, big5_pred = model(images_big5)
         loss_big5 = criterion_mse(big5_pred, big5)
-        
         loss_big5.backward()
         optimizer.step()
         running_big5_mse_loss += loss_big5.item()
 
         progress_bar.set_postfix({
-            'Train MSE Loss for Big5': loss_big5.item(),
+            'Big5 Loss': loss_big5.item(),
         })
-        break
-    
+
     epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
     epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
     return epoch_mse_loss_aesthetic, epoch_mse_loss_big5
@@ -206,8 +204,8 @@ def evaluate(model, dataloader, piaa_dataloader, device):
 
             aesthetic_logits, big5_pred = model(images)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
-            # loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
+            # loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
+            loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
 
             outputs_mean = torch.sum(prob_aesthetic * scale, dim=1)
             target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1)
@@ -236,16 +234,16 @@ def evaluate(model, dataloader, piaa_dataloader, device):
             progress_bar.set_postfix({
                 'Test MSE Loss for Big5': loss_aesthetic.item(),
             })
-    
+
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred)
     true_scores = np.concatenate(mean_target)
     srocc, _ = spearmanr(predicted_scores, true_scores)
 
     mse_loss = running_mean_aesthetic_mse_loss / len(dataloader)
-    epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
+    epoch_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
     epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
-    return epoch_mse_loss_aesthetic, epoch_mse_loss_big5, srocc, mse_loss
+    return epoch_loss_aesthetic, epoch_mse_loss_big5, srocc, mse_loss
 
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
@@ -309,6 +307,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
     print(f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
             f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
             )    
+
 
 num_bins = 9
 # num_attr = 8
