@@ -11,9 +11,8 @@ import numpy as np
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
-from PARA_histogram_dataloader import load_data, collate_fn_imgsort
-# import matplotlib.pyplot as plt
-# import pandas as pd
+from PARA_histogram_dataloader import load_data_paiaa, collate_fn_imgsort
+from train_nima import earth_mover_distance
 import math
 
 
@@ -136,7 +135,7 @@ class convNet(nn.Module):
 
 
 # Training Function
-def train(model, dataloader, piaa_dataloader, criterion, optimizer, device):
+def train(model, dataloader, piaa_dataloader, optimizer, device):
     model.train()
     running_aesthetic_dist_mse_loss = 0.0
     running_big5_mse_loss = 0.0
@@ -151,7 +150,7 @@ def train(model, dataloader, piaa_dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
         aesthetic_logits, big5_pred = model(images)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-        loss_aesthetic = torch.mean(criterion(prob_aesthetic, aesthetic_score_histogram))
+        loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
         
         loss_aesthetic.backward()
         optimizer.step()
@@ -164,14 +163,14 @@ def train(model, dataloader, piaa_dataloader, criterion, optimizer, device):
     # Train big5
     progress_bar = tqdm(piaa_dataloader, leave=False)
     for sample in progress_bar:
-        batch_size = images.shape[0]
         images = sample['image'].to(device)
         onehot_big5 = sample['big5'].to(device)
-        big5 = torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1 # 1 - 10
+        batch_size = onehot_big5.shape[0]
+        big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() # 1 - 10
         
         optimizer.zero_grad()
         aesthetic_logits, big5_pred = model(images)
-        loss_big5 = torch.mean(criterion(big5_pred, big5))
+        loss_big5 = criterion_mse(big5_pred, big5)
         
         loss_big5.backward()
         optimizer.step()
@@ -205,7 +204,7 @@ def evaluate(model, dataloader, piaa_dataloader, criterion, device):
 
             aesthetic_logits, big5_pred = model(images)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            loss_aesthetic = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
 
             outputs_mean = torch.sum(prob_aesthetic * scale, dim=1)
             target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1)
@@ -218,22 +217,23 @@ def evaluate(model, dataloader, piaa_dataloader, criterion, device):
             progress_bar.set_postfix({
                 'Test MSE Loss for Aesthetic': loss_aesthetic.item(),
             })
-
+        
         # Evaluate big5
         progress_bar = tqdm(piaa_dataloader, leave=False)
         for sample in progress_bar:
             images = sample['image'].to(device)
             onehot_big5 = sample['big5'].to(device)
             batch_size = images.shape[0]
-            big5 = torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1  # 1 - 10
+            big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() # 1 - 10
 
             aesthetic_logits, big5_pred = model(images)
-            loss_aesthetic = criterion(big5_pred, big5.long()).mean()
+            loss_aesthetic = criterion_mse(big5_pred, big5).mean()
 
             running_aesthetic_dist_mse_loss += loss_aesthetic.item()
             progress_bar.set_postfix({
                 'Test MSE Loss for Big5': loss_aesthetic.item(),
             })
+            break
 
     # Calculate SROCC
     predicted_scores = np.concatenate(mean_pred)
@@ -294,7 +294,7 @@ if __name__ == '__main__':
     else:
         experiment_name = ''
     
-    train_dataset, train_piaa_imgsort_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
+    train_dataset, train_piaa_imgsort_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data_paiaa(args)
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     train_piaa_dataloader = DataLoader(train_piaa_imgsort_dataset, batch_size=5, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
@@ -312,14 +312,18 @@ if __name__ == '__main__':
     model_ft.aux_logits = False
     num_ftrs = model_ft.fc.out_features
     net1 = AesModel(num_bins, 0.5, num_ftrs)
-    net2 = PerModel(1, 0.5, num_ftrs)
-    model = convNet(resnet=model_ft, aesnet=net1, pernet=net2)
+    net2 = PerModel(0.5, num_ftrs)
+    model = convNet(resnet=model_ft, aesnet=net1, pernet=net2).to(device)
     
     if resume is not None:
         model.load_state_dict(torch.load(resume))
     # Loss and optimizer
-    # criterion_mse = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    # optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam([
+        {'params': model.AesNet.parameters(), 'lr': 1e-3},
+        {'params': model.PerNet.parameters(), 'lr': 1e-3},
+        {'params': model.resnet.parameters(), 'lr': lr}
+    ], lr=lr)  # Default LR, applies to parameters not explicitly set above
     
     # Initialize the best test loss and the best model
     best_model = None
@@ -342,14 +346,14 @@ if __name__ == '__main__':
                 param_group['lr'] *= lr_decay_factor
 
         # Training
-        train_mse_loss_aesthetic, train_mse_loss_big5 = train(model, train_dataloader, train_piaa_dataloader, criterion_mse, optimizer, device)
+        train_mse_loss_aesthetic, train_mse_loss_big5 = train(model, train_dataloader, train_piaa_dataloader, optimizer, device)
         if is_log:
             wandb.log({"Train MSE Loss for aesthetic distribution": train_mse_loss_aesthetic,
                        "Train MSE Loss for Big5": train_mse_loss_big5,
                        }, commit=False)
         
         # Testing
-        val_mse_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, criterion_mse, device)
+        val_mse_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, device)
         if is_log:
             wandb.log({
                 "Val MSE Loss for aesthetic distribution": val_mse_loss_aesthetic,
@@ -375,12 +379,12 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_mse_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, criterion_mse, device)
+    test_mse_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, device)
     if is_log:
         wandb.log({
-            "Test MSE Loss for aesthetic distribution": val_mse_loss_aesthetic,
-            "Test GIAA MSE Loss for Big5": val_mse_loss_big5,
-            "Test GIAA SROCC": val_giaa_srocc,
+            "Test MSE Loss for aesthetic distribution": test_mse_loss_aesthetic,
+            "Test GIAA MSE Loss for Big5": test_mse_loss_big5,
+            "Test GIAA SROCC": test_giaa_srocc,
         }, commit=True)
     
     # Print the epoch loss

@@ -831,7 +831,6 @@ def collate_fn_imgsort(batch):
     }
 
 
-
 def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -880,9 +879,9 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
                 precompute_file=os.path.join(pkl_dir,precompute_file))
         else:
             train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'val_GIAA_dct_%dfold.pkl'%fold_id))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'val_GIAA_dct_%dfold.pkl'%fold_id))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))
     else:
@@ -894,8 +893,8 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
             train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,precompute_file))
         else:
             train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct.pkl'))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
     print(len(val_giaa_dataset))
@@ -905,7 +904,6 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     
     # train_dataset, test_giaa_dataset, _, test_piaa_dataset = load_usersplit_data(root_dir = '/home/lwchen/datasets/PARA/', miaa=False)
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset
-
 
 
 def load_data_paiaa(args, root_dir = '/home/lwchen/datasets/PARA/'):
@@ -956,11 +954,11 @@ def load_data_paiaa(args, root_dir = '/home/lwchen/datasets/PARA/'):
                 precompute_file=os.path.join(pkl_dir,precompute_file))
         else:
             train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'train_image_dct_%dfold.pkl'%fold_id))
+        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id))
 
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'val_GIAA_dct_%dfold.pkl'%fold_id))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct_%dfold.pkl'%fold_id))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%dfold.pkl'%fold_id))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id))
     else:
@@ -972,10 +970,10 @@ def load_data_paiaa(args, root_dir = '/home/lwchen/datasets/PARA/'):
             train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,precompute_file))
         else:
             train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'train_image_dct.pkl'))
+        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'))
 
-        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
-        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'val_image_dct.pkl'))
+        val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl'))
+        val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=os.path.join(pkl_dir,'valset_image_dct.pkl'))
         test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
         test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'))
     print(len(val_giaa_dataset))
