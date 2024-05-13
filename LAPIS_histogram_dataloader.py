@@ -2,7 +2,7 @@ import os
 import torch
 from torchvision import transforms
 import torch.nn.functional as F
-from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset
+from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold
 from torch.utils.data import DataLoader, Dataset
 import random
 import pickle
@@ -11,7 +11,10 @@ import copy
 import pandas as pd
 from scipy.stats import pearsonr, spearmanr
 import numpy as np
-import itertools
+import warnings
+
+# Ignore all warnings
+warnings.filterwarnings('ignore')
 
 
 class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
@@ -612,6 +615,73 @@ def collate_fn_imgsort(batch):
         'traits': traits_histograms_concatenated,
         'art_type': torch.cat([item['art_type'] for item in batch])
     }
+
+
+def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+    # Dataset transformations
+    train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+    ])
+    fold_id=args.fold_id
+    n_fold=args.n_fold
+
+    # Create datasets with the appropriate transformations
+    piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, val_dataset, test_dataset = create_image_split_dataset(piaa_dataset)
+    # print(len(train_dataset), len(val_dataset), len(test_dataset))
+    if args.use_cv:
+        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(piaa_dataset, train_dataset, val_dataset, test_dataset, fold_id, n_fold=n_fold)
+    print(len(train_dataset), len(val_dataset), len(test_dataset))
+
+    """Precompute"""
+    pkl_dir = './LAPIS_dataset_pkl'
+    if args.use_cv:
+        pkl_dir = os.path.join(pkl_dir, 'user_cv')
+        if args.trainset == 'GIAA':
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
+                data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+                precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
+        elif args.trainset == 'sGIAA':
+            precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if args.importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, 
+                data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+                precompute_file=os.path.join(pkl_dir,precompute_file))
+        else:
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        
+        val_mapfile = os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id)
+        val_precompute_file = os.path.join(pkl_dir,'valset_GIAA_dct_%dfold.pkl'%fold_id)
+        test_mapfile = os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id)
+        test_precompute_file = os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id)
+    else:
+        if args.trainset == 'GIAA':
+            precompute_file = 'trainset_GIAA_dct.pkl'
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir, precompute_file))
+        elif args.trainset == 'sGIAA':
+            precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,precompute_file))    
+        else:
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
+
+        val_mapfile=os.path.join(pkl_dir,'valset_image_dct.pkl')
+        val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl')
+        test_mapfile=os.path.join(pkl_dir,'testset_image_dct.pkl')
+        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl')
+
+    val_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, precompute_file=val_precompute_file)
+    val_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile)
+    test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)
+    test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
+    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
+
 
 
 if __name__ == '__main__':

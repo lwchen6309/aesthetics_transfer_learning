@@ -12,6 +12,10 @@ from scipy.stats import pearsonr, spearmanr
 import copy
 import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
+import warnings
+
+# Ignore all warnings
+warnings.filterwarnings('ignore')
 
 
 class LAPIS_PIAADataset(Dataset):
@@ -190,11 +194,11 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 
     test_dataset.data = test_dataset.databank[0]
     return train_dataset, test_dataset
 
-def create_user_split_kfold(lavis_dataset, k=4):
-    root_dir = lavis_dataset.root_dir
+def create_user_split_kfold(dataset, k=4):
+    root_dir = dataset.root_dir
     
     # Assuming 'participant_id' is a column in your dataset
-    user_ids = lavis_dataset.data['participant_id'].unique()
+    user_ids = dataset.data['participant_id'].unique()
     random.shuffle(user_ids)  # Shuffle the user IDs to randomize the distribution
 
     kf = KFold(n_splits=k, shuffle=True, random_state=42)  # Prepare the KFold object
@@ -235,12 +239,12 @@ def create_user_split_kfold(lavis_dataset, k=4):
         
         print(f"Fold {fold}: Train User IDs: {len(train_user_ids)}, Test User IDs: {len(test_user_ids)}")
 
-def create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, fold_id, n_fold = 4):
+def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id, n_fold = 4):
     
-    create_user_split_kfold(lavis_dataset, k=n_fold)
+    create_user_split_kfold(dataset, k=n_fold)
     
     # File paths for saving the user IDs
-    root_dir = lavis_dataset.root_dir
+    root_dir = dataset.root_dir
     train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
     test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
     print('Read Image Set')
@@ -251,17 +255,10 @@ def create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, 
     train_user_id = [int(x) for x in train_user_id]
     test_user_id = [int(x) for x in test_user_id]
 
-    train_dataset = copy.deepcopy(train_dataset)
-    test_dataset = copy.deepcopy(test_dataset)
     train_dataset.data = train_dataset.data[train_dataset.data['participant_id'].isin(train_user_id)]
+    val_dataset.data = val_dataset.data[val_dataset.data['participant_id'].isin(train_user_id)]
     test_dataset.data = test_dataset.data[test_dataset.data['participant_id'].isin(test_user_id)]
-    return train_dataset, test_dataset
-
-def split_dataset_by_images(dataset, train_img, testset_img):
-    train_dataset, test_dataset = copy.deepcopy(dataset), copy.deepcopy(dataset)
-    train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_img)]
-    test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(testset_img)]
-    return train_dataset, test_dataset
+    return train_dataset, val_dataset, test_dataset
 
 def split_dataset_by_trait(dataset, trait, value):
     """
@@ -280,47 +277,35 @@ def split_dataset_by_trait(dataset, trait, value):
     filtered_dataset.data = filtered_data
     return filtered_dataset
 
-def create_image_split_dataset(lavis_dataset):
+def create_image_split_dataset(dataset):
     # Saving the lists to TrainImageSet.txt and TestImageSet.txt
-    root_dir = lavis_dataset.root_dir
+    root_dir = dataset.root_dir
     train_file_path = os.path.join(root_dir, 'TrainImageSet.txt')
+    val_file_path = os.path.join(root_dir, 'ValImageSet.txt')
     test_file_path = os.path.join(root_dir, 'TestImageSet.txt')
-    # Check if train file exists
-    if os.path.exists(train_file_path) and os.path.exists(test_file_path):
-        print('Read Image Set')
-        with open(train_file_path, "r") as train_file:
-            train_image_names = train_file.read().splitlines()
-        with open(test_file_path, "r") as test_file:
-            test_image_names = test_file.read().splitlines()          
-    else:
-        print('Compute Image Set')
-        image_names = list(lavis_dataset.data['imageName'].unique())
-        existing_image_names = [img for img in image_names if os.path.exists(os.path.join(lavis_dataset.root_dir, 'datasetImages_originalSize', img))]
-        # Printing out the number of dropped files
-        print('Total missing files: %d' % (len(image_names) - len(existing_image_names)))
-        random.shuffle(image_names)
-        # Splitting the list using a ratio of 10:1
-        train_size = int(len(image_names) * 10 / 11)  # Calculate train size based on the 10:1 ratio
-        train_image_names = image_names[:train_size]
-        test_image_names = image_names[train_size:]
-        with open(train_file_path, "w") as train_file:
-            for name in train_image_names:
-                train_file.write(name + "\n")
-        with open(test_file_path, "w") as test_file:
-            for name in test_image_names:
-                test_file.write(name + "\n")
+    
+    print('Read Image Set')
+    with open(train_file_path, "r") as train_file:
+        train_image_names = train_file.read().splitlines()
+    with open(val_file_path, "r") as val_file:
+        val_image_names = val_file.read().splitlines()            
+    with open(test_file_path, "r") as test_file:
+        test_image_names = test_file.read().splitlines()          
 
-    train_dataset, test_dataset = split_dataset_by_images(lavis_dataset, train_image_names, test_image_names)   
-    return train_dataset, test_dataset
+    train_dataset, val_dataset, test_dataset = copy.deepcopy(dataset), copy.deepcopy(dataset), copy.deepcopy(dataset)
+    train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_image_names)]
+    val_dataset.data = val_dataset.data[val_dataset.data['imageName'].isin(val_image_names)]
+    test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(test_image_names)]
+    return train_dataset, val_dataset, test_dataset
 
-def plot_histogram_comparison(lavis_dataset):
-    print(len(lavis_dataset))
-    number_users = len(lavis_dataset.data['participant_id'].unique())
-    number_image = len(lavis_dataset.data['imageName'].unique())
+def plot_histogram_comparison(dataset):
+    print(len(dataset))
+    number_users = len(dataset.data['participant_id'].unique())
+    number_image = len(dataset.data['imageName'].unique())
     len('Number users: %d'%number_users)
     len('Number images: %d'%number_image)
-    number_image_per_user = [len(group) for _, group in lavis_dataset.data.groupby('participant_id')]
-    number_user_per_image = [len(group) for _, group in lavis_dataset.data.groupby('imageName')]
+    number_image_per_user = [len(group) for _, group in dataset.data.groupby('participant_id')]
+    number_user_per_image = [len(group) for _, group in dataset.data.groupby('imageName')]
     
     fig, axs = plt.subplots(2)
     fig.suptitle('LAPIS Dataset')  # This adds a main title to the figure
@@ -365,24 +350,24 @@ if __name__ == '__main__':
     ])
     
     from glob import glob
-    lavis_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     raise Exception
-    print(len(lavis_dataset))
-    # train_dataset, test_dataset = limit_annotations_per_user(lavis_dataset)
-    image_names = set(lavis_dataset.data['imageName'].unique())
-    image_exist_list = set([os.path.basename(file) for file in glob(os.path.join(lavis_dataset.root_dir, 'datasetImages_originalSize','*.jpg'))])
+    print(len(dataset))
+    # train_dataset, test_dataset = limit_annotations_per_user(dataset)
+    image_names = set(dataset.data['imageName'].unique())
+    image_exist_list = set([os.path.basename(file) for file in glob(os.path.join(dataset.root_dir, 'datasetImages_originalSize','*.jpg'))])
     print(image_exist_list - image_names)
     print(image_names - image_exist_list)
     
-    train_dataset, test_dataset = create_image_split_dataset(lavis_dataset)
+    train_dataset, test_dataset = create_image_split_dataset(dataset)
     print(len(train_dataset), len(test_dataset))
 
     traits = ['demo_gender', 'demo_edu']
     for t in traits:
-        values = lavis_dataset.data[t].unique()
+        values = dataset.data[t].unique()
         print(values)
         for v in values:
-            print(sum(lavis_dataset.data[t] == v))
+            print(sum(dataset.data[t] == v))
 
 
     traits=["VAIAK1", "VAIAK2", "VAIAK3", "VAIAK4", "VAIAK5", "VAIAK6", "VAIAK7", "2VAIAK1", "2VAIAK2", "2VAIAK3", "2VAIAK4"]
@@ -393,11 +378,11 @@ if __name__ == '__main__':
     raise Exception
     n_fold = 4
     for fold_id in range(1, n_fold+1):
-        user_split_train_dataset, user_split_test_dataset = create_user_split_dataset_kfold(lavis_dataset, train_dataset, test_dataset, fold_id, n_fold=n_fold)
+        user_split_train_dataset, user_split_test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id, n_fold=n_fold)
         print(len(user_split_train_dataset))
         print(len(user_split_test_dataset))
         
-        # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(lavis_dataset), max_annotations_per_user=[400, 50])
+        # train_dataset, test_dataset = split_dataset_by_user(copy.deepcopy(dataset), max_annotations_per_user=[400, 50])
         print(len(train_dataset), len(test_dataset))
         train_dataloader = DataLoader(user_split_train_dataset, batch_size=32, num_workers=16, shuffle=False)
         test_dataloader = DataLoader(user_split_test_dataset, batch_size=32, num_workers=16, shuffle=False)

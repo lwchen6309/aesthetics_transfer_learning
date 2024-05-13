@@ -150,7 +150,8 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
         optimizer.zero_grad()
         aesthetic_logits, big5_pred = model(images)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-        loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
+        # loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
+        loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
         
         loss_aesthetic.backward()
         optimizer.step()
@@ -179,14 +180,15 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
         progress_bar.set_postfix({
             'Train MSE Loss for Big5': loss_big5.item(),
         })
-
+        break
+    
     epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
     epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
     return epoch_mse_loss_aesthetic, epoch_mse_loss_big5
 
 
 # Evaluation Function
-def evaluate(model, dataloader, piaa_dataloader, criterion, device):
+def evaluate(model, dataloader, piaa_dataloader, device):
     model.eval()
     running_mean_aesthetic_mse_loss = 0.0
     running_aesthetic_dist_mse_loss = 0.0
@@ -271,7 +273,7 @@ if __name__ == '__main__':
     random_seed = 42
     lr = 5e-5
     batch_size = 100
-    num_epochs = 20
+    num_epochs = 1
     lr_schedule_epochs = 5
     lr_decay_factor = 0.5
     max_patience_epochs = 10
@@ -353,7 +355,7 @@ if __name__ == '__main__':
                        }, commit=False)
         
         # Testing
-        val_mse_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, device)
+        val_mse_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, val_piaa_imgsort_dataloader, device)
         if is_log:
             wandb.log({
                 "Val MSE Loss for aesthetic distribution": val_mse_loss_aesthetic,
@@ -379,7 +381,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_mse_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, device)
+    test_mse_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, test_piaa_imgsort_dataloader, device)
     if is_log:
         wandb.log({
             "Test MSE Loss for aesthetic distribution": test_mse_loss_aesthetic,

@@ -62,7 +62,7 @@ class CombinedModel(nn.Module):
 
 
 # Training Function
-def train(model, dataloader, criterion, optimizer, device):
+def train(model, dataloader, optimizer, device):
     model.train()
     running_aesthetic_emd_loss = 0.0
     running_total_emd_loss = 0.0
@@ -70,10 +70,7 @@ def train(model, dataloader, criterion, optimizer, device):
     # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
     running_ce_improvement = 0
     running_ce_init = 0
-    for sample in progress_bar:
-        if is_eval:
-            break
-        
+    for sample in progress_bar:        
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
@@ -86,7 +83,7 @@ def train(model, dataloader, criterion, optimizer, device):
         aesthetic_logits = model(images, total_traits_histogram)
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
         # prob_attribute = F.softmax(attribute_logits, dim=-1) # Softmax along the bins dimension
-        loss_aesthetic = torch.mean(criterion(prob_aesthetic, aesthetic_score_histogram))
+        loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
         total_loss = loss_aesthetic # Combining losses
         
         total_loss.backward()
@@ -96,17 +93,14 @@ def train(model, dataloader, criterion, optimizer, device):
 
         progress_bar.set_postfix({
             'Train EMD Loss': total_loss.item(),
-        })
-    epoch_ce_improvement = running_ce_improvement / len(dataloader)
-    epoch_ce_init = running_ce_init / len(dataloader)
-    
+        })    
     epoch_emd_loss = running_aesthetic_emd_loss / len(dataloader)
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
     return epoch_emd_loss, epoch_total_emd_loss
 
 
 # Evaluation Function
-def evaluate(model, dataloader, criterion, device):
+def evaluate(model, dataloader, device):
     model.eval()
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
@@ -141,7 +135,7 @@ def evaluate(model, dataloader, criterion, device):
 
             # emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
             # emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
-            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            loss = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
             # loss_attribute = criterion(prob_attribute, attributes_target_histogram).mean()
             
             if eval_srocc:
@@ -170,7 +164,7 @@ def evaluate(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-def evaluate_with_prior(model, dataloader, prior_dataloader, criterion, device):
+def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     model.eval()
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
@@ -197,22 +191,13 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, criterion, device):
         
         for sample in progress_bar:
             images = sample['image'].to(device)
-            # userId = sample['userId']
-            # userIds.extend(userId)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            traits_histogram = sample['traits'].to(device)
-            try:
-                onehot_big5 = sample['big5'].to(device)
-            except KeyError:
-                print(sample.keys())
-            # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
-            traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
-            bs = images.shape[0]
-            traits_histogram = mean_traits_histogram.repeat(batch_size, 1)  # Repeat mean_traits_histogram for each sample in the batch
+            batch_size = images.shape[0]
+            traits_histogram = mean_traits_histogram.repeat(batch_size, 1)
 
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            loss = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -382,7 +367,76 @@ def evaluate_each_datum(model, dataloader, criterion, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
+def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device, best_modelname):
+    train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader = dataloaders
+    evaluate_fn, evaluate_fn_with_prior = evaluate_fns
+    
+    # Training loop
+    best_test_srocc = 0
+    num_patience_epochs = 0
+    for epoch in range(args.num_epochs):
+        if args.is_eval:
+            break
+        # Learning rate schedule
+        if (epoch + 1) % args.lr_schedule_epochs == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= args.lr_decay_factor
 
+        # Training
+        train_emd_loss, train_total_emd_loss = train_fn(model, train_dataloader, optimizer, device)
+        if args.is_log:
+            wandb.log({"Train EMD Loss": train_emd_loss,
+                       "Train Total EMD Loss": train_total_emd_loss,
+                       }, commit=False)
+        
+        # Testing
+        val_giaa_emd_loss, _, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device)
+        val_piaa_emd_loss, _, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
+        if args.is_log:
+            wandb.log({
+                "Val GIAA EMD Loss": val_giaa_emd_loss,
+                "Val GIAA SROCC": val_giaa_srocc,
+                "Val PIAA EMD Loss": val_piaa_emd_loss,
+                "Val PIAA SROCC": val_piaa_srocc,                
+            }, commit=True)
+
+        eval_srocc = val_piaa_srocc if args.eval_on_piaa else val_giaa_srocc
+        
+        # Early stopping check
+        if eval_srocc > best_test_srocc:
+            best_test_srocc = eval_srocc
+            num_patience_epochs = 0
+            torch.save(model.state_dict(), best_modelname)
+        else:
+            num_patience_epochs += 1
+            if num_patience_epochs >= args.max_patience_epochs:
+                print("Validation loss has not decreased for {} epochs. Stopping training.".format(args.max_patience_epochs))
+                break
+    
+    if not args.is_eval:
+        model.load_state_dict(torch.load(best_modelname))   
+    
+    # Testing
+    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    test_giaa_emd_loss_wprior, _, test_giaa_srocc_wprior, _ = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, device)
+    test_piaa_emd_loss, _, test_piaa_srocc, _ = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
+    test_giaa_emd_loss, _, test_giaa_srocc, _ = evaluate_fn(model, test_giaa_dataloader, device)
+    
+    if args.is_log:
+        wandb.log({
+            "Test GIAA EMD Loss": test_giaa_emd_loss,
+            "Test GIAA SROCC": test_giaa_srocc,
+            "Test GIAA EMD Loss (Prior)": test_giaa_emd_loss_wprior,
+            "Test GIAA SROCC (Prior)": test_giaa_srocc_wprior,
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+        }, commit=True)
+
+    # Print the epoch loss
+    print(f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+            f"Test GIAA SROCC Loss with Prior: {test_giaa_srocc_wprior:.4f}, "
+            f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+            )
 
 num_bins = 9
 num_attr = 8
@@ -400,27 +454,22 @@ if __name__ == '__main__':
     parser.add_argument('--importance_sampling', action='store_true', help='Enable importance sampling for uniform score distribution')
     parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
+    parser.add_argument('--eval_on_piaa', action='store_true', help='Evaluation metric on PIAA')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
+    parser.add_argument('--num_epochs', type=int, default=20)
+    parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--max_patience_epochs', type=int, default=10)
+    parser.add_argument('--lr', type=float, default=5e-5)
+    parser.add_argument('--lr_schedule_epochs', type=int, default=5)
+    parser.add_argument('--lr_decay_factor', type=float, default=0.5)    
     args = parser.parse_args()
     
-    resume = args.resume
-    is_eval = args.is_eval
-    is_log = args.is_log
-
+    batch_size = args.batch_size
     random_seed = 42
-    lr = 5e-5
-    batch_size = 100
-    num_epochs = 20
-    lr_schedule_epochs = 5
-    lr_decay_factor = 0.5
-    max_patience_epochs = 10
     n_workers = 8
-    if args.trainset == 'PIAA':
-        eval_on_giaa = False
-    else:
-        eval_on_giaa = True
-    
-    if is_log:
+    args.eval_on_piaa = True if args.trainset == 'PIAA' else False
+
+    if args.is_log:
         tags = ["no_attr", args.trainset]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
@@ -428,16 +477,15 @@ if __name__ == '__main__':
                    notes="latefusion",
                    tags=tags)
         wandb.config = {
-            "learning_rate": lr,
+            "learning_rate": args.lr,
             "batch_size": batch_size,
-            "num_epochs": num_epochs
+            "num_epochs": args.num_epochs
         }
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
 
-    # train_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
-    train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_dataset, test_piaa_imgsort_dataset = load_data(args)
+    train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     
     # Create dataloaders
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
@@ -445,93 +493,28 @@ if __name__ == '__main__':
     val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-    # test_piaa_dataloader = DataLoader(test_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    # test_user_piaa_dataloader = DataLoader(test_user_piaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+
     # Initialize the combined model
     model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
 
-    if resume is not None:
-        model.load_state_dict(torch.load(resume))
+    if args.resume is not None:
+        model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer
     # criterion_mse = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (lr, num_epochs)
+    best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
     dirname = 'models_pth'
     if args.use_cv:
         dirname = os.path.join(dirname, 'random_cvs')
     best_modelname = os.path.join(dirname, best_modelname)
-
-    # Training loop
-    best_test_srocc = 0
-    for epoch in range(num_epochs):
-        if is_eval:
-            break
-        # Learning rate schedule
-        if (epoch + 1) % lr_schedule_epochs == 0:
-            for param_group in optimizer.param_groups:
-                param_group['lr'] *= lr_decay_factor
-
-        # Training
-        train_emd_loss, train_total_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
-        if is_log:
-            wandb.log({"Train EMD Loss": train_emd_loss,
-                       "Train Total EMD Loss": train_total_emd_loss,
-                       }, commit=False)
-        
-        # Testing
-        val_giaa_emd_loss, val_giaa_attr_emd_loss, val_giaa_srocc, val_giaa_mse = evaluate(model, val_giaa_dataloader, earth_mover_distance, device)
-        val_piaa_emd_loss, val_piaa_attr_emd_loss, val_piaa_srocc, val_piaa_mse = evaluate(model, val_piaa_imgsort_dataloader, earth_mover_distance, device)
-        if is_log:
-            wandb.log({
-                "Val GIAA EMD Loss": val_giaa_emd_loss,
-                "Val GIAA SROCC": val_giaa_srocc,
-                "Val PIAA EMD Loss": val_piaa_emd_loss,
-                "Val PIAA SROCC": val_piaa_srocc,                
-            }, commit=True)
-        eval_srocc = val_giaa_srocc if eval_on_giaa else val_piaa_srocc
-        
-        # Early stopping check
-        if eval_srocc > best_test_srocc:
-            best_test_srocc = eval_srocc
-            num_patience_epochs = 0
-            torch.save(model.state_dict(), best_modelname)
-        else:
-            num_patience_epochs += 1
-            if num_patience_epochs >= max_patience_epochs:
-                print("Validation loss has not decreased for {} epochs. Stopping training.".format(max_patience_epochs))
-                break
     
-    if not is_eval:
-        model.load_state_dict(torch.load(best_modelname))   
-    
-    # Testing
-    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    test_giaa_emd_loss_wprior, _, test_giaa_srocc_wprior, _ = evaluate_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, earth_mover_distance, device)
-    test_piaa_emd_loss, _, test_piaa_srocc, _ = evaluate(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
-    test_giaa_emd_loss, _, test_giaa_srocc, _ = evaluate(model, test_giaa_dataloader, earth_mover_distance, device)
-    
-    if is_log:
-        wandb.log({
-            "Test GIAA EMD Loss": test_giaa_emd_loss,
-            "Test GIAA SROCC": test_giaa_srocc,
-            "Test GIAA EMD Loss (Prior)": test_giaa_emd_loss_wprior,
-            "Test GIAA SROCC (Prior)": test_giaa_srocc_wprior,
-            "Test PIAA EMD Loss": test_piaa_emd_loss,
-            "Test PIAA SROCC": test_piaa_srocc,
-        }, commit=True)
-
-    # Print the epoch loss
-    print(f"Epoch [{epoch + 1}/{num_epochs}], "
-            f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-            f"Test GIAA SROCC Loss with Prior: {test_giaa_srocc_wprior:.4f}, "
-            f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
-            )
+    trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
