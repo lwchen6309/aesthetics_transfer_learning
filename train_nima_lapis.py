@@ -86,7 +86,7 @@ if __name__ == '__main__':
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
-
+    
     # Create dataloaders
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
