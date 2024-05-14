@@ -14,7 +14,6 @@ from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from train_nima import earth_mover_distance
 import math
-from itertools import zip_longest
 
 
 class AesModel(nn.Module):
@@ -140,10 +139,10 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
     model.train()
     running_aesthetic_dist_mse_loss = 0.0
     running_big5_mse_loss = 0.0
-
+    num_batches = min(len(dataloader), len(piaa_dataloader))
     # Use zip to ensure both dataloaders are used up to the length of the shorter one
     combined_dataloader = zip(dataloader, piaa_dataloader)
-    progress_bar = tqdm(combined_dataloader, leave=False)
+    progress_bar = tqdm(combined_dataloader, total=num_batches, leave=False)
     
     for (sample_aesthetic, sample_big5) in progress_bar:
         # Update for aesthetic score
@@ -162,26 +161,26 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
         progress_bar.set_postfix({
             'Aesthetic Loss': loss_aesthetic.item(),
         })
-        
+
         # Update for Big5
-        images_big5 = sample_big5['image'].to(device)
-        onehot_big5 = sample_big5['big5'].to(device)
-        batch_size = onehot_big5.shape[0]
-        big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float()
+        # images_big5 = sample_big5['image'].to(device)
+        # onehot_big5 = sample_big5['big5'].to(device)
+        # batch_size = onehot_big5.shape[0]
+        # big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() / 10
 
-        optimizer.zero_grad()
-        _, big5_pred = model(images_big5)
-        loss_big5 = criterion_mse(big5_pred, big5)
-        loss_big5.backward()
-        optimizer.step()
-        running_big5_mse_loss += loss_big5.item()
+        # optimizer.zero_grad()
+        # _, big5_pred = model(images_big5)
+        # loss_big5 = criterion_mse(big5_pred, big5)
+        # loss_big5.backward()
+        # optimizer.step()
+        # running_big5_mse_loss += loss_big5.item()
 
-        progress_bar.set_postfix({
-            'Big5 Loss': loss_big5.item(),
-        })
-
-    epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
-    epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
+        # progress_bar.set_postfix({
+        #     'Big5 Loss': loss_big5.item(),
+        # })
+    
+    epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / num_batches
+    epoch_mse_loss_big5 = running_big5_mse_loss / num_batches
     return epoch_mse_loss_aesthetic, epoch_mse_loss_big5
 
 
@@ -195,7 +194,7 @@ def evaluate(model, dataloader, piaa_dataloader, device):
 
     mean_pred = []
     mean_target = []
-
+    
     with torch.no_grad():
         progress_bar = tqdm(dataloader, leave=False)
         for sample in progress_bar:
@@ -206,7 +205,7 @@ def evaluate(model, dataloader, piaa_dataloader, device):
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             # loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
             loss_aesthetic = criterion_mse(prob_aesthetic, aesthetic_score_histogram)
-
+            
             outputs_mean = torch.sum(prob_aesthetic * scale, dim=1)
             target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1)
             mean_pred.append(outputs_mean.cpu().numpy())
@@ -225,7 +224,7 @@ def evaluate(model, dataloader, piaa_dataloader, device):
             images = sample['image'].to(device)
             onehot_big5 = sample['big5'].to(device)
             batch_size = images.shape[0]
-            big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() # 1 - 10
+            big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() / 10 # 1 - 10
 
             aesthetic_logits, big5_pred = model(images)
             loss_aesthetic = criterion_mse(big5_pred, big5).mean()
