@@ -331,8 +331,8 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
     test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
+    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
     
     if args.is_log:
         wandb.log({

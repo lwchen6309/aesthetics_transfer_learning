@@ -5,12 +5,12 @@ run_script="train_nima_lapis_traitsample.py"
 
 list=("male" "female") # "other/would prefer not to disclose"
 for value in "${list[@]}"; do
-    python $run_script --trait demo_gender --value $value
+    python $run_script --trait demo_gender --value $value --is_eval --no_log
 done
 
 list=("primary education" "secondary education" "Bachelor's or equivalent" "Master's or equivalent" "Doctorate")
 for value in "${list[@]}"; do
-    python $run_script --trait demo_edu --value "$value"
+    python $run_script --trait demo_edu --value "$value" --is_eval --no_log
 done
 
 # Define an array of traits

@@ -35,7 +35,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     batch_size = args.batch_size
-
+    
     random_seed = 42
     n_workers = 8
     num_bins = 9
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
     dirname = 'models_pth'
-    dirname = os.path.join(dirname, 'user_split')
+    dirname = os.path.join(dirname, 'trait_disjoint_exp')
     best_modelname = os.path.join(dirname, best_modelname)
     
     trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)

@@ -370,7 +370,7 @@ if __name__ == '__main__':
     dataloaders = (train_dataloader, train_piaa_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    
     # Initialize the combined model
     model_ft = resnet50(pretrained=True)
     model_ft.aux_logits = False
@@ -384,8 +384,8 @@ if __name__ == '__main__':
     # Loss and optimizer
     # optimizer = optim.Adam(model.parameters(), lr=lr)
     optimizer = optim.Adam([
-        {'params': model.AesNet.parameters(), 'lr': 1e-3},
-        {'params': model.PerNet.parameters(), 'lr': 1e-3},
+        {'params': model.AesNet.parameters(), 'lr': 1e-4},
+        {'params': model.PerNet.parameters(), 'lr': 1e-4},
         {'params': model.resnet.parameters(), 'lr': args.lr}
     ], lr=args.lr)  # Default LR, applies to parameters not explicitly set above
     

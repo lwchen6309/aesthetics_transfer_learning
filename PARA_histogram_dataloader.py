@@ -855,7 +855,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     # Assuming shell_users_df contains the shell user DataFrame
     if getattr(args, 'use_cv', False):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-
+    
     is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
     if is_trait_disjoint:
         print(f'Split trait according to {args.trait} == {args.value}')
