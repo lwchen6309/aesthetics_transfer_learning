@@ -10,6 +10,7 @@ from tqdm import tqdm
 import copy
 from time import time
 from sklearn.model_selection import KFold
+import argparse
 
 
 class PARA_PIAADataset(Dataset):
@@ -249,7 +250,7 @@ def split_dataset_by_images(dataset, root_dir, validation_split=0.1):
     train_dataset.data = train_dataset.data[train_dataset.data['imageName'].isin(train_image_names_train)]
     val_dataset.data = val_dataset.data[val_dataset.data['imageName'].isin(train_image_names_val)]
     test_dataset.data = test_dataset.data[test_dataset.data['imageName'].isin(testset['imageName'])]
-
+    
     # Path to the validation images file
     validation_images_file = os.path.join(root_dir, 'validation_images.txt')
 
@@ -359,8 +360,8 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     return train_dataset, val_dataset, test_dataset
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -402,47 +403,23 @@ if __name__ == '__main__':
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'
 
-    # Define transformations for training set and test set
-    train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fold_id', type=int, default=1)
+    parser.add_argument('--n_fold', type=int, default=4)
+    parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
+    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
+    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
+    args = parser.parse_args()
 
-    # Set the random seed for reproducibility in the test set
-    random_seed = 42
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
-    
-    # Create datasets with the appropriate transformations
-    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    test_dataset = PARA_PIAADataset(root_dir, transform=test_transform)
-
-    train_dataset.print_trait_encoders()
-
-    print(len(train_dataset), len(test_dataset))
-    train_dataset, test_dataset = split_dataset_by_images(train_dataset, test_dataset, root_dir)
-    print(len(train_dataset), len(test_dataset))
-    train_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, test_dataset, fold_id = 1, n_fold = 4)
-    print(len(train_dataset), len(test_dataset))
+    train_dataset, val_dataset, test_dataset = load_data(args)
     raise Exception
-
-    train_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    # train_dataset, test_dataset = split_dataset_by_user(train_dataset, test_dataset, test_count=40, max_annotations_per_user=[10,50])
-    # train_dataset = split_dataset_by_trait(train_dataset, 'gender', 'male')
-    # test_dataset = split_dataset_by_trait(test_dataset, 'gender', 'male')    
-    train_dataset, test_bak_dataset = split_dataset_by_images(train_dataset, test_bak_dataset, root_dir)
-    print(len(train_dataset), len(test_dataset), len(test_bak_dataset))
-    
     # Create dataloaders for training and test sets
-    n_workers = 20
+    n_workers = 8
     batch_size = 100
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
-    test_bak_dataloader = DataLoader(test_bak_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
 
     # Iterate over the training dataloader
     t0 = time()

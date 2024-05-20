@@ -617,7 +617,8 @@ def collate_fn_imgsort(batch):
     }
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -680,7 +681,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)    
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)    
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
@@ -698,7 +699,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
@@ -707,7 +708,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl')
         test_mapfile=os.path.join(pkl_dir,'testset_image_dct.pkl')
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl')
-
+    
     val_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, precompute_file=val_precompute_file)
     val_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile)
     test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)

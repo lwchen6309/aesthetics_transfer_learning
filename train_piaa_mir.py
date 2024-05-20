@@ -174,6 +174,9 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         f"Test PIAA SROCC Loss: {test_srocc:.4f}, ")
     
 
+criterion_mse = nn.MSELoss()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
     parser.add_argument('--trait', type=str, default=None)
