@@ -2,7 +2,6 @@
 run_script="train_nima_lapis_traitsample.py"
 # run_script="train_histonet_lapis_traitsample.py"
 
-
 list=("male" "female") # "other/would prefer not to disclose"
 for value in "${list[@]}"; do
     python $run_script --trait demo_gender --value $value --is_eval --no_log

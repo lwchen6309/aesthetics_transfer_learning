@@ -359,6 +359,45 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     return train_dataset, val_dataset, test_dataset
 
 
+def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
+# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+    # Dataset transformations
+    train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+    ])
+    fold_id = getattr(args, 'fold_id', None)
+    n_fold = getattr(args, 'n_fold', None)
+
+    # Load datasets
+    # Create datasets with the appropriate transformations
+    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
+    # Assuming shell_users_df contains the shell user DataFrame
+    if getattr(args, 'use_cv', False):
+        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
+    
+    is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
+    if is_trait_disjoint:
+        print(f'Split trait according to {args.trait} == {args.value}')
+        train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
+        val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+        test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
+    
+    test_dataset.transform = test_transform
+    val_dataset.transform = test_transform
+    print(len(train_dataset), len(val_dataset), len(test_dataset))
+    
+    return train_dataset, val_dataset, test_dataset
+
+
 if __name__ == '__main__':
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'

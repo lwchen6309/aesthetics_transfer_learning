@@ -12,7 +12,7 @@ from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
-from train_nima import earth_mover_distance
+# from train_nima import earth_mover_distance
 import math
 
 
@@ -119,18 +119,21 @@ class PerModel(nn.Module):
 
         return out_p
 
-class convNet(nn.Module):
+class PAIAA_GIAA_Model(nn.Module):
     #constructor
-    def __init__(self,resnet,aesnet,pernet):
-        super(convNet, self).__init__()
-        #defining layers in convnet
-        self.resnet=resnet
-        self.AesNet=aesnet
-        self.PerNet=pernet
+    def __init__(self, num_bins, keep_probability):
+        super(PAIAA_GIAA_Model, self).__init__()
+        backbone = resnet50(pretrained=True)
+        backbone.aux_logits = False
+        self.num_ftrs = backbone.fc.out_features
+        self.backbone = backbone
+        self.AesNet = AesModel(num_bins, keep_probability, self.num_ftrs)
+        self.PerNet = PerModel(keep_probability, self.num_ftrs)
+
     def forward(self, x):
-        x=self.resnet(x)
-        x1=self.AesNet(x)
-        x2=self.PerNet(x)
+        x = self.backbone(x)
+        x1 = self.AesNet(x)
+        x2 = self.PerNet(x)
         return x1, x2
 
 
@@ -163,21 +166,21 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
         })
 
         # Update for Big5
-        # images_big5 = sample_big5['image'].to(device)
-        # onehot_big5 = sample_big5['big5'].to(device)
-        # batch_size = onehot_big5.shape[0]
-        # big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() / 10
+        images_big5 = sample_big5['image'].to(device)
+        onehot_big5 = sample_big5['big5'].to(device)
+        batch_size = onehot_big5.shape[0]
+        big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() / 10
 
-        # optimizer.zero_grad()
-        # _, big5_pred = model(images_big5)
-        # loss_big5 = criterion_mse(big5_pred, big5)
-        # loss_big5.backward()
-        # optimizer.step()
-        # running_big5_mse_loss += loss_big5.item()
+        optimizer.zero_grad()
+        _, big5_pred = model(images_big5)
+        loss_big5 = criterion_mse(big5_pred, big5)
+        loss_big5.backward()
+        optimizer.step()
+        running_big5_mse_loss += loss_big5.item()
 
-        # progress_bar.set_postfix({
-        #     'Big5 Loss': loss_big5.item(),
-        # })
+        progress_bar.set_postfix({
+            'Big5 Loss': loss_big5.item(),
+        })
     
     epoch_mse_loss_aesthetic = running_aesthetic_dist_mse_loss / num_batches
     epoch_mse_loss_big5 = running_big5_mse_loss / num_batches
@@ -194,7 +197,9 @@ def evaluate(model, dataloader, piaa_dataloader, device):
 
     mean_pred = []
     mean_target = []
-    
+    big5_pred_all = []
+    big5_target_all = []
+
     with torch.no_grad():
         progress_bar = tqdm(dataloader, leave=False)
         for sample in progress_bar:
@@ -227,22 +232,33 @@ def evaluate(model, dataloader, piaa_dataloader, device):
             big5 = (torch.argmax(onehot_big5.view(batch_size, 5, 10), dim=2) + 1).float() / 10 # 1 - 10
 
             aesthetic_logits, big5_pred = model(images)
-            loss_aesthetic = criterion_mse(big5_pred, big5).mean()
+            loss_big5 = criterion_mse(big5_pred, big5).mean()
 
-            running_aesthetic_dist_mse_loss += loss_aesthetic.item()
+            running_big5_mse_loss += loss_big5.item()
             progress_bar.set_postfix({
-                'Test MSE Loss for Big5': loss_aesthetic.item(),
+                'Test MSE Loss for Big5': loss_big5.item(),
             })
 
-    # Calculate SROCC
+            big5_pred_all.append(big5_pred.cpu().numpy())
+            big5_target_all.append(big5.cpu().numpy())
+
+    # Calculate SROCC for aesthetic
     predicted_scores = np.concatenate(mean_pred)
     true_scores = np.concatenate(mean_target)
-    srocc, _ = spearmanr(predicted_scores, true_scores)
+    srocc_aesthetic, _ = spearmanr(predicted_scores, true_scores)
+
+    # Calculate SROCC for each Big5 trait
+    big5_pred_all = np.concatenate(big5_pred_all, axis=0)
+    big5_target_all = np.concatenate(big5_target_all, axis=0)
+    print(big5_pred_all.shape)
+    srocc_big5 = [spearmanr(big5_pred_all[:, i], big5_target_all[:, i])[0] for i in range(5)]
+    
+    srocc_openness, srocc_conscientiousness, srocc_extraversion, srocc_agreeableness, srocc_neuroticism = srocc_big5
 
     mse_loss = running_mean_aesthetic_mse_loss / len(dataloader)
     epoch_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
     epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
-    return epoch_loss_aesthetic, epoch_mse_loss_big5, srocc, mse_loss
+    return epoch_loss_aesthetic, epoch_mse_loss_big5, srocc_aesthetic, srocc_openness, srocc_conscientiousness, srocc_extraversion, srocc_agreeableness, srocc_neuroticism, mse_loss
 
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
@@ -331,7 +347,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
-
+    
     args = parser.parse_args()
     resume = args.resume
     batch_size = args.batch_size
@@ -372,13 +388,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize the combined model
-    model_ft = resnet50(pretrained=True)
-    model_ft.aux_logits = False
-    num_ftrs = model_ft.fc.out_features
-    net1 = AesModel(num_bins, 0.5, num_ftrs)
-    net2 = PerModel(0.5, num_ftrs)
-    model = convNet(resnet=model_ft, aesnet=net1, pernet=net2).to(device)
-    
+    model = PAIAA_GIAA_Model(num_bins, 0.9).to(device)
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer
@@ -386,7 +396,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam([
         {'params': model.AesNet.parameters(), 'lr': 1e-4},
         {'params': model.PerNet.parameters(), 'lr': 1e-4},
-        {'params': model.resnet.parameters(), 'lr': args.lr}
+        {'params': model.backbone.parameters(), 'lr': args.lr}
     ], lr=args.lr)  # Default LR, applies to parameters not explicitly set above
     
     # Initialize the best test loss and the best model

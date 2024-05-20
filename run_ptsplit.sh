@@ -8,7 +8,7 @@ for value in male female; do
     python $run_script --trait gender --value $value
 done
 
-# # Age
+# Age
 for value in "18-21" "22-25" "26-29" "30-34" "35-40"; do
     python $run_script --trait age --value "$value"
 done

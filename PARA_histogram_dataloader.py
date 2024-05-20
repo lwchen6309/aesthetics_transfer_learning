@@ -846,6 +846,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     ])
     fold_id = getattr(args, 'fold_id', None)
     n_fold = getattr(args, 'n_fold', None)
+    trainset = getattr(args, 'trainset', 'GIAA')
 
     # Load datasets
     # Create datasets with the appropriate transformations
@@ -853,7 +854,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
     train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
     # Assuming shell_users_df contains the shell user DataFrame
-    if getattr(args, 'use_cv', False):
+    if getattr(args, 'use_cv', False) and (fold_id is not None) and (n_fold is not None):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
     
     is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
@@ -876,12 +877,12 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     if getattr(args, 'use_cv', False):
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id)
-        if args.trainset == 'GIAA':
+        if trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id)
             train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, 
                 data=train_dataset.data, map_file=train_mapfile, 
                 precompute_file=precompute_file)
-        elif args.trainset == 'sGIAA':
+        elif trainset == 'sGIAA':
             importance_sampling = args.importance_sampling
             precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
             train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, importance_sampling=importance_sampling,
@@ -899,10 +900,10 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
         pkl_dir = os.path.join(pkl_dir, 'trait_split')
         suffix = '%s_%s'%(args.trait, args.value)
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
-        if args.trainset == 'GIAA':
+        if trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix)
             train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
-        elif args.trainset == 'sGIAA':
+        elif trainset == 'sGIAA':
             importance_sampling = args.importance_sampling
             precompute_file = 'trainset_MIAA_nopiaa_dct_IS_%s.pkl'%suffix if importance_sampling else 'trainset_MIAA_nopiaa_dct_%s.pkl'%suffix
             train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=os.path.join(pkl_dir,precompute_file))
@@ -916,10 +917,10 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
 
     else:
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct.pkl')
-        if args.trainset == 'GIAA':
+        if trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct.pkl')
             train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
-        elif args.trainset == 'sGIAA':
+        elif trainset == 'sGIAA':
             importance_sampling = args.importance_sampling
             precompute_file = 'trainset_MIAA_nopiaa_dct_IS.pkl' if importance_sampling else 'trainset_MIAA_nopiaa_dct.pkl'
             train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=os.path.join(pkl_dir,precompute_file))
