@@ -14,31 +14,7 @@ import wandb
 # from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 from train_histonet_latefusion_lapis import train, evaluate
-from train_nima import trainer
-
-
-class NIMA(nn.Module):
-    def __init__(self, num_bins_aesthetic):
-        super(NIMA, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
-        
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
-
-    def forward(self, images, traits_histogram):
-        # traits_histogram is dummy variable
-        x = self.resnet(images)
-        aesthetic_logits = self.fc_aesthetic(x)
-        return aesthetic_logits
+from train_nima import trainer, NIMA
 
 
 num_bins = 10

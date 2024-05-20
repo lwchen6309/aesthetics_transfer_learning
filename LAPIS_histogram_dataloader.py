@@ -629,20 +629,29 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
-    fold_id=args.fold_id
-    n_fold=args.n_fold
+    fold_id = getattr(args, 'fold_id', None)
+    n_fold = getattr(args, 'n_fold', None)
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
     train_dataset, val_dataset, test_dataset = create_image_split_dataset(piaa_dataset)
     # print(len(train_dataset), len(val_dataset), len(test_dataset))
-    if args.use_cv:
+    if getattr(args, 'use_cv', False):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(piaa_dataset, train_dataset, val_dataset, test_dataset, fold_id, n_fold=n_fold)
+
+    is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
+    if is_trait_disjoint:
+        args.value = float(args.value) if 'VAIAK' in args.trait else args.value
+        print(f'Split trait according to {args.trait} == {args.value}')
+        train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
+        val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+        test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
+
     print(len(train_dataset), len(val_dataset), len(test_dataset))
 
     """Precompute"""
     pkl_dir = './LAPIS_dataset_pkl'
-    if args.use_cv:
+    if getattr(args, 'use_cv', False):
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
         if args.trainset == 'GIAA':
             train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
@@ -660,13 +669,36 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         val_precompute_file = os.path.join(pkl_dir,'valset_GIAA_dct_%dfold.pkl'%fold_id)
         test_mapfile = os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id)
         test_precompute_file = os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id)
-    else:
+    
+    elif is_trait_disjoint:
+        pkl_dir = os.path.join(pkl_dir, 'trait_split')
+        suffix = '%s_%s'%(args.trait, args.value)
+        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
         if args.trainset == 'GIAA':
-            precompute_file = 'trainset_GIAA_dct.pkl'
-            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir, precompute_file))
+            precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix)
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)
+        elif args.trainset == 'sGIAA':
+            precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
+            precompute_file = os.path.join(pkl_dir,precompute_file)
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)    
+        else:
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
+
+        val_mapfile=os.path.join(pkl_dir,'valset_image_dct_%s.pkl'%suffix)
+        val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
+        test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
+        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
+
+    else:
+        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct.pkl')
+        if args.trainset == 'GIAA':
+            precompute_file = os.path.join(pkl_dir, 'trainset_GIAA_dct.pkl')
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
-            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,precompute_file))    
+            precompute_file = os.path.join(pkl_dir,precompute_file)
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
