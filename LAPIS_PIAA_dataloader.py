@@ -58,16 +58,21 @@ class LAPIS_PIAADataset(Dataset):
         self.data['age'] = age_intervals
         
         self.trait_encoders = [{group: idx for idx, group in enumerate(self.data[attribute].unique())} for attribute in self.encoded_trait_columns]
-
+    
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx, use_image=True):
-        # Encoding attributes on-the-fly
-        sample = {attribute:encoder[self.data.iloc[idx][attribute]] 
-            for attribute, encoder in zip(self.encoded_trait_columns, self.trait_encoders)}
-        sample.update({attribute:self.data.iloc[idx][attribute] for attribute in self.trait_columns})
+        sample = {
+            attribute: torch.tensor(encoder[self.data.iloc[idx][attribute]], dtype=torch.int)
+            for attribute, encoder in zip(self.encoded_trait_columns, self.trait_encoders)
+        }
         
+        sample.update({
+            attribute: torch.tensor(self.data.iloc[idx][attribute], dtype=torch.int)
+            for attribute in self.trait_columns
+        })
+
         img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
         sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
@@ -390,25 +395,23 @@ def collate_fn(batch):
     batch_art_type = []
     batch_round_score = []
     for item in batch:
-        torch.tensor(np.stack([item[f'VAIAK{i}'] for i in range(1, 8)]))
-
-        vaiak1 = torch.from_numpy(np.stack([item[f'VAIAK{i}'] for i in range(1, 8)]))
-        vaiak2 = torch.from_numpy(np.stack([item[f'2VAIAK{i}'] for i in range(1, 5)]))
-        traits = torch.from_numpy(np.stack([item[trait] for trait in traits_columns]))
+        vaiak1 = torch.stack([item[f'VAIAK{i}'] for i in range(1, 8)])
+        vaiak2 = torch.stack([item[f'2VAIAK{i}'] for i in range(1, 5)])
+        traits = torch.stack([item[trait] for trait in traits_columns])
         concatenated_traits = torch.cat([traits,vaiak1,vaiak2])
         batch_concatenated_traits.append(concatenated_traits)
         batch_art_type.append(item['art_type'])
         batch_round_score.append(item['response'])
-
+    
     return {
         'imgName':[item['imgName'] for item in batch],
         'image_id':[item['image_id'] for item in batch],
         'participant_id':[item['participant_id'] for item in batch],
         'imgName':[item['imgName'] for item in batch],
         'image': torch.stack([item['image'] for item in batch]),
-        'aestheticScore': torch.from_numpy(np.stack(batch_round_score)),
+        'aestheticScore': torch.stack(batch_round_score),
         'traits': torch.stack(batch_concatenated_traits),
-        'art_type':torch.from_numpy(np.stack(batch_art_type))
+        'art_type':torch.stack(batch_art_type)
     }
 
 

@@ -417,7 +417,7 @@ if __name__ == '__main__':
     # Loss and optimizer
     # criterion_mse = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    
+        
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'best_model_resnet50_nima_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
