@@ -64,9 +64,14 @@ class LAPIS_PIAADataset(Dataset):
 
     def __getitem__(self, idx, use_image=True):
         sample = {
-            attribute: torch.tensor(encoder[self.data.iloc[idx][attribute]], dtype=torch.int)
-            for attribute, encoder in zip(self.encoded_trait_columns, self.trait_encoders)
+            trait: torch.tensor(encoder[self.data.iloc[idx][trait]], dtype=torch.int)
+            for trait, encoder in zip(self.encoded_trait_columns, self.trait_encoders)
         }
+        
+        for trait, encoder in zip(self.encoded_trait_columns, self.trait_encoders):
+            original_val = sample[trait]
+            onehot_val = F.one_hot(original_val.long(), num_classes=len(encoder))
+            sample[f'{trait}_onehot'] = onehot_val
         
         sample.update({
             attribute: torch.tensor(self.data.iloc[idx][attribute], dtype=torch.int)
@@ -390,28 +395,43 @@ def collate_fn(batch):
     max_response_score = 10
     max_vaia_score = 7 
     traits_columns = ['nationality','demo_gender','demo_edu', 'demo_colorblind', 'age']
-    
+
     batch_concatenated_traits = []
     batch_art_type = []
     batch_round_score = []
+    batch_images = []
+    batch_img_names = []
+    batch_image_ids = []
+    batch_participant_ids = []
+
     for item in batch:
-        vaiak1 = torch.stack([item[f'VAIAK{i}'] for i in range(1, 8)])
-        vaiak2 = torch.stack([item[f'2VAIAK{i}'] for i in range(1, 5)])
-        traits = torch.stack([item[trait] for trait in traits_columns])
-        concatenated_traits = torch.cat([traits,vaiak1,vaiak2])
+        # Normalize VAIAK scores
+        vaiak1 = torch.stack([torch.tensor(item[f'VAIAK{i}']) for i in range(1, 8)]) / max_vaia_score
+        vaiak2 = torch.stack([torch.tensor(item[f'2VAIAK{i}']) for i in range(1, 5)]) / max_vaia_score
+        
+        # Collect original and one-hot encoded trait values
+        # traits = torch.tensor([item[trait] for trait in traits_columns])
+        onehot_traits = torch.cat([item[f'{trait}_onehot'] for trait in traits_columns])
+        # Concatenate traits, VAIAK1, and VAIAK2
+        concatenated_traits = torch.cat([onehot_traits, vaiak1, vaiak2])
         batch_concatenated_traits.append(concatenated_traits)
+        
+        # Collect other attributes
         batch_art_type.append(item['art_type'])
-        batch_round_score.append(item['response'])
+        batch_round_score.append(torch.tensor(item['response']))
+        batch_images.append(item['image'])
+        batch_img_names.append(item['imgName'])
+        batch_image_ids.append(item['image_id'])
+        batch_participant_ids.append(item['participant_id'])
     
     return {
-        'imgName':[item['imgName'] for item in batch],
-        'image_id':[item['image_id'] for item in batch],
-        'participant_id':[item['participant_id'] for item in batch],
-        'imgName':[item['imgName'] for item in batch],
-        'image': torch.stack([item['image'] for item in batch]),
+        'imgName': batch_img_names,
+        'image_id': batch_image_ids,
+        'participant_id': batch_participant_ids,
+        'image': torch.stack(batch_images),
         'aestheticScore': torch.stack(batch_round_score),
         'traits': torch.stack(batch_concatenated_traits),
-        'art_type':torch.stack(batch_art_type)
+        'art_type': torch.tensor(batch_art_type)
     }
 
 

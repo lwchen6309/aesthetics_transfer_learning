@@ -22,8 +22,8 @@ def train(model, dataloader, criterion_mse, optimizer, device):
         images = sample['image'].to(device)
         sample_pt = sample['traits'].float().to(device)
         sample_score = sample['aestheticScore'].float().to(device) / 20.
-
-        score_pred = model(images, sample_pt)        
+        
+        score_pred = model(images, sample_pt)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -101,10 +101,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     batch_size = args.batch_size
-    n_workers = 8
+    n_workers = 4
     num_bins = 9
     num_attr = 8
-    num_pt = 16
+    num_pt = 71
     
     if args.is_log:
         tags = ["no_attr","PIAA"]
