@@ -13,8 +13,6 @@ import argparse
 from train_piaa_mir import MLP, CombinedModel, trainer
 
 
-
-
 def train(model, dataloader, criterion_mse, optimizer, device):
     model.train()
     running_mse_loss = 0.0
@@ -22,8 +20,8 @@ def train(model, dataloader, criterion_mse, optimizer, device):
     progress_bar = tqdm(dataloader, leave=False)
     for sample in progress_bar:
         images = sample['image'].to(device)
-        sample_pt = sample['traits'].to(device)
-        sample_score = sample['aestheticScore'].to(device) / 20.
+        sample_pt = sample['traits'].float().to(device)
+        sample_score = sample['aestheticScore'].float().to(device) / 20.
 
         score_pred = model(images, sample_pt)        
         loss = criterion_mse(score_pred, sample_score)
@@ -52,8 +50,8 @@ def evaluate(model, dataloader, criterion_mse, device):
     for sample in progress_bar:
         with torch.no_grad():
             images = sample['image'].to(device)
-            sample_pt = sample['traits'].to(device)
-            sample_score = sample['aestheticScore'].to(device) / 20.
+            sample_pt = sample['traits'].float().to(device)
+            sample_score = sample['aestheticScore'].float().to(device) / 20.
 
             score_pred = model(images, sample_pt)
             loss = criterion_mse(score_pred, sample_score)
@@ -93,11 +91,11 @@ if __name__ == '__main__':
     parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-
+    
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=5e-5)
+    parser.add_argument('--lr', type=float, default=5e-4)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
     args = parser.parse_args()
@@ -107,7 +105,7 @@ if __name__ == '__main__':
     num_bins = 9
     num_attr = 8
     num_pt = 16
-
+    
     if args.is_log:
         tags = ["no_attr","PIAA"]
         if args.use_cv:
