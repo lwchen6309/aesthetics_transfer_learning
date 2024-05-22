@@ -24,7 +24,8 @@ def train(model, dataloader, criterion_mse, optimizer, device):
         sample_score = sample['aestheticScore'].float().to(device) / 20.
         
         score_pred = model(images, sample_pt)
-        loss = criterion_mse(score_pred, sample_score)
+        # loss = criterion_mse(score_pred, sample_score)
+        loss = criterion_mse(score_pred / 5., sample_score / 5.)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -52,13 +53,11 @@ def evaluate(model, dataloader, criterion_mse, device):
             images = sample['image'].to(device)
             sample_pt = sample['traits'].float().to(device)
             sample_score = sample['aestheticScore'].float().to(device) / 20.
-
-            score_pred = model(images, sample_pt)
-            loss = criterion_mse(score_pred, sample_score)
-            optimizer.zero_grad()
             
             # MSE loss
-            loss = criterion_mse(score_pred, sample_score)
+            score_pred = model(images, sample_pt)
+            # loss = criterion_mse(score_pred, sample_score)
+            loss = criterion_mse(score_pred / 5., sample_score / 5.)
             running_mse_loss += loss.item()
 
             # Store predicted and true scores for SROCC calculation
@@ -101,7 +100,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     batch_size = args.batch_size
-    n_workers = 4
+    n_workers = 8
     num_bins = 9
     num_attr = 8
     num_pt = 71

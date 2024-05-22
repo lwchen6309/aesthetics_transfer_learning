@@ -138,7 +138,7 @@ class PAIAA_GIAA_Model(nn.Module):
 
 
 # Training Function
-def train(model, dataloader, piaa_dataloader, optimizer, device):
+def train(model, dataloader, piaa_dataloader, optimizer, device, args):
     model.train()
     running_aesthetic_dist_mse_loss = 0.0
     running_big5_mse_loss = 0.0
@@ -173,7 +173,7 @@ def train(model, dataloader, piaa_dataloader, optimizer, device):
 
         optimizer.zero_grad()
         _, big5_pred = model(images_big5)
-        loss_big5 = criterion_mse(big5_pred, big5)
+        loss_big5 = args.big5_amp * criterion_mse(big5_pred, big5)
         loss_big5.backward()
         optimizer.step()
         running_big5_mse_loss += loss_big5.item()
@@ -250,15 +250,12 @@ def evaluate(model, dataloader, piaa_dataloader, device):
     # Calculate SROCC for each Big5 trait
     big5_pred_all = np.concatenate(big5_pred_all, axis=0)
     big5_target_all = np.concatenate(big5_target_all, axis=0)
-    print(big5_pred_all.shape)
     srocc_big5 = [spearmanr(big5_pred_all[:, i], big5_target_all[:, i])[0] for i in range(5)]
     
-    srocc_openness, srocc_conscientiousness, srocc_extraversion, srocc_agreeableness, srocc_neuroticism = srocc_big5
-
     mse_loss = running_mean_aesthetic_mse_loss / len(dataloader)
     epoch_loss_aesthetic = running_aesthetic_dist_mse_loss / len(dataloader)
     epoch_mse_loss_big5 = running_big5_mse_loss / len(piaa_dataloader)
-    return epoch_loss_aesthetic, epoch_mse_loss_big5, srocc_aesthetic, srocc_openness, srocc_conscientiousness, srocc_extraversion, srocc_agreeableness, srocc_neuroticism, mse_loss
+    return epoch_loss_aesthetic, epoch_mse_loss_big5, srocc_aesthetic, srocc_big5, mse_loss
 
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
@@ -277,21 +274,27 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
                 param_group['lr'] *= args.lr_decay_factor
 
         # Training
-        train_loss_aesthetic, train_mse_loss_big5 = train_fn(model, train_dataloader, train_piaa_dataloader, optimizer, device)
+        train_loss_aesthetic, train_mse_loss_big5 = train_fn(model, train_dataloader, train_piaa_dataloader, optimizer, device, args)
         if args.is_log:
             wandb.log({"Train EMD Loss": train_loss_aesthetic,
                        "Train MSE Loss for Big5": train_mse_loss_big5,
                        }, commit=False)
         
         # Testing
-        val_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, val_giaa_mse = evaluate_fn(model, val_giaa_dataloader, val_piaa_imgsort_dataloader, device)
+        val_loss_aesthetic, val_mse_loss_big5, val_giaa_srocc, srocc_big5, _ = evaluate_fn(model, val_giaa_dataloader, val_piaa_imgsort_dataloader, device)
+        srocc_extraversion, srocc_agreeableness, srocc_neuroticism, srocc_openness, srocc_conscientiousness = srocc_big5
+
         if args.is_log:
+            # Log all metrics including individual SROCC scores for Big5
             wandb.log({
                 "Val EMD Loss": val_loss_aesthetic,
                 "Val GIAA MSE Loss for Big5": val_mse_loss_big5,
                 "Val GIAA SROCC": val_giaa_srocc,
-                # "Val PIAA EMD Loss": val_piaa_emd_loss,
-                # "Val PIAA SROCC": val_piaa_srocc,                
+                "Val SROCC big5-E": srocc_extraversion,
+                "Val SROCC big5-A": srocc_agreeableness,
+                "Val SROCC big5-N": srocc_neuroticism,
+                "Val SROCC big5-O": srocc_openness,
+                "Val SROCC big5-C": srocc_conscientiousness,
             }, commit=True)
         
         eval_srocc = val_giaa_srocc
@@ -310,18 +313,30 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, test_piaa_imgsort_dataloader, device)
+    test_loss_aesthetic, test_mse_loss_big5, test_giaa_srocc, srocc_big5, _ = evaluate_fn(model, val_giaa_dataloader, val_piaa_imgsort_dataloader, device)
+    srocc_extraversion, srocc_agreeableness, srocc_neuroticism, srocc_openness, srocc_conscientiousness = srocc_big5
+
     if args.is_log:
+        # Log all metrics including individual SROCC scores for Big5
         wandb.log({
             "Test EMD Loss": test_loss_aesthetic,
             "Test GIAA MSE Loss for Big5": test_mse_loss_big5,
             "Test GIAA SROCC": test_giaa_srocc,
+            "Test SROCC big5-E": srocc_extraversion,
+            "Test SROCC big5-A": srocc_agreeableness,
+            "Test SROCC big5-N": srocc_neuroticism,
+            "Test SROCC big5-O": srocc_openness,
+            "Test SROCC big5-C": srocc_conscientiousness,
         }, commit=True)
     
     # Print the epoch loss
     print(f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
-            f"Test GIAA MSE Loss: {test_giaa_mse:.4f}, "
-            )    
+            f"Test SROCC big5-E: {srocc_extraversion:.4f}, "
+            f"Test SROCC big5-A: {srocc_agreeableness:.4f}, "
+            f"Test SROCC big5-N: {srocc_neuroticism:.4f}, "
+            f"Test SROCC big5-O: {srocc_openness:.4f}, "
+            f"Test SROCC big5-C: {srocc_conscientiousness:.4f}, "
+            )
 
 
 num_bins = 9
@@ -341,6 +356,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
+    parser.add_argument('--big5_amp', type=float, default=100.)
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
@@ -354,9 +370,9 @@ if __name__ == '__main__':
     random_seed = 42
     n_workers = 8
     eval_on_giaa = True
-
+    
     if args.is_log:
-        tags = ["no_attr","GIAA"]
+        tags = ["no_attr","GIAA", f"big5_amp{args.big5_amp}"]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         wandb.init(project="resnet_PARA_PIAA", 

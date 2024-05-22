@@ -15,4 +15,5 @@
 # python train_piaa_mir.py --use_cv --n_fold 4 --fold_id 3 --pretrained_model models_pth/random_cvs/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_driven-vortex-254.pth
 # python train_piaa_mir.py --use_cv --n_fold 4 --fold_id 4 --pretrained_model models_pth/random_cvs/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_faithful-surf-255.pth
 
-python train_piaa_mir_lapis.py --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth --num_epochs 2
+python train_piaa_mir_lapis.py --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth --num_epochs 20 --lr 5e-4 --lr_schedule_epochs 10
+
