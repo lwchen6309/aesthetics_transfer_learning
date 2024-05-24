@@ -21,7 +21,7 @@ def train(model, dataloader, criterion_mse, optimizer, device):
     for sample in progress_bar:
         images = sample['image'].to(device)
         sample_pt = sample['traits'].float().to(device)
-        sample_score = sample['aestheticScore'].float().to(device) / 20.
+        sample_score = sample['response'].float().to(device) / 20.
         
         score_pred = model(images, sample_pt)
         # loss = criterion_mse(score_pred, sample_score)
@@ -52,7 +52,7 @@ def evaluate(model, dataloader, criterion_mse, device):
         with torch.no_grad():
             images = sample['image'].to(device)
             sample_pt = sample['traits'].float().to(device)
-            sample_score = sample['aestheticScore'].float().to(device) / 20.
+            sample_score = sample['response'].float().to(device) / 20.
             
             # MSE loss
             score_pred = model(images, sample_pt)

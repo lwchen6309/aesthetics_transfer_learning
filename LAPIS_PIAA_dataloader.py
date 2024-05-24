@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.dataloader import default_collate
 import torch.nn.functional as F
 from torchvision import transforms
 import numpy as np
@@ -49,7 +50,7 @@ class LAPIS_PIAADataset(Dataset):
         # Encode text columna
         self.trait_columns = ['image_id', 'response', 'participant_id', *self.art_interest_fields]
         self.encoded_trait_columns = ['art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
-
+    
         # Categorize ages into 5 bins
         min_age, max_age = data['age'].min(), data['age'].max()
         interval_edges = np.linspace(min_age, max_age, num=6)
@@ -74,8 +75,7 @@ class LAPIS_PIAADataset(Dataset):
             sample[f'{trait}_onehot'] = onehot_val
         
         sample.update({
-            attribute: torch.tensor(self.data.iloc[idx][attribute], dtype=torch.int)
-            for attribute in self.trait_columns
+            attribute: torch.tensor(self.data.iloc[idx][attribute], dtype=torch.int) for attribute in self.trait_columns
         })
 
         img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
@@ -389,48 +389,28 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     
     return train_dataset, val_dataset, test_dataset
 
-
 def collate_fn(batch):
-    max_vaia_score = 7 
+    max_vaia_score = 7
     traits_columns = ['nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
 
-    batch_concatenated_traits = []
-    batch_art_type = []
-    batch_round_score = []
-    batch_images = []
-    batch_img_names = []
-    batch_image_ids = []
-    batch_participant_ids = []
+    # Use the default collate function to handle the batch
+    sample = default_collate(batch)
 
-    for item in batch:
-        # Normalize VAIAK scores
-        vaiak1 = torch.stack([item[f'VAIAK{i}'] for i in range(1, 8)]).float() / max_vaia_score
-        vaiak2 = torch.stack([item[f'2VAIAK{i}'] for i in range(1, 5)]).float() / max_vaia_score
-        
-        # Collect one-hot encoded trait values
-        onehot_traits = torch.cat([item[f'{trait}_onehot'].float() for trait in traits_columns])
-        
-        # Concatenate traits, VAIAK1, and VAIAK2
-        concatenated_traits = torch.cat([onehot_traits, vaiak1, vaiak2])
-        batch_concatenated_traits.append(concatenated_traits)
+    # Normalize VAIAK scores
+    vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1) / max_vaia_score
+    vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1) / max_vaia_score
+    
+    # Collect and concatenate one-hot encoded trait values
+    onehot_traits = torch.cat([sample[f'{trait}_onehot'] for trait in traits_columns], dim=1)
 
-        # Collect other attributes
-        batch_art_type.append(item['art_type'])
-        batch_round_score.append(item['response'])
-        batch_images.append(item['image'])
-        batch_img_names.append(item['imgName'])
-        batch_image_ids.append(item['image_id'])
-        batch_participant_ids.append(item['participant_id'])
+    # Concatenate traits, VAIAK1, and VAIAK2 for the entire batch
+    concatenated_traits = torch.cat([onehot_traits, vaiak1, vaiak2], dim=1)
 
-    return {
-        'imgName': batch_img_names,
-        'image_id': batch_image_ids,
-        'participant_id': batch_participant_ids,
-        'image': torch.stack(batch_images),
-        'aestheticScore': torch.stack(batch_round_score),
-        'traits': torch.stack(batch_concatenated_traits),
-        'art_type': torch.stack(batch_art_type)
-    }
+    # Add the concatenated traits to the sample
+    sample['traits'] = concatenated_traits
+
+    return sample
+
 
 
 if __name__ == '__main__':
@@ -456,6 +436,8 @@ if __name__ == '__main__':
     n_workers = 4
     train_dataset, val_dataset, test_dataset = load_data(args)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
-    for sample in test_dataloader:
-        print(sample)
-        raise Exception
+    # test_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
+    for sample in tqdm(test_dataloader):
+        # print(sample)
+        # raise Exception
+        pass
