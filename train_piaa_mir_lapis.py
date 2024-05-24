@@ -106,17 +106,16 @@ if __name__ == '__main__':
     num_pt = 71
     
     if args.is_log:
-        tags = ["no_attr","PIAA"]
+        tags = ["no_attr","PIAA",
+                f"learning_rate: {args.lr}",
+                f"batch_size: {args.batch_size}",
+                f"num_epochs: {args.num_epochs}"]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         wandb.init(project="resnet_LAVIS_PIAA",
                 notes="PIAA-MIR",
                 tags = tags)
-        wandb.config = {
-            "learning_rate": args.lr,
-            "batch_size": batch_size,
-            "num_epochs": args.num_epochs
-        }
+        
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
