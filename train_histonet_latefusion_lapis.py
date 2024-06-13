@@ -18,17 +18,8 @@ import seaborn as sns
 import pandas as pd
 import random
 from train_histonet_latefusion import trainer
-
-
-def earth_mover_distance(x, y, dim=-1):
-    """
-    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
-    """
-    
-    cdf_x = torch.cumsum(x, dim=dim)
-    cdf_y = torch.cumsum(y, dim=dim)
-    emd = torch.norm(cdf_x - cdf_y, p=2, dim=dim)
-    return emd
+from utils.losses import EarthMoverDistance
+earth_mover_distance = EarthMoverDistance()
 
 
 class CombinedModel_earlyfusion(nn.Module):
@@ -110,7 +101,6 @@ def train(model, dataloader, optimizer, device):
     running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
     units_len = dataloader.dataset.traits_len()
-    proj_simplex = False
     for sample in progress_bar:        
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
@@ -119,30 +109,11 @@ def train(model, dataloader, optimizer, device):
         # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
         
         optimizer.zero_grad()
-        if proj_simplex:
-            aesthetic_logits, inv_coef = model(images, traits_histogram)
-        else:
-            aesthetic_logits = model(images, traits_histogram)
+        aesthetic_logits = model(images, traits_histogram)
 
         prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
         loss_aesthetic = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
-
-        if proj_simplex:
-            inv_coef_transposed = inv_coef.transpose(0, 1)  # Transpose inv_coef to shape [20, B]
-            piaa_score = torch.matmul(inv_coef_transposed, aesthetic_logits).clamp(min=0, max=1)  # Resulting shape [20, S]
-            piaa_traits = torch.matmul(inv_coef_transposed, traits_histogram).clamp(min=0, max=1)  # Resulting shape [20, T]
-            
-            # Compute self-entropy
-            piaa_traits = torch.split(piaa_traits, units_len, dim=1)
-            mean_entropy_piaa = 0
-            for traits in piaa_traits:
-                entropy_piaa_traits = -torch.sum(traits * torch.log(traits + 1e-2), dim=-1)
-                mean_entropy_piaa += torch.mean(entropy_piaa_traits)
-            entropy_piaa_logits = -torch.sum(piaa_score * torch.log(piaa_score + 1e-2), dim=-1)
-            mean_entropy_piaa += torch.mean(entropy_piaa_logits)
-            total_loss = loss_aesthetic + 0.1 * mean_entropy_piaa
-        else:
-            total_loss = loss_aesthetic
+        total_loss = loss_aesthetic
 
         total_loss.backward()
         optimizer.step()

@@ -12,7 +12,7 @@ import wandb
 from PARA_histogram_dataloader import PARA_GIAA_HistogramDataset, PARA_PIAA_HistogramDataset, PARA_sGIAA_HistogramDataset, PARA_PIAA_HistogramDataset_imgsort, collate_fn_imgsort
 from PARA_PIAA_dataloader import PARA_PIAADataset, split_dataset_by_user, split_dataset_by_images, limit_annotations_per_user
 import pandas as pd
-from train_histonet_latefusion import CombinedModel, earth_mover_distance, train, evaluate
+from train_histonet_latefusion import CombinedModel, train, evaluate
 
 
 def load_data(root_dir = '/home/lwchen/datasets/PARA/', method = 'pacmap', dims = 2, num_user = 200, is_reverse=False):
@@ -158,7 +158,7 @@ if __name__ == '__main__':
                 param_group['lr'] *= lr_decay_factor
 
         # Training
-        train_emd_loss, train_total_emd_loss = train(model, train_dataloader, earth_mover_distance, optimizer, device)
+        train_emd_loss, train_total_emd_loss = train(model, train_dataloader, optimizer, device)
         if is_log:
             wandb.log({"Train EMD Loss": train_emd_loss,
                        "Train Total EMD Loss": train_total_emd_loss,

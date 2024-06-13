@@ -13,17 +13,8 @@ import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from sklearn.decomposition import PCA
-
-
-def earth_mover_distance(x, y, dim=-1):
-    """
-    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
-    """
-    
-    cdf_x = torch.cumsum(x, dim=dim)
-    cdf_y = torch.cumsum(y, dim=dim)
-    emd = torch.norm(cdf_x - cdf_y, p=2, dim=dim)
-    return emd
+from utils.losses import EarthMoverDistance
+earth_mover_distance = EarthMoverDistance()
 
 
 class CombinedModel(nn.Module):
@@ -224,7 +215,6 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
-
 
 
 def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate=1e-4):

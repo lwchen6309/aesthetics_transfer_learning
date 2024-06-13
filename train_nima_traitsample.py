@@ -17,10 +17,7 @@ import argparse
 if __name__ == '__main__':    
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
     parser.add_argument('--trainset', type=str, default='GIAA', choices=["GIAA", "sGIAA", "PIAA"])
-    # parser.add_argument('--fold_id', type=int, default=1)
-    # parser.add_argument('--n_fold', type=int, default=4)
     parser.add_argument('--resume', type=str, default=None)
-    # parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--eval_on_piaa', action='store_true', help='Evaluation metric on PIAA')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
@@ -39,11 +36,7 @@ if __name__ == '__main__':
     random_seed = 42
     n_workers = 8
     num_bins = 9
-    # num_attr = 8
-    # num_bins_attr = 5
-    # num_pt = 50 + 20
-    # criterion_mse = nn.MSELoss()
-
+    
     if args.is_log:
         tags = ["no_attr","GIAA", "Test trait: %s_%s"%(args.trait, args.value)]
         wandb.init(project="resnet_PARA_PIAA", 

@@ -14,17 +14,8 @@ from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 # import matplotlib.pyplot as plt
 # import pandas as pd
-
-
-def earth_mover_distance(x, y, dim=-1):
-    """
-    Compute Earth Mover's Distance (EMD) between two 1D tensors x and y using 2-norm.
-    """
-    
-    cdf_x = torch.cumsum(x, dim=dim)
-    cdf_y = torch.cumsum(y, dim=dim)
-    emd = torch.norm(cdf_x - cdf_y, p=2, dim=dim)
-    return emd
+from utils.losses import EarthMoverDistance
+earth_mover_distance = EarthMoverDistance()
 
 
 class NIMA(nn.Module):
