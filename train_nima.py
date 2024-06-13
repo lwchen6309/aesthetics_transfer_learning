@@ -240,7 +240,7 @@ def evaluate_each_datum(model, dataloader, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
             onehot_big5 = sample['big5'].to(device)
-            attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+            # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
             traits_histograms.append(traits_histogram.cpu().numpy())
 

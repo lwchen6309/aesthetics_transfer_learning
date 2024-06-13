@@ -647,7 +647,7 @@ def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
         train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
         val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
         test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
-
+    
     print(len(train_dataset), len(val_dataset), len(test_dataset))
 
     """Precompute"""

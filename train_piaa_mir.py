@@ -173,6 +173,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         f"Test PIAA MSE Loss: {test_mse_loss:.4f}, "
         f"Test PIAA SROCC Loss: {test_srocc:.4f}, ")
     
+    return test_srocc  
 
 criterion_mse = nn.MSELoss()
 
@@ -254,3 +255,4 @@ if __name__ == '__main__':
 
     # Training loop
     trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
+    

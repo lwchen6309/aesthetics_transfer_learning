@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import torch
+import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -143,11 +144,7 @@ def collect_batch_attribute(sample,
     return batch_attr[:,0][:,None], batch_attr[:,1:]
 
 
-def limit_annotations_per_user(data, max_annotations_per_user=[100, 50]):
-    # Ensure the input is a list of two elements
-    if len(max_annotations_per_user) != 2:
-        raise ValueError("max_annotations must be a list of two elements")
-
+def limit_annotations_per_user(data, max_annotations_per_user=100):
     # Group by userId
     grouped = data.groupby('userId', group_keys=False)
 
@@ -163,33 +160,47 @@ def limit_annotations_per_user(data, max_annotations_per_user=[100, 50]):
         return group[mask1], group[mask2]
 
     # Initialize lists to store the two sets
-    first_set = []
-    second_set = []
+    train_set = []
+    test_set = []
 
     # Apply the function to each group and append results to the lists
     for name, group in grouped:
-        set1, set2 = sample_disjoint(group.reset_index(drop=True), max_annotations_per_user[0], max_annotations_per_user[1])
-        first_set.append(set1)
-        second_set.append(set2)
+        n_test = len(group) - max_annotations_per_user
+        set1, set2 = sample_disjoint(group.reset_index(drop=True), max_annotations_per_user, n_test)
+        train_set.append(set1)
+        test_set.append(set2)
 
     # Concatenate the lists into DataFrames
-    first_set_df = pd.concat(first_set)
-    second_set_df = pd.concat(second_set)
+    train_set_df = pd.concat(train_set)
+    test_set_df = pd.concat(test_set)
     
-    return first_set_df, second_set_df
+    return train_set_df, test_set_df
 
-def generate_data_per_user(dataset, max_annotations_per_user=50):
-    data = dataset.data  # Assuming this is a pandas DataFrame
-    for user_id in data['userId'].unique():
-        # Filter data for the current user
+def generate_data_per_user(dataset, max_annotations_per_user=100, num_users=40, num_image_threshold=500, train_transform=None, test_transform=None):
+    data = dataset.data
+    # users = data['userId'].unique()
+    n_users = data['userId'].value_counts()
+    
+    # Filter users who have annotated at least num_image_threshold images
+    filtered_users = n_users[n_users >= num_image_threshold].index.to_list()
+    users = np.random.choice(filtered_users, min(num_users, len(filtered_users)), replace=False)
+    print(f'Sample {len(users)} users') 
+    # users = np.random.choice(users, num_users, replace=False)
+    
+    for user_id in users:
         user_data = data[data['userId'] == user_id]
-        # Limit the number of annotations per user
-        user_data_limited = limit_annotations_per_user(user_data, max_annotations_per_user=max_annotations_per_user)
+        train_data, test_data = limit_annotations_per_user(user_data, max_annotations_per_user=max_annotations_per_user)
         # Create a deep copy of the dataset and replace its data with the limited user data
-        user_dataset = copy.deepcopy(dataset)
-        user_dataset.data = user_data_limited
+        train_dataset = copy.deepcopy(dataset)
+        test_dataset = copy.deepcopy(dataset)
+
+        train_dataset.data = train_data
+        test_dataset.data = test_data
+        train_dataset.transforms = train_transform
+        test_dataset.transforms = test_transform
+
         # Yield the dataset for the user
-        yield (user_id, user_dataset)
+        yield (user_id, train_dataset, test_dataset)
 
 def split_data_by_user(data, test_count, user_id_list=None, seed=None):
     if seed is not None:
@@ -213,7 +224,7 @@ def split_data_by_user(data, test_count, user_id_list=None, seed=None):
     
     return train_users, test_users
 
-def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 50], n_samples=10, user_id_list=None, seed=None):
+def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=100, n_samples=10, user_id_list=None, seed=None):
     # Split data by user
     _, test_users = split_data_by_user(dataset.data, test_count=test_count, user_id_list=user_id_list, seed=seed)
     # Filter data by user IDs
@@ -395,8 +406,34 @@ def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
     test_dataset.transform = test_transform
     val_dataset.transform = test_transform
     print(len(train_dataset), len(val_dataset), len(test_dataset))
-    
+
     return train_dataset, val_dataset, test_dataset
+
+
+def load_user_sample_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
+# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+    # Dataset transformations
+    train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+    ])
+    
+    max_annotations_per_user = getattr(args, 'max_annotations_per_user', 100)
+    num_image_threshold = getattr(args, 'num_image_threshold', 500)
+    num_users = getattr(args, 'num_users', 10)
+
+    # Load datasets
+    # Create datasets with the appropriate transformations
+    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    piaa_data_gen = generate_data_per_user(dataset, max_annotations_per_user=max_annotations_per_user, num_users=num_users, num_image_threshold=num_image_threshold, train_transform=train_transform, test_transform=test_transform)
+
+    return piaa_data_gen
 
 
 if __name__ == '__main__':

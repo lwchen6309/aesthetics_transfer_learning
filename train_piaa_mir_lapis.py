@@ -21,7 +21,7 @@ def train(model, dataloader, criterion_mse, optimizer, device):
     for sample in progress_bar:
         images = sample['image'].to(device)
         sample_pt = sample['traits'].float().to(device)
-        sample_score = sample['aestheticScore'].float().to(device) / 20.
+        sample_score = sample['response'].float().to(device) / 20.
         
         score_pred = model(images, sample_pt)
         # loss = criterion_mse(score_pred, sample_score)
@@ -52,7 +52,7 @@ def evaluate(model, dataloader, criterion_mse, device):
         with torch.no_grad():
             images = sample['image'].to(device)
             sample_pt = sample['traits'].float().to(device)
-            sample_score = sample['aestheticScore'].float().to(device) / 20.
+            sample_score = sample['response'].float().to(device) / 20.
             
             # MSE loss
             score_pred = model(images, sample_pt)
@@ -136,8 +136,8 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Define the optimizer
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'lapis_best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
