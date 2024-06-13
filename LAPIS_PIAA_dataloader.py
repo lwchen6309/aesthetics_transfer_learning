@@ -430,7 +430,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
     parser.add_argument('--trait', type=str, default=None)
-    parser.add_argument('--value', type=str, default=None)    
+    parser.add_argument('--value', type=str, default=None)
     args = parser.parse_args()
     
     n_workers = 4

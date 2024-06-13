@@ -136,8 +136,8 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Define the optimizer
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    
     # Initialize the best test loss and the best model
     best_model = None
     best_modelname = 'lapis_best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)

@@ -12,6 +12,7 @@ from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
+from sklearn.decomposition import PCA
 
 
 def earth_mover_distance(x, y, dim=-1):
@@ -285,25 +286,30 @@ def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate
     return optimized_trait_histograms, accumulated_emd_results
 
 
-def save_results(dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores):
-    
-    df = dataset.decode_batch_to_dataframe(traits_histograms[:,:20])
+def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores):
+    # Decode batch to DataFrame
+    df = dataset.decode_batch_to_dataframe(traits_histograms[:, :20])
     df['userID'] = userIds
     df['EMD_Loss_Data'] = emd_loss_data
     df['PIAA_Score'] = true_scores
     df['PIAA_Pred'] = predicted_scores
-    
+
+    # Compute 2D PCA for traits_codes
+    pca = PCA(n_components=2)
+    pca_results = pca.fit_transform(traits_codes)
+    df['PCA1'] = pca_results[:, 0]
+    df['PCA2'] = pca_results[:, 1]
+
+    # Determine a unique filename
     i = 1  # Starting index
     filename = f'PARA_LFsGIAA_evaluation_results{i}.csv'
-    # Loop until a filename is found that does not exist
     while os.path.exists(filename):
         i += 1  # Increment the counter if the file exists
         filename = f'PARA_LFsGIAA_evaluation_results{i}.csv'  # Update the filename with the new counter
-    # Once a unique filename is determined, proceed with saving the plot
-    print(f'Save EMD loss to {filename}')
-    # Save to CSV
-    df.to_csv(filename, index=False)
 
+    # Save to CSV
+    print(f'Save EMD loss to {filename}')
+    df.to_csv(filename, index=False)
 
 def evaluate_each_datum(model, dataloader, criterion, device):
     model.eval()
@@ -319,6 +325,8 @@ def evaluate_each_datum(model, dataloader, criterion, device):
     userIds = []
     emd_loss_data = []
     traits_histograms = []
+    traits_codes = []
+
     with torch.no_grad():
         for sample in progress_bar:
             images = sample['image'].to(device)
@@ -327,9 +335,12 @@ def evaluate_each_datum(model, dataloader, criterion, device):
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
             onehot_big5 = sample['big5'].to(device)
-            attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+            # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
             traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
             traits_histograms.append(traits_histogram.cpu().numpy())
+
+            pt_code = model.pt_encoder(traits_histogram).detach().cpu().numpy()
+            traits_codes.append(pt_code)
 
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
@@ -356,10 +367,11 @@ def evaluate_each_datum(model, dataloader, criterion, device):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
-
+    
     traits_histograms = np.concatenate(traits_histograms)
+    traits_codes = np.concatenate(traits_codes)
     emd_loss_data = np.concatenate(emd_loss_data)
-    save_results(dataloader.dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores)
+    save_results(dataloader.dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores)
     
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
@@ -437,6 +449,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
             f"Test GIAA SROCC Loss with Prior: {test_giaa_srocc_wprior:.4f}, "
             f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
             )
+
 
 num_bins = 9
 num_attr = 8
@@ -518,3 +531,4 @@ if __name__ == '__main__':
     best_modelname = os.path.join(dirname, best_modelname)
     
     trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)

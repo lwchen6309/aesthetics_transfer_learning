@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)    
     args = parser.parse_args()
-
+    
     random_seed = 42
     n_workers = 8
     batch_size = args.batch_size

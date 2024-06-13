@@ -748,7 +748,7 @@ class PARA_PIAA_HistogramDataset_imgsort(PARA_PIAADataset):
             histogram['big5'] = stacked_traits
             histogram['traits'] = stacked_onehot_traits
             histogram['userId'] = sample['userId']
-
+            
             # Add the histogram for the current sample to the list
             histograms_list.append(histogram)
 
