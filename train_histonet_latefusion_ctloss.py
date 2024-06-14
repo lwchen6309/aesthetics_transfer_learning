@@ -12,11 +12,11 @@ from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
-from sklearn.decomposition import PCA
+from train_histonet_latefusion import save_results
+
 from utils.losses import EarthMoverDistance, ContrastiveLoss
 
 earth_mover_distance = EarthMoverDistance()
-contrastive_loss = ContrastiveLoss(margin=1.0, threshold=0.2)
 
 
 class CombinedModel(nn.Module):
@@ -78,7 +78,7 @@ def train(model, dataloader, optimizer, device):
         # Calculate contrastive loss
         loss_contrastive = contrastive_loss(pt_code, aesthetic_score_histogram)
         
-        total_loss = loss_aesthetic + loss_contrastive  # Combining losses
+        total_loss = loss_aesthetic + 1e-2 * loss_contrastive  # Combining losses
         
         total_loss.backward()
         optimizer.step()
@@ -93,7 +93,6 @@ def train(model, dataloader, optimizer, device):
     epoch_total_emd_loss = running_total_emd_loss / len(dataloader)
     epoch_contrastive_loss = running_contrastive_loss / len(dataloader)
     return epoch_emd_loss, epoch_total_emd_loss, epoch_contrastive_loss
-
 
 # Evaluation Function
 def evaluate(model, dataloader, device):
@@ -149,7 +148,6 @@ def evaluate(model, dataloader, device):
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
-
 
 def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     model.eval()
@@ -207,90 +205,6 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
-
-
-def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate=1e-4):
-    model.eval()
-    optimized_trait_histograms = []
-
-    trait_lengths = {
-        'age': 5, 'gender': 2, 'EducationalLevel': 5, 'artExperience': 4,
-        'photographyExperience': 4, 'personality-E': 10, 'personality-A': 10,
-        'personality-N': 10, 'personality-O': 10, 'personality-C': 10
-    }
-    # Initialize a dictionary to accumulate EMD results for each trait
-    accumulated_emd_results = {trait: [] for trait in trait_lengths.keys()}    
-
-    def split_trait_histogram(trait_histogram):
-        split_histograms = {}
-        start = 0
-        for trait, length in trait_lengths.items():
-            split_histograms[trait] = trait_histogram[:, start:start + length]
-            start += length
-        return split_histograms
-
-    for sample in tqdm(dataloader, leave=False):
-        images = sample['image'].to(device)
-        target_aesthetic_histogram = sample['aestheticScore'].to(device)
-        target_traits = sample['traits'].to(device)
-        target_onehot_big5 = sample['big5'].to(device)
-        target_traits_combined = torch.cat([target_traits, target_onehot_big5], dim=1)
-
-        # Initialize trait histogram as a zero vector for each image in the batch
-        trait_histogram = torch.rand_like(target_traits_combined, requires_grad=True, device=device)
-        optimizer = optim.Adam([trait_histogram], lr=learning_rate)
-
-        # Split, normalize, and concatenate trait_histogram
-        split_histograms = split_trait_histogram(trait_histogram)
-        for trait in trait_lengths.keys():
-            split_histograms[trait] = F.softmax(split_histograms[trait], dim=1)
-        trait_histogram = torch.cat(list(split_histograms.values()), dim=1)
-        
-        for _ in range(num_iterations):
-            optimizer.zero_grad()
-            predicted_aesthetic_histogram, _ = model(images, trait_histogram)
-            predicted_aesthetic_histogram = F.softmax(predicted_aesthetic_histogram, dim=1)
-            loss = earth_mover_distance(target_aesthetic_histogram, predicted_aesthetic_histogram).mean()
-            loss.backward(retain_graph=True)
-            optimizer.step()
-
-        # Compute EMD for each trait subset
-        optimized_histogram = trait_histogram.detach()
-        split_optimized_histograms = split_trait_histogram(optimized_histogram)
-        split_target_histograms = split_trait_histogram(target_traits_combined)
-
-        for trait in trait_lengths.keys():
-            emd_values = earth_mover_distance(split_optimized_histograms[trait], split_target_histograms[trait]).cpu().numpy()
-            accumulated_emd_results[trait].extend(emd_values)
-        optimized_trait_histograms.append(optimized_histogram.cpu().numpy())
-    optimized_trait_histograms = np.concatenate(optimized_trait_histograms, axis=0)
-    return optimized_trait_histograms, accumulated_emd_results
-
-
-def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores):
-    # Decode batch to DataFrame
-    df = dataset.decode_batch_to_dataframe(traits_histograms[:, :20])
-    df['userID'] = userIds
-    df['EMD_Loss_Data'] = emd_loss_data
-    df['PIAA_Score'] = true_scores
-    df['PIAA_Pred'] = predicted_scores
-
-    # Compute 2D PCA for traits_codes
-    pca = PCA(n_components=2)
-    pca_results = pca.fit_transform(traits_codes)
-    df['PCA1'] = pca_results[:, 0]
-    df['PCA2'] = pca_results[:, 1]
-
-    # Determine a unique filename
-    i = 1  # Starting index
-    filename = f'PARA_LFsGIAA_evaluation_results{i}.csv'
-    while os.path.exists(filename):
-        i += 1  # Increment the counter if the file exists
-        filename = f'PARA_LFsGIAA_evaluation_results{i}.csv'  # Update the filename with the new counter
-
-    # Save to CSV
-    print(f'Save EMD loss to {filename}')
-    df.to_csv(filename, index=False)
 
 def evaluate_each_datum(model, dataloader, criterion, device):
     model.eval()
@@ -357,7 +271,6 @@ def evaluate_each_datum(model, dataloader, criterion, device):
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
     return emd_loss, emd_attr_loss, srocc, mse_loss
-
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device, best_modelname):
     train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader = dataloaders
@@ -455,6 +368,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)    
+    parser.add_argument('--margin', type=float, default=1.0, help='Margin for contrastive loss')
+    parser.add_argument('--ct_threshold', type=float, default=0.2, help='Threshold for contrastive loss')
     args = parser.parse_args()
     
     batch_size = args.batch_size
@@ -463,7 +378,7 @@ if __name__ == '__main__':
     args.eval_on_piaa = True if args.trainset == 'PIAA' else False
 
     if args.is_log:
-        tags = ["no_attr", args.trainset]
+        tags = ["no_attr", args.trainset, 'ContrastiveLoss']
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         wandb.init(project="resnet_PARA_PIAA", 
@@ -508,5 +423,7 @@ if __name__ == '__main__':
         dirname = os.path.join(dirname, 'random_cvs')
     best_modelname = os.path.join(dirname, best_modelname)
     
+    contrastive_loss = ContrastiveLoss(margin=args.margin, threshold=args.ct_threshold)
+
     trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
     emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)

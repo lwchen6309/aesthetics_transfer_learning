@@ -12,7 +12,10 @@ from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
+from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
+
+
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 
@@ -275,7 +278,6 @@ def evaluate_trait(model, dataloader, device, num_iterations=1000, learning_rate
     optimized_trait_histograms = np.concatenate(optimized_trait_histograms, axis=0)
     return optimized_trait_histograms, accumulated_emd_results
 
-
 def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores):
     # Decode batch to DataFrame
     df = dataset.decode_batch_to_dataframe(traits_histograms[:, :20])
@@ -283,12 +285,22 @@ def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_dat
     df['EMD_Loss_Data'] = emd_loss_data
     df['PIAA_Score'] = true_scores
     df['PIAA_Pred'] = predicted_scores
-
+    
     # Compute 2D PCA for traits_codes
     pca = PCA(n_components=2)
     pca_results = pca.fit_transform(traits_codes)
     df['PCA1'] = pca_results[:, 0]
     df['PCA2'] = pca_results[:, 1]
+    
+    # Print explained variance
+    explained_variance = pca.explained_variance_ratio_
+    print(f'Explained variance by PCA components: {explained_variance}')
+
+    # Compute 2D t-SNE for traits_codes
+    tsne = TSNE(n_components=2, random_state=42)
+    tsne_results = tsne.fit_transform(traits_codes)
+    df['TSNE1'] = tsne_results[:, 0]
+    df['TSNE2'] = tsne_results[:, 1]
 
     # Determine a unique filename
     i = 1  # Starting index
@@ -300,6 +312,8 @@ def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_dat
     # Save to CSV
     print(f'Save EMD loss to {filename}')
     df.to_csv(filename, index=False)
+
+
 
 def evaluate_each_datum(model, dataloader, criterion, device):
     model.eval()

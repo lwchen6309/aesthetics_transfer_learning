@@ -46,8 +46,8 @@ def train(model, dataloader, optimizer, device):
 
         # Calculate contrastive loss
         loss_contrastive = contrastive_loss(pt_code, aesthetic_score_histogram)
-        total_loss = loss_aesthetic - loss_contrastive
-
+        total_loss = loss_aesthetic + loss_contrastive
+        
         total_loss.backward()
         optimizer.step()
         running_total_emd_loss += total_loss.item()
@@ -287,7 +287,7 @@ if __name__ == '__main__':
     args.eval_on_piaa = True if args.trainset == 'PIAA' else False
 
     if args.is_log:
-        tags = ["no_attr", args.trainset]
+        tags = ["no_attr", args.trainset, 'ContrastiveLoss']
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         wandb.init(project="resnet_LAVIS_PIAA", 
