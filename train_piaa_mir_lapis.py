@@ -8,9 +8,8 @@ from tqdm import tqdm
 from LAPIS_PIAA_dataloader import load_data, collate_fn
 import wandb
 from scipy.stats import spearmanr
-from train_nima_attr import NIMA_attr
 import argparse
-from train_piaa_mir import MLP, CombinedModel, trainer
+from train_piaa_mir import CombinedModel, SimplePerModel, trainer
 
 
 def train(model, dataloader, criterion_mse, optimizer, device):
@@ -129,14 +128,16 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CombinedModel(num_bins, num_attr, num_pt)
+    # model = CombinedModel(num_bins, num_attr, num_pt)
+    model = SimplePerModel(num_bins, num_attr, num_pt)
+    
     model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     if args.resume:
         model.load_state_dict(torch.load(args.resume))
     model = model.to(device)
     
     # Define the optimizer
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
     best_model = None

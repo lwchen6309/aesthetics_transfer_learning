@@ -51,6 +51,29 @@ class CombinedModel(nn.Module):
         return interaction_outputs + direct_outputs
 
 
+class SimplePerModel(nn.Module):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024):
+        super(SimplePerModel, self).__init__()
+        self.num_bins = num_bins
+        self.num_attr = num_attr
+        self.num_pt = num_pt
+        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
+        
+        # Placeholder for the NIMA_attr model
+        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        
+        # Interaction MLPs
+        self.per_mlp = MLP(num_pt, hidden_size, 1)
+
+    def forward(self, images, personal_traits):
+        logit, attr_mean_pred = self.nima_attr(images)
+        prob = F.softmax(logit, dim=1)        
+        # Interaction map calculation
+        direct_outputs = torch.sum(prob * self.scale.to(images.device), dim=1, keepdim=True)
+        interaction = self.per_mlp(personal_traits)
+        return direct_outputs + interaction
+    
+
 def train(model, dataloader, criterion_mse, optimizer, device):
     model.train()
     running_mse_loss = 0.0

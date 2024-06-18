@@ -315,7 +315,7 @@ def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_dat
 
 
 
-def evaluate_each_datum(model, dataloader, criterion, device):
+def evaluate_each_datum(model, dataloader, device):
     model.eval()
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
@@ -348,10 +348,10 @@ def evaluate_each_datum(model, dataloader, criterion, device):
 
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
-
-            emd_loss_datum = criterion(prob_aesthetic, aesthetic_score_histogram)
+            
+            emd_loss_datum = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram)
             emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
-            loss = criterion(prob_aesthetic, aesthetic_score_histogram).mean()
+            loss = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
             
             if eval_srocc:
                 outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
@@ -433,7 +433,6 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    # test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
     test_giaa_emd_loss_wprior, _, test_giaa_srocc_wprior, _ = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, device)
     test_piaa_emd_loss, _, test_piaa_srocc, _ = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
     test_giaa_emd_loss, _, test_giaa_srocc, _ = evaluate_fn(model, test_giaa_dataloader, device)
@@ -535,4 +534,4 @@ if __name__ == '__main__':
     best_modelname = os.path.join(dirname, best_modelname)
     
     trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, earth_mover_distance, device)
+    emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)

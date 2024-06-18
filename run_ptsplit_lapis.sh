@@ -1,6 +1,8 @@
 #!/bin/bash
-run_script="train_nima_lapis_traitsample.py"
+# run_script="train_nima_lapis_traitsample.py"
 # run_script="train_histonet_lapis_traitsample.py"
+run_script="compare_traitsample_lapis.py"
+
 
 list=("male" "female") # "other/would prefer not to disclose"
 for value in "${list[@]}"; do

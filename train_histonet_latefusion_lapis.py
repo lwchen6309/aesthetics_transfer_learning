@@ -5,21 +5,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import transforms
+# from torchvision import transforms
 from torchvision.models import resnet50
 import numpy as np
-import pandas as pd
+# import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import random
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# import pandas as pd
+# import random
 from train_histonet_latefusion import trainer
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 
 class CombinedModel_earlyfusion(nn.Module):
@@ -137,7 +139,7 @@ def evaluate(model, dataloader, device):
     running_mse_loss = 0.0
     # scale = torch.arange(1, 5.5, 0.5).to(device)
     scale = torch.arange(0, 10).to(device)
-    eval_srocc = True
+    
     progress_bar = tqdm(dataloader, leave=False)
     mean_pred = []
     mean_target = []
@@ -156,14 +158,13 @@ def evaluate(model, dataloader, device):
             loss = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
             # loss_attribute = earth_mover_distance(prob_attribute, attributes_target_histogram).mean()
             
-            if eval_srocc:
-                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
-                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
-                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
-                mean_target.append(target_mean.view(-1).cpu().numpy())
-                # MSE
-                mse = criterion_mse(outputs_mean, target_mean)
-                running_mse_loss += mse.item()
+            outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+            target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+            mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+            mean_target.append(target_mean.view(-1).cpu().numpy())
+            # MSE
+            mse = criterion_mse(outputs_mean, target_mean)
+            running_mse_loss += mse.item()
             
             running_emd_loss += loss.item()
             # running_attr_emd_loss += loss_attribute.item()
@@ -210,7 +211,7 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
             # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
             batch_size = images.shape[0]
             traits_histogram = mean_traits_histogram.repeat(batch_size, 1)
-
+            
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
             loss = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram).mean()
@@ -241,15 +242,29 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     return emd_loss, emd_attr_loss, srocc, mse_loss
 
 
-
-
-def save_results(dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores, **kwargs):
+def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores, **kwargs):
     df = dataset.decode_batch_to_dataframe(traits_histograms[:,:60])
     df['userID'] = userIds
     df['EMD_Loss_Data'] = emd_loss_data
     df['PIAA_Score'] = true_scores
     df['PIAA_Pred'] = predicted_scores
+
+    # Compute 2D PCA for traits_codes
+    pca = PCA(n_components=2)
+    pca_results = pca.fit_transform(traits_codes)
+    df['PCA1'] = pca_results[:, 0]
+    df['PCA2'] = pca_results[:, 1]
     
+    # Print explained variance
+    explained_variance = pca.explained_variance_ratio_
+    print(f'Explained variance by PCA components: {explained_variance}')
+
+    # Compute 2D t-SNE for traits_codes
+    tsne = TSNE(n_components=2, random_state=42)
+    tsne_results = tsne.fit_transform(traits_codes)
+    df['TSNE1'] = tsne_results[:, 0]
+    df['TSNE2'] = tsne_results[:, 1]
+
     prefix = kwargs['prefix'] if 'prefix' in kwargs else ''
     i = 1  # Initialize the index for file naming
     filename = f'LAPIS_{prefix}_evaluation_results{i}.csv'  # Include the prefix in the filename
@@ -269,19 +284,19 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
     running_mse_loss = 0.0
     # scale = torch.arange(1, 5.5, 0.5).to(device)
     scale = torch.arange(0, 10).to(device)
-    eval_srocc = True
     progress_bar = tqdm(dataloader, leave=False)
     mean_pred = []
     mean_target = []
     userIds = []
     emd_loss_data = []
     traits_histograms = []
+    traits_codes = []
     with torch.no_grad():
         for sample in progress_bar:
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
-            art_type = sample['art_type'].to(device)
+            # art_type = sample['art_type'].to(device)
             userIds.extend(sample['userId'])
             # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
             traits_histograms.append(traits_histogram.cpu().numpy())
@@ -295,14 +310,16 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
             emd_loss_datum = earth_mover_distance(prob_aesthetic, aesthetic_score_histogram)
             emd_loss_data.append(emd_loss_datum.view(-1).cpu().numpy())
 
-            if eval_srocc:
-                outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
-                target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
-                mean_pred.append(outputs_mean.view(-1).cpu().numpy())
-                mean_target.append(target_mean.view(-1).cpu().numpy())
-                # MSE
-                mse = criterion_mse(outputs_mean, target_mean)
-                running_mse_loss += mse.item()
+            pt_code = model.pt_encoder(traits_histogram).detach().cpu().numpy()
+            traits_codes.append(pt_code)
+
+            outputs_mean = torch.sum(prob_aesthetic * scale, dim=1, keepdim=True)
+            target_mean = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+            mean_pred.append(outputs_mean.view(-1).cpu().numpy())
+            mean_target.append(target_mean.view(-1).cpu().numpy())
+            # MSE
+            mse = criterion_mse(outputs_mean, target_mean)
+            running_mse_loss += mse.item()
             
             running_emd_loss += loss.item()
             # running_attr_emd_loss += loss_attribute.item()
@@ -316,8 +333,9 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
     srocc, _ = spearmanr(predicted_scores, true_scores)
     emd_loss_data = np.concatenate(emd_loss_data)
     traits_histograms = np.concatenate(traits_histograms)
+    traits_codes = np.concatenate(traits_codes)
     
-    save_results(dataloader.dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores, **kwargs)
+    save_results(dataloader.dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores, **kwargs)
     
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
@@ -353,7 +371,7 @@ if __name__ == '__main__':
     
     batch_size = args.batch_size
     random_seed = 42
-    n_workers = 8
+    n_workers = 1
     args.eval_on_piaa = True if args.trainset == 'PIAA' else False
 
     if args.is_log:
@@ -403,4 +421,5 @@ if __name__ == '__main__':
         dirname = os.path.join(dirname, 'random_cvs')
     best_modelname = os.path.join(dirname, best_modelname)
     
-    trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    # trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)
