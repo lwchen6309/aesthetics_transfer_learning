@@ -1,8 +1,8 @@
 #!/bin/bash
 #run_script="train_histonet_attr_latefusion_traitsample.py"
 # run_script="train_nima_traitsample.py"
-# run_script="train_histonet_traitsample.py"
-run_script="compare_traitsample.py"
+run_script="train_histonet_traitsample.py"
+# run_script="compare_traitsample.py"
 
 # Gender
 for value in male female; do

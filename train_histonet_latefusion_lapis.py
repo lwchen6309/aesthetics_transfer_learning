@@ -421,5 +421,5 @@ if __name__ == '__main__':
         dirname = os.path.join(dirname, 'random_cvs')
     best_modelname = os.path.join(dirname, best_modelname)
     
-    # trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
     emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)

@@ -5,7 +5,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import wandb
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
-from train_histonet_latefusion_lapis import train, evaluate, trainer, CombinedModel
+from train_histonet_latefusion_lapis import train, evaluate, evaluate_with_prior, trainer, CombinedModel
 
 num_bins = 10
 num_attr = 8
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     if args.is_log:
         tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
         wandb.init(project="resnet_LAVIS_PIAA", 
-                   notes="NIMA",
+                   notes="latefusion",
                    tags = tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -77,5 +77,7 @@ if __name__ == '__main__':
     best_modelname += '.pth'
     dirname = os.path.join('models_pth', 'trait_disjoint_exp')
     best_modelname = os.path.join(dirname, best_modelname)
+
+    trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    # emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)    
     
-    trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)

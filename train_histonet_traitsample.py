@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 import wandb
 # from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
-from train_histonet_latefusion import CombinedModel, trainer, train, evaluate
+from train_histonet_latefusion import CombinedModel, trainer, train, evaluate, evaluate_with_prior
 import argparse
 
 num_bins = 9
@@ -85,4 +85,5 @@ if __name__ == '__main__':
     dirname = os.path.join(dirname, 'trait_disjoint_exp')
     best_modelname = os.path.join(dirname, best_modelname)
     
-    trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
+    trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+    # emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)
