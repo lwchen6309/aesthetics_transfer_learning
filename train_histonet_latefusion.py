@@ -21,7 +21,7 @@ earth_mover_distance = EarthMoverDistance()
 
 
 class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
+    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt, dropout=None):
         super(CombinedModel, self).__init__()
         self.resnet = resnet50(pretrained=True)
         self.resnet.fc = nn.Sequential(
@@ -33,13 +33,18 @@ class CombinedModel(nn.Module):
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
+        
         # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
+        pt_encoder_layers = []
+        if dropout is not None:
+            pt_encoder_layers.append(nn.Dropout(dropout))
+        pt_encoder_layers.extend([
             nn.Linear(num_pt, 512),
             nn.ReLU(),
             nn.Linear(512, 512),
             nn.BatchNorm1d(512)
-        )
+        ])
+        self.pt_encoder = nn.Sequential(*pt_encoder_layers)
         
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
@@ -65,7 +70,7 @@ def train(model, dataloader, optimizer, device):
     # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
     running_ce_improvement = 0
     running_ce_init = 0
-    for sample in progress_bar:        
+    for sample in progress_bar:
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)

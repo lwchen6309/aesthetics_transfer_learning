@@ -32,6 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
+    parser.add_argument('--dropout', type=float, default=None)
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)    
     args = parser.parse_args()
@@ -69,7 +70,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
     
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
