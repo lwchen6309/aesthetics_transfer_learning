@@ -38,7 +38,7 @@ if __name__ == '__main__':
     num_bins = 9
     
     if args.is_log:
-        tags = ["no_attr","GIAA", "Test trait: %s_%s"%(args.trait, args.value)]
+        tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="NIMA",
                    tags = tags)

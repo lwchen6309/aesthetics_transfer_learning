@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--eval_on_piaa', action='store_true', help='Evaluation metric on PIAA')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
+    parser.add_argument('--importance_sampling', action='store_true', help='Enable importance sampling for uniform score distribution')
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
@@ -41,7 +42,7 @@ if __name__ == '__main__':
     n_workers = 8
     
     if args.is_log:
-        tags = ["no_attr","GIAA", "Test trait: %s_%s"%(args.trait, args.value)]
+        tags = ["no_attr", args.trainset, "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
                    tags = tags)

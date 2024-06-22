@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
+    parser.add_argument('--importance_sampling', action='store_true', help='Enable importance sampling for uniform score distribution')
     parser.add_argument('--max_patience_epochs', type=int, default=10)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
