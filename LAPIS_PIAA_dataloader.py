@@ -352,8 +352,8 @@ def plot_histogram_comparison(dataset):
     plt.savefig('PARA_histogram.jpg', dpi=300)
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),

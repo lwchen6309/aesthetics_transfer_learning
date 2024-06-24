@@ -626,8 +626,8 @@ def collate_fn_imgsort(batch):
     }
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -725,8 +725,8 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
 
-def load_data_testpair(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+# def load_data_testpair(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+def load_data_testpair(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
