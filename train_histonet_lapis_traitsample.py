@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
+    parser.add_argument('--dropout', type=float, default=None)    
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)    
     args = parser.parse_args()
@@ -38,8 +39,14 @@ if __name__ == '__main__':
     
     if args.is_log:
         tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
+        
+        model_name = "latefusion" 
+        if args.dropout is not None:
+            model_name += "-dropout" 
+            tags += [f"dropout={args.dropout}"]
+        
         wandb.init(project="resnet_LAVIS_PIAA", 
-                   notes="latefusion",
+                   notes=model_name,
                    tags = tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -61,10 +68,10 @@ if __name__ == '__main__':
     dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
-
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
+    
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer

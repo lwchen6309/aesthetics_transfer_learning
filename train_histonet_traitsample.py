@@ -36,7 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)    
     args = parser.parse_args()
-
+    
     batch_size = args.batch_size
     
     random_seed = 42
@@ -44,6 +44,8 @@ if __name__ == '__main__':
     
     if args.is_log:
         tags = ["no_attr", args.trainset, "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
+        if args.dropout is not None:
+            tags += [f"dropout={args.dropout}"]
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
                    tags = tags)

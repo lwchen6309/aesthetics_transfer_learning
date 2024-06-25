@@ -1,6 +1,7 @@
 import numpy as np
 import os
 from tqdm import tqdm
+import pickle
 from torch.utils.data import DataLoader
 from PARA_histogram_dataloader import load_data, load_data_testpair
 import argparse
@@ -8,19 +9,22 @@ from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 
 
-def compute_mean_emd(giaa_dataset1, giaa_dataset2):
+def compute_mean_emd(giaa_dataset1, giaa_dataset2, args):
     # Step 1: Extract common unique images
     unique_images_1 = set(giaa_dataset1.unique_images)
     unique_images_2 = set(giaa_dataset2.unique_images)
     common_images = list(unique_images_1.intersection(unique_images_2))
     
-    img_2index1 = {img:index for index, img in enumerate(unique_images_1)}
-    img_2index2 = {img:index for index, img in enumerate(unique_images_2)}
+    img_2index1 = {img: index for index, img in enumerate(unique_images_1)}
+    img_2index2 = {img: index for index, img in enumerate(unique_images_2)}
     
     if not common_images:
         raise ValueError("No common images found between the two datasets")
 
-    # Step 2: Compute EMD for each common image and return the mean EMD
+    # Dictionary to store score distributions and common images
+    score_dict = {}
+
+    # Step 2: Compute EMD for each common image and save the distributions
     emd_scores = []
     for image in tqdm(common_images):
         # Get aesthetic score distributions
@@ -31,6 +35,13 @@ def compute_mean_emd(giaa_dataset1, giaa_dataset2):
         emd = earth_mover_distance(score_dist1, score_dist2)
         emd_scores.append(emd)
 
+        # Save the distributions
+        score_dict[image] = [score_dist1.cpu().numpy(), score_dist2.cpu().numpy()]
+    
+    # Save the score distributions to a file using pickle
+    filename = f"score_distributions_{args.trait}_{args.value}.pkl"
+    with open(os.path.join(args.output_dir, filename), 'wb') as f:
+        pickle.dump(score_dict, f)
     # Return the mean EMD
     mean_emd = np.mean(emd_scores)
     return mean_emd
@@ -56,6 +67,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)
+    parser.add_argument('--output_dir', type=str, default='score_dict')
+
     args = parser.parse_args()
 
     batch_size = args.batch_size
@@ -64,5 +77,5 @@ if __name__ == '__main__':
     n_workers = 8
     
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset = load_data_testpair(args)
-    mean_EMD = compute_mean_emd(test_giaa_dataset, testc_giaa_dataset)
+    mean_EMD = compute_mean_emd(test_giaa_dataset, testc_giaa_dataset, args)
     print(f'{args.trait} == {args.value}', mean_EMD)

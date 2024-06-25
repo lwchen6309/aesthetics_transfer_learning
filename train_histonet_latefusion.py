@@ -480,6 +480,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
+    parser.add_argument('--dropout', type=float, default=None)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)    
@@ -494,6 +495,8 @@ if __name__ == '__main__':
         tags = ["no_attr", args.trainset]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        if args.dropout is not None:
+            tags += [f"dropout={args.dropout}"]
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
                    tags=tags)
@@ -520,7 +523,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
 
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
