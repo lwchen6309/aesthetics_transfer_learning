@@ -17,7 +17,7 @@ from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 # import seaborn as sns
 # import pandas as pd
 # import random
-from train_histonet_latefusion import trainer
+from train_histonet_latefusion import trainer, CombinedModel
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 from sklearn.manifold import TSNE
@@ -59,41 +59,6 @@ class CombinedModel_earlyfusion(nn.Module):
         # coef = self.inv_coef_decoder(torch.cat([aesthetic_logits, traits_histogram], dim=1))
         return aesthetic_logits #, coef
 
-
-class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
-        super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-            # nn.Linear(512, num_bins_aesthetic),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
-        self.num_attr = num_attr
-        self.num_bins_attr = num_bins_attr
-        self.num_pt = num_pt
-        # For predicting attribute histograms for each attribute
-        self.pt_encoder = nn.Sequential(
-            nn.Linear(num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.BatchNorm1d(512)
-        )
-        
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
-
-    def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        pt_code = self.pt_encoder(traits_histogram)
-        xz = x + pt_code
-        aesthetic_logits = self.fc_aesthetic(xz)
-        return aesthetic_logits
 
 
 # Training Function
@@ -364,6 +329,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
+    parser.add_argument('--dropout', type=float, default=None)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)    
@@ -378,6 +344,8 @@ if __name__ == '__main__':
         tags = ["no_attr", args.trainset]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        if args.dropout is not None:
+            tags += [f"dropout={args.dropout}"]            
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="latefusion",
                    tags=tags)
@@ -403,8 +371,8 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt).to(device)
-
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
+    
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer
