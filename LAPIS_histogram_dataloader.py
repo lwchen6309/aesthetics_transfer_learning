@@ -168,7 +168,7 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
 class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None,
                 importance_sampling=False, num_samples=40):
-        super().__init__(root_dir, transform)
+        super(LAPIS_sGIAA_HistogramDataset, self).__init__(root_dir, transform)
         if data is not None:
             self.data = data
         self.importance_sampling = importance_sampling
@@ -217,7 +217,7 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def compute_score_hist(self, associated_indices):
         bin_indecies = []
         for random_idx in associated_indices:
-            sample = super().__getitem__(random_idx, use_image=False)
+            sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(random_idx, use_image=False)
             round_score = min(int(sample['response'])//10, 9)
             bin_indecies.append(round_score)
         scores = np.array(bin_indecies)
@@ -273,7 +273,7 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
         
         accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
         for ai in associated_indices:
-            sample = super().__getitem__(ai, use_image=False)
+            sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(ai, use_image=False)
 
             # One-hot encode 'response' and accumulate
             round_score = min(int(sample['response'])//10, 9)
@@ -334,7 +334,7 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def __getitem__(self, idx):
         histograms = self.precomputed_data[idx]
         item_data = copy.deepcopy(random.choice(histograms))
-        img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+        img_sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
         item_data['image'] = img_sample['image']
         return item_data
 
@@ -356,6 +356,28 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def load(self, file_path):
         with open(file_path, 'rb') as f:
             self.precomputed_data = pickle.load(f)
+
+
+class LAPIS_PairsGIAA_HistogramDataset(LAPIS_sGIAA_HistogramDataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None,
+                 importance_sampling=False, num_samples=40):
+        super(LAPIS_PairsGIAA_HistogramDataset, self).__init__(root_dir, transform, data, map_file, precompute_file, importance_sampling, num_samples)
+    
+    def __getitem__(self, idx):
+        histograms = self.precomputed_data[idx]
+        
+        # Sample 2 items from histograms
+        sampled_histograms = random.sample(histograms, 2)
+        
+        item_data_1 = copy.deepcopy(sampled_histograms[0])
+        item_data_2 = copy.deepcopy(sampled_histograms[1])
+        
+        img_sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+        
+        item_data_1['image'] = img_sample['image']
+        item_data_2['image'] = img_sample['image']
+        
+        return item_data_1, item_data_2
 
 
 class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
@@ -598,6 +620,14 @@ def collate_fn(batch):
     }
 
 
+def collate_fn_pair(batch):
+    # Flatten the batch: convert [(item1, item2), (item3, item4), ...] to [item1, item2, item3, item4, ...]
+    flattened_batch = [item for pair in batch for item in pair]
+    
+    # Call the original collate function with the flattened batch
+    return collate_fn(flattened_batch)
+
+
 def collate_fn_imgsort(batch):
     images = [item['image'].unsqueeze(0).repeat(item['aestheticScore'].shape[0], 1, 1, 1) for item in batch]
     images_stacked = torch.cat(images)
@@ -672,6 +702,11 @@ def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
             train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, 
                 data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
                 precompute_file=os.path.join(pkl_dir,precompute_file))
+        elif args.trainset == 'sGIAA-pair':
+            precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if args.importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
+            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, 
+                data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id), 
+                precompute_file=os.path.join(pkl_dir,precompute_file))                
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         
@@ -691,6 +726,10 @@ def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
             precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
             precompute_file = os.path.join(pkl_dir,precompute_file)
             train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)    
+        elif args.trainset == 'sGIAA-pair':
+            precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
+            precompute_file = os.path.join(pkl_dir,precompute_file)
+            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=precompute_file)    
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
@@ -709,6 +748,10 @@ def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
             precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
             precompute_file = os.path.join(pkl_dir,precompute_file)
             train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
+        elif args.trainset == 'sGIAA-pair':
+            precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
+            precompute_file = os.path.join(pkl_dir,precompute_file)
+            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
