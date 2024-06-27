@@ -13,6 +13,7 @@ from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from train_nima import NIMA, train, evaluate, trainer
 from utils.argflags import parse_arguments
 
+
 if __name__ == '__main__':    
     args = parse_arguments()
 
@@ -24,6 +25,8 @@ if __name__ == '__main__':
     
     if args.is_log:
         tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
+        if not args.trait_disjoint:
+            tags += ["Trait joint"]
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="NIMA",
                    tags = tags)

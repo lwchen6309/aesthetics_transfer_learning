@@ -857,20 +857,20 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     if getattr(args, 'use_cv', False) and (fold_id is not None) and (n_fold is not None):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
     
-    is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
-    if is_trait_disjoint:
-        print(f'Split trait according to {args.trait} == {args.value}')
-        train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
-        val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
-        test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
+    is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
+    is_disjoint_trait = getattr(args, 'trait_disjoint', True)
+    if is_trait_specific:
+        if is_disjoint_trait:
+            print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+            test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
+        else:
+            print(f'Split trait according to {args.trait} == {args.value} with joint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] == args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] == args.value]
+            test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
 
-    # _, test_user_piaa_dataset = split_dataset_by_user(
-    #     PARA_PIAADataset(root_dir, transform=train_transform),  
-    #     test_count=40, max_annotations_per_user=[100,50], seed=random_seed)
-    
-    # Create datasets with the appropriate transformations
-    # train_dataset = PARA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file='trainset_image_dct.pkl')
-    # test_dataset = PARA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file='testset_image_dct.pkl')
     print(len(train_dataset), len(val_dataset), len(test_dataset))
 
     pkl_dir = './dataset_pkl'
@@ -896,7 +896,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
         test_mapfile = os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id) 
         test_precompute_file = os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id)
 
-    elif is_trait_disjoint:
+    elif is_trait_specific and is_disjoint_trait:
         pkl_dir = os.path.join(pkl_dir, 'trait_split')
         suffix = '%s_%s'%(args.trait, args.value)
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
@@ -914,7 +914,24 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
         val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
         test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
-
+    elif is_trait_specific and not is_disjoint_trait:
+        pkl_dir = os.path.join(pkl_dir, 'trait_specific')
+        suffix = '%s_%s'%(args.trait, args.value)
+        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
+        if trainset == 'GIAA':
+            precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix)
+            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
+        elif trainset == 'sGIAA':
+            importance_sampling = args.importance_sampling
+            precompute_file = 'trainset_MIAA_nopiaa_dct_IS_%s.pkl'%suffix if importance_sampling else 'trainset_MIAA_nopiaa_dct_%s.pkl'%suffix
+            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=os.path.join(pkl_dir,precompute_file))
+        else:
+            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+        
+        val_mapfile=os.path.join(pkl_dir,'valset_image_dct_%s.pkl'%suffix)
+        val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
+        test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
+        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)        
     else:
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct.pkl')
         if trainset == 'GIAA':
@@ -938,11 +955,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)
     test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
     
-    if getattr(args, 'train_piaa_augment', False):
-        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile)    
-        return train_dataset, train_piaa_imgsort_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
-    else:
-        return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
+    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
 
 def load_data_testpair(args, root_dir = '/home/lwchen/datasets/PARA/'):
@@ -1051,12 +1064,7 @@ def load_data_testpair(args, root_dir = '/home/lwchen/datasets/PARA/'):
     testc_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=testc_dataset.data, map_file=testc_mapfile, precompute_file=testc_precompute_file)
     
     test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
-    
-    if getattr(args, 'train_piaa_augment', False):
-        train_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile)    
-        return train_dataset, train_piaa_imgsort_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
-    else:
-        return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset
+    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset
 
 
 
