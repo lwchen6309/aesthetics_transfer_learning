@@ -1,15 +1,15 @@
 import os
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+# import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from LAPIS_PIAA_dataloader import load_data, collate_fn
 import wandb
 from scipy.stats import spearmanr
-import argparse
 from train_piaa_mir import CombinedModel, SimplePerModel, trainer
+from utils.argflags import parse_arguments_piaa
 
 
 def train(model, dataloader, criterion_mse, optimizer, device):
@@ -79,24 +79,7 @@ criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
-    parser.add_argument('--trait', type=str, default=None)
-    parser.add_argument('--value', type=str, default=None)
-    parser.add_argument('--fold_id', type=int, default=1)
-    parser.add_argument('--n_fold', type=int, default=4)
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--pretrained_model', type=str, required=True)
-    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-    
-    parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=100)
-    parser.add_argument('--max_patience_epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=5e-4)
-    parser.add_argument('--lr_schedule_epochs', type=int, default=5)
-    parser.add_argument('--lr_decay_factor', type=float, default=0.5)
-    args = parser.parse_args()
+    args = parse_arguments_piaa()
     
     batch_size = args.batch_size
     n_workers = 8
@@ -111,6 +94,8 @@ if __name__ == '__main__':
                 f"num_epochs: {args.num_epochs}"]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        if args.dropout is not None:
+            tags += [f"dropout={args.dropout}"]            
         wandb.init(project="resnet_LAVIS_PIAA",
                 notes="PIAA-MIR",
                 tags = tags)
@@ -128,8 +113,8 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = CombinedModel(num_bins, num_attr, num_pt)
-    model = SimplePerModel(num_bins, num_attr, num_pt)
+    model = CombinedModel(num_bins, num_attr, num_pt, dropout=args.dropout)
+    # model = SimplePerModel(num_bins, num_attr, num_pt)
     
     model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     if args.resume:

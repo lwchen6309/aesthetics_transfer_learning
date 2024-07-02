@@ -9,7 +9,7 @@ from PARA_PIAA_dataloader import load_data, collect_batch_attribute, collect_bat
 import wandb
 from scipy.stats import spearmanr
 from train_nima_attr import NIMA_attr
-import argparse
+from utils.argflags import parse_arguments_piaa
 
 
 class MLP(nn.Module):
@@ -24,7 +24,7 @@ class MLP(nn.Module):
         return x
 
 class CombinedModel(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
         super(CombinedModel, self).__init__()
         self.num_bins = num_bins
         self.num_attr = num_attr
@@ -35,6 +35,9 @@ class CombinedModel(nn.Module):
         self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
         
         # Interaction MLPs
+        self.dropout = dropout
+        if dropout is not None:
+            self.dropout_layer = nn.Dropout(self.dropout)
         self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
         self.mlp2 = MLP(num_bins, hidden_size, 1)
 
@@ -45,6 +48,8 @@ class CombinedModel(nn.Module):
         # Interaction map calculation
         A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
         I_ij = A_ij.view(images.size(0), -1)
+        if self.dropout is not None:
+            I_ij = self.dropout_layer(I_ij)
         interaction_outputs = self.mlp1(I_ij)
         direct_outputs = self.mlp2(prob * self.scale.to(images.device))
         
@@ -202,24 +207,7 @@ criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
-    parser.add_argument('--trait', type=str, default=None)
-    parser.add_argument('--value', type=str, default=None)
-    parser.add_argument('--fold_id', type=int, default=1)
-    parser.add_argument('--n_fold', type=int, default=4)
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--pretrained_model', type=str, required=True)
-    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-    
-    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
-    parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=20, help='Number of epochs')
-    parser.add_argument('--lr_schedule_epochs', type=int, default=5, help='Epochs after which to apply learning rate decay')
-    parser.add_argument('--lr_decay_factor', type=float, default=0.1, help='Factor by which to decay the learning rate')
-    parser.add_argument('--max_patience_epochs', type=int, default=10, help='Max patience epochs for early stopping')    
-    args = parser.parse_args()
+    args = parse_arguments_piaa()
     
     batch_size = args.batch_size
     n_workers = 8
@@ -231,6 +219,8 @@ if __name__ == '__main__':
         tags = ["no_attr","PIAA"]
         if args.use_cv:
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        if args.dropout is not None:
+            tags += [f"dropout={args.dropout}"]            
         wandb.init(project="resnet_PARA_PIAA",
                 notes="PIAA-MIR",
                 tags = tags)
@@ -254,7 +244,7 @@ if __name__ == '__main__':
     num_classes = num_attr + num_bins
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CombinedModel(num_bins, num_attr, num_pt).to(device)
+    model = CombinedModel(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
     model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     model = model.to(device)
     if args.resume:

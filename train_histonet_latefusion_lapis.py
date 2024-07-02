@@ -5,18 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-# from torchvision import transforms
 from torchvision.models import resnet50
 import numpy as np
-# import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# import pandas as pd
-# import random
 from train_histonet_latefusion import trainer, CombinedModel
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
