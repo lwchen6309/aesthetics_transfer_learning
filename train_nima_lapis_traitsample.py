@@ -6,25 +6,94 @@ from torch.utils.data import DataLoader
 import wandb
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 from train_histonet_latefusion_lapis import train, evaluate
-from train_nima import trainer, NIMA
+from train_nima import NIMA #, trainer
+from utils.argflags import parse_arguments
+
+
+def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
+    train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader = dataloaders
+
+    # Testing
+    test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
+    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
+    
+    if args.is_log:
+        wandb.log({
+            "Test GIAA EMD Loss (Pretrained)": test_giaa_emd_loss,
+            "Test GIAA SROCC (Pretrained)": test_giaa_srocc,
+            "Test GIAA MSE (Pretrained)": test_giaa_mse,
+            "Test PIAA EMD Loss (Pretrained)": test_piaa_emd_loss,
+            "Test PIAA SROCC (Pretrained)": test_piaa_srocc,
+            "Test PIAA MSE (Pretrained)": test_piaa_mse,
+        }, commit=True)
+    
+    # Training loop
+    best_test_srocc = 0
+    num_patience_epochs = 0
+    for epoch in range(args.num_epochs):
+        if args.is_eval:
+            break
+        # Learning rate schedule
+        if (epoch + 1) % args.lr_schedule_epochs == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= args.lr_decay_factor
+
+        # Training
+        train_emd_loss, train_total_emd_loss = train_fn(model, train_dataloader, optimizer, device)
+        if args.is_log:
+            wandb.log({"Train EMD Loss": train_emd_loss,
+                       "Train Total EMD Loss": train_total_emd_loss,
+                       }, commit=False)
+        
+        # Testing
+        val_giaa_emd_loss, _, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device)
+        val_piaa_emd_loss, _, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
+        if args.is_log:
+            wandb.log({
+                "Val GIAA EMD Loss": val_giaa_emd_loss,
+                "Val GIAA SROCC": val_giaa_srocc,
+                "Val PIAA EMD Loss": val_piaa_emd_loss,
+                "Val PIAA SROCC": val_piaa_srocc,
+            }, commit=True)
+        
+        eval_srocc = val_piaa_srocc if args.eval_on_piaa else val_giaa_srocc
+        
+        # Early stopping check
+        if eval_srocc > best_test_srocc:
+            best_test_srocc = eval_srocc
+            num_patience_epochs = 0
+            torch.save(model.state_dict(), best_modelname)
+        else:
+            num_patience_epochs += 1
+            if num_patience_epochs >= args.max_patience_epochs:
+                print("Validation loss has not decreased for {} epochs. Stopping training.".format(args.max_patience_epochs))
+                break
+    
+    if not args.is_eval:
+        model.load_state_dict(torch.load(best_modelname))   
+    
+    # Testing
+    test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
+    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
+    
+    if args.is_log:
+        wandb.log({
+            "Test GIAA EMD Loss": test_giaa_emd_loss,
+            "Test GIAA SROCC": test_giaa_srocc,
+            "Test GIAA MSE": test_giaa_mse,
+            "Test PIAA EMD Loss": test_piaa_emd_loss,
+            "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA MSE": test_piaa_mse,
+        }, commit=True)
+    
+    # Print the epoch loss
+    print(f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
+        f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
+        )
 
 
 if __name__ == '__main__':    
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
-    parser.add_argument('--trainset', type=str, default='GIAA', choices=["GIAA", "sGIAA", "PIAA"])
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--eval_on_piaa', action='store_true', help='Evaluation metric on PIAA')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-    parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=100)
-    parser.add_argument('--max_patience_epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=5e-5)
-    parser.add_argument('--lr_schedule_epochs', type=int, default=5)
-    parser.add_argument('--lr_decay_factor', type=float, default=0.5)
-    parser.add_argument('--trait', type=str, default=None)
-    parser.add_argument('--value', type=str, default=None)    
-    args = parser.parse_args()
+    args = parse_arguments()
     
     random_seed = 42
     n_workers = 8
@@ -33,6 +102,8 @@ if __name__ == '__main__':
     
     if args.is_log:
         tags = ["no_attr","GIAA", "Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
+        if not args.trait_disjoint:
+            tags += ["Trait joint"]
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="NIMA",
                    tags = tags)
