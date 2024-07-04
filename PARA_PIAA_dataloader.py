@@ -12,6 +12,7 @@ import copy
 from time import time
 from sklearn.model_selection import KFold
 import argparse
+from utils.argflags import parse_arguments_piaa
 
 
 class PARA_PIAADataset(Dataset):
@@ -396,11 +397,17 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     if getattr(args, 'use_cv', False):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
     
-    is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
-    if is_trait_disjoint:
-        print(f'Split trait according to {args.trait} == {args.value}')
-        train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
-        val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+    is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
+    is_disjoint_trait = getattr(args, 'trait_disjoint', True)
+    if is_trait_specific:
+        if is_disjoint_trait:
+            print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+        else:
+            print(f'Split trait according to {args.trait} == {args.value} with joint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] == args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] == args.value]
         test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
     
     test_dataset.transform = test_transform
@@ -440,17 +447,12 @@ if __name__ == '__main__':
     # Usage example:
     root_dir = '/home/lwchen/datasets/PARA/'
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--fold_id', type=int, default=1)
-    parser.add_argument('--n_fold', type=int, default=4)
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-    args = parser.parse_args()
+    args = parse_arguments_piaa()
 
-    train_dataset, val_dataset, test_dataset = load_data(args)
+    train_dataset, val_dataset, test_dataset = load_data(args)    
     raise Exception
+
+
     # Create dataloaders for training and test sets
     n_workers = 8
     batch_size = 100

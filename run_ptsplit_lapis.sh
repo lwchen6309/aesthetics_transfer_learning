@@ -3,7 +3,7 @@ run_script="train_nima_lapis_traitsample.py"
 # run_script="train_histonet_lapis_traitsample.py"
 # run_script="compare_traitsample_lapis.py"
 resume="models_pth/lapis_best_model_resnet50_nima_lr5e-05_decay_20epoch_sleek-pine-468.pth"
-training_args=" --resume $resume --num_epochs 5 --lr 5e-6 --trait_joint"
+training_args=" --resume $resume --num_epochs 5 --lr 5e-7 --trait_joint"
 
 
 list=("male" "female")

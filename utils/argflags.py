@@ -37,11 +37,16 @@ def parse_arguments_piaa(parse=True):
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)
+    parser.add_argument('--trait_joint', action='store_false', dest='trait_disjoint', help='Disable disjoint trait')
+
+    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
     parser.add_argument('--fold_id', type=int, default=1)
     parser.add_argument('--n_fold', type=int, default=4)
+    
     parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--pretrained_model', type=str, required=True)
-    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
+    parser.add_argument('--pretrained_model', type=str, default=None)
+    # parser.add_argument('--pretrained_model', type=str, required=True)
+    
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
     
