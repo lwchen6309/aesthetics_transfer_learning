@@ -372,8 +372,8 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     return train_dataset, val_dataset, test_dataset
 
 
-# def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
+# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),

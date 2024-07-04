@@ -254,8 +254,12 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    if args.trait is not None and args.value is not None:
+        suffix = f"{args.trait}_{args.value}"
+        best_modelname = f'best_model_resnet50_nima_attr_{suffix}_{experiment_name}.pth'
+    else:
+        best_modelname = f'best_model_resnet50_nima_attr_{experiment_name}.pth'
     
-    best_modelname = f'best_model_resnet50_nima_attr_{experiment_name}.pth'
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
 

@@ -5,12 +5,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from LAPIS_PIAA_dataloader import load_data #, collate_fn
+# from LAPIS_PIAA_dataloader import load_data #, collate_fn
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
-from train_piaa_mir import CombinedModel, SimplePerModel, trainer
-from utils.argflags import parse_arguments_piaa
+from train_piaa_mir import CombinedModel, trainer
+from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
 def train(model, dataloader, criterion_mse, optimizer, device):
@@ -162,14 +162,10 @@ if __name__ == '__main__':
                 f"learning_rate: {args.lr}",
                 f"batch_size: {args.batch_size}",
                 f"num_epochs: {args.num_epochs}"]
-        if args.use_cv:
-            tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
-        if args.dropout is not None:
-            tags += [f"dropout={args.dropout}"]            
+        tags += wandb_tags(args)
         wandb.init(project="resnet_LAVIS_PIAA",
                 notes="PIAA-MIR",
                 tags = tags)
-        
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -201,13 +197,8 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_model = None
-    best_modelname = 'lapis_best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-    best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
-    dirname = 'models_pth'
-    if args.use_cv:
-        dirname = os.path.join(dirname, 'random_cvs')
+    best_modelname = f'lapis_best_model_resnet50_piaamir_{experiment_name}.pth'
+    dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
 
     # Training loop
