@@ -146,7 +146,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
 
         # Training
         train_emd_loss, train_total_emd_loss = train_fn(model, train_dataloader, optimizer, device)
-        if is_log:
+        if args.is_log:
             wandb.log({"Train EMD Loss": train_emd_loss,
                        "Train Total EMD Loss": train_total_emd_loss,
                        }, commit=False)
@@ -154,7 +154,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         # Testing
         val_giaa_emd_loss, val_giaa_attr_emd_loss, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device)
         val_piaa_emd_loss, val_piaa_attr_emd_loss, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
-        if is_log:
+        if args.is_log:
             wandb.log({
                 "Val GIAA EMD Loss": val_giaa_emd_loss,
                 "Val GIAA Attr EMD Loss": val_giaa_attr_emd_loss,
@@ -184,7 +184,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
     test_piaa_emd_loss, test_piaa_attr_emd_loss, test_piaa_srocc, test_piaa_mse = evaluate(model, test_piaa_imgsort_dataloader, device)
     test_giaa_emd_loss, test_giaa_attr_emd_loss, test_giaa_srocc, test_giaa_mse = evaluate(model, test_giaa_dataloader, device)
     
-    if is_log:
+    if args.is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
             "Test GIAA Attr EMD Loss": test_giaa_attr_emd_loss,
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         best_modelname = f'best_model_resnet50_nima_attr_{suffix}_{experiment_name}.pth'
     else:
         best_modelname = f'best_model_resnet50_nima_attr_{experiment_name}.pth'
-    
+
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
 
