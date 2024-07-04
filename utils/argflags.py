@@ -4,6 +4,7 @@ import argparse
 def parse_arguments(parse=True):
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data splitting')
     
+    parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--fold_id', type=int, default=1)
     parser.add_argument('--n_fold', type=int, default=4)
     parser.add_argument('--trait', type=str, default=None)
@@ -35,6 +36,7 @@ def parse_arguments(parse=True):
 
 def parse_arguments_piaa(parse=True):
     parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
+    parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--trait', type=str, default=None)
     parser.add_argument('--value', type=str, default=None)
     parser.add_argument('--trait_joint', action='store_false', dest='trait_disjoint', help='Disable disjoint trait')
@@ -62,3 +64,29 @@ def parse_arguments_piaa(parse=True):
         return parser.parse_args()
     else:
         return parser
+
+
+def wandb_tags(args):
+    tags = []
+    if args.use_cv:
+        tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+    if args.dropout is not None:
+        tags += [f"dropout={args.dropout}"]
+    if args.trait is not None and args.value is not None:
+        tags = ["Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]
+    if not args.trait_disjoint:
+        tags += ["Trait joint"]
+    return tags
+    
+
+def model_dir(args):
+    # Initialize the best test loss and the best model
+    dirname = 'models_pth'
+    if args.use_cv:
+        dirname = os.path.join(dirname, 'random_cvs')
+    if args.trait is not None and args.value is not None:
+        if args.trait_disjoint:
+            dirname = os.path.join(dirname, 'trait_disjoint_exp')
+        else:
+            dirname = os.path.join(dirname, 'trait_joint_exp')
+    return dirname

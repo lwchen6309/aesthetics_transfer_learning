@@ -12,6 +12,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
+def ensure_dir_exists(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+
 class PARA_HistogramDataset(PARA_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None):
         super().__init__(root_dir, transform)
@@ -831,8 +836,8 @@ def collate_fn_imgsort(batch):
     }
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -875,6 +880,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     pkl_dir = './dataset_pkl'
     if getattr(args, 'use_cv', False):
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
+        ensure_dir_exists(pkl_dir)
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id)
         if trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id)
@@ -900,7 +906,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
             pkl_dir = os.path.join(pkl_dir, 'trait_split')
         else:
             pkl_dir = os.path.join(pkl_dir, 'trait_specific')
-
+        ensure_dir_exists(pkl_dir)
         suffix = '%s_%s'%(args.trait, args.value)
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
         if trainset == 'GIAA':
@@ -919,6 +925,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
 
     else:
+        ensure_dir_exists(pkl_dir)
         train_mapfile = os.path.join(pkl_dir,'trainset_image_dct.pkl')
         if trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct.pkl')
@@ -944,8 +951,8 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
 
-def load_data_testpair(args, root_dir = '/home/lwchen/datasets/PARA/'):
-# def load_data_testpair(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+# def load_data_testpair(args, root_dir = '/home/lwchen/datasets/PARA/'):
+def load_data_testpair(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),

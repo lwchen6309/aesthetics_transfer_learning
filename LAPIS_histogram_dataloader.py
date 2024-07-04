@@ -19,6 +19,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+def ensure_dir_exists(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+
 class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
         super().__init__(root_dir, transform)
@@ -656,8 +661,8 @@ def collate_fn_imgsort(batch):
     }
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+# def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
+def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -699,6 +704,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     pkl_dir = './LAPIS_dataset_pkl'
     if getattr(args, 'use_cv', False):
         pkl_dir = os.path.join(pkl_dir, 'user_cv')
+        ensure_dir_exists(pkl_dir)
         map_file = os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id)
         if args.trainset == 'GIAA':
             train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
@@ -727,7 +733,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
             pkl_dir = os.path.join(pkl_dir, 'trait_split')
         else:
             pkl_dir = os.path.join(pkl_dir, 'trait_specific')
-        
+        ensure_dir_exists(pkl_dir)
         suffix = '%s_%s'%(args.trait, args.value)
         map_file = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
         if args.trainset == 'GIAA':
@@ -744,13 +750,14 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
         else:
             train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
-
+        
         val_mapfile=os.path.join(pkl_dir,'valset_image_dct_%s.pkl'%suffix)
         val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
         test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
 
     else:
+        ensure_dir_exists(pkl_dir)
         map_file = os.path.join(pkl_dir,'trainset_image_dct.pkl')
         if args.trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir, 'trainset_GIAA_dct.pkl')

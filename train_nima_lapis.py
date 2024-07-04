@@ -16,6 +16,8 @@ from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 from train_histonet_latefusion_lapis import train, evaluate
 from train_nima import trainer, NIMA
 
+from utils.argflags import parse_arguments, wandb_tags, model_dir
+
 
 num_bins = 10
 num_attr = 8
@@ -25,32 +27,12 @@ criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':    
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
-    parser.add_argument('--trainset', type=str, default='GIAA', choices=["GIAA", "sGIAA", "PIAA"])
-    parser.add_argument('--fold_id', type=int, default=1)
-    parser.add_argument('--n_fold', type=int, default=4)
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--use_cv', action='store_true', help='Enable cross validation')
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--eval_on_piaa', action='store_true', help='Evaluation metric on PIAA')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-    parser.add_argument('--num_epochs', type=int, default=20)
-    parser.add_argument('--batch_size', type=int, default=100)
-    parser.add_argument('--max_patience_epochs', type=int, default=10)
-    parser.add_argument('--lr', type=float, default=5e-5)
-    parser.add_argument('--lr_schedule_epochs', type=int, default=5)
-    parser.add_argument('--lr_decay_factor', type=float, default=0.5)
-    args = parser.parse_args()
-
+    args = parse_arguments()
     batch_size = args.batch_size
-
-    random_seed = 42
-    n_workers = 8
 
     if args.is_log:
         tags = ["no_attr","GIAA"]
-        if args.use_cv:
-            tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
+        tags += wandb_tags(args)
         wandb.init(project="resnet_LAVIS_PIAA", 
                    notes="NIMA",
                    tags = tags)
@@ -65,12 +47,12 @@ if __name__ == '__main__':
     
     # Create dataloaders
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
-    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
-    val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
-    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
+    val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
+    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -85,13 +67,8 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_model = None
-    best_modelname = 'lapis_best_model_resnet50_nima_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-    best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
-    dirname = 'models_pth'
-    if args.use_cv:
-        dirname = os.path.join(dirname, 'random_cvs')
+    best_modelname = f'lapis_best_model_resnet50_nima_{experiment_name}.pth'
+    dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     
     trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)

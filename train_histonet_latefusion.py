@@ -14,8 +14,8 @@ from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
-from utils.argflags import parse_arguments
 
+from utils.argflags import parse_arguments, wandb_tags, model_dir
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 
@@ -391,7 +391,8 @@ def evaluate_each_datum(model, dataloader, device):
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device, best_modelname):
     train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader = dataloaders
     evaluate_fn, evaluate_fn_with_prior = evaluate_fns
-    
+    eval_on_piaa = True if args.trainset == 'PIAA' else False
+
     # Training loop
     best_test_srocc = 0
     num_patience_epochs = 0
@@ -421,7 +422,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
                 "Val PIAA SROCC": val_piaa_srocc,                
             }, commit=True)
 
-        eval_srocc = val_piaa_srocc if args.eval_on_piaa else val_giaa_srocc
+        eval_srocc = val_piaa_srocc if eval_on_piaa else val_giaa_srocc
         
         # Early stopping check
         if eval_srocc > best_test_srocc:
@@ -468,18 +469,12 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':    
     args = parse_arguments()
-    
     batch_size = args.batch_size
-    random_seed = 42
-    n_workers = 8
-    args.eval_on_piaa = True if args.trainset == 'PIAA' else False
-
+    
     if args.is_log:
         tags = ["no_attr", args.trainset]
-        if args.use_cv:
-            tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
-        if args.dropout is not None:
-            tags += [f"dropout={args.dropout}"]
+        tags += wandb_tags(args)
+
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="latefusion",
                    tags=tags)
@@ -495,12 +490,12 @@ if __name__ == '__main__':
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args)
     
     # Create dataloaders
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
-    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-    val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300)
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300)
+    val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300)
+    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -515,14 +510,9 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_model = None
-    best_modelname = 'best_model_resnet50_histo_latefusion_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-    best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
-    dirname = 'models_pth'
-    if args.use_cv:
-        dirname = os.path.join(dirname, 'random_cvs')
+    best_modelname = f'best_model_resnet50_histo_latefusion_{experiment_name}.pth'
+    dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
-    
+
     trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
     emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)
