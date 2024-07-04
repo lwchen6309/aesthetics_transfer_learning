@@ -860,11 +860,12 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
     is_disjoint_trait = getattr(args, 'trait_disjoint', True)
     if is_trait_specific:
-        print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
         if is_disjoint_trait:    
+            print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
             train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
             val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
         else:
+            print(f'Split trait according to {args.trait} == {args.value} with joint user')
             train_dataset.data = train_dataset.data[train_dataset.data[args.trait] == args.value]
             val_dataset.data = val_dataset.data[val_dataset.data[args.trait] == args.value]
         test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]

@@ -683,11 +683,12 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     is_disjoint_trait = getattr(args, 'trait_disjoint', True)    
     if is_trait_specific:
         args.value = float(args.value) if 'VAIAK' in args.trait else args.value
-        print(f'Split trait according to {args.trait} == {args.value}')
         if is_disjoint_trait:
+            print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
             train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
             val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]    
         else:
+            print(f'Split trait according to {args.trait} == {args.value} with joint user')
             train_dataset.data = train_dataset.data[train_dataset.data[args.trait] == args.value]
             val_dataset.data = val_dataset.data[val_dataset.data[args.trait] == args.value]
         test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
