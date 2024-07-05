@@ -208,8 +208,8 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':
     args = parse_arguments_piaa()
+    print(args)
     
-    batch_size = args.batch_size
     n_workers = 8
     num_bins = 9
     num_attr = 8
@@ -226,7 +226,7 @@ if __name__ == '__main__':
                 tags = tags)
         wandb.config = {
             "learning_rate": args.lr,
-            "batch_size": batch_size,
+            "batch_size": args.batch_size,
             "num_epochs": args.num_epochs
         }
         experiment_name = wandb.run.name
@@ -235,9 +235,9 @@ if __name__ == '__main__':
     
     # Create dataloaders for training and test sets
     train_dataset, val_dataset, test_dataset = load_data(args)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=n_workers, timeout=300)
     dataloaders = (train_dataloader, val_dataloader, test_dataloader)
     
     # Define the number of classes in your dataset
