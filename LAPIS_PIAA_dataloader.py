@@ -14,11 +14,15 @@ import copy
 import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 import warnings
-import argparse
+warnings.filterwarnings('ignore')
+
+# import argparse
 from utils.argflags import parse_arguments_piaa
 
-# Ignore all warnings
-warnings.filterwarnings('ignore')
+import yaml
+file_path = 'data_config.yaml'
+with open(file_path, 'r') as file:
+    datapath = yaml.safe_load(file)
 
 
 class LAPIS_PIAADataset(Dataset):
@@ -89,7 +93,7 @@ class LAPIS_PIAADataset(Dataset):
         return sample
 
 
-def assert_score_to_GIAA(root_dir = '/home/lwchen/datasets/LAPIS'):
+def assert_score_to_GIAA(root_dir = datapath['LAPIS_datapath']):
     annot_dir = os.path.join(root_dir, 'annotation')
     piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
     piaa_table = pd.read_excel(piaa_path)
@@ -353,8 +357,7 @@ def plot_histogram_comparison(dataset):
     plt.savefig('PARA_histogram.jpg', dpi=300)
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+def load_data(args, root_dir = datapath['LAPIS_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -417,9 +420,8 @@ def collate_fn(batch):
 if __name__ == '__main__':
     args = parse_arguments_piaa()
     
-    n_workers = 4
     train_dataset, val_dataset, test_dataset = load_data(args)
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=n_workers, timeout=300, collate_fn=collate_fn)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
     # raise Exception
     # test_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     for sample in tqdm(test_dataloader):

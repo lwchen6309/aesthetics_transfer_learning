@@ -1,5 +1,6 @@
 import argparse
 import os
+import yaml
 
 
 def parse_arguments(parse=True):
@@ -78,7 +79,7 @@ def wandb_tags(args):
     if not args.trait_disjoint:
         tags += ["Trait joint"]
     return tags
-    
+
 
 def model_dir(args):
     # Initialize the best test loss and the best model

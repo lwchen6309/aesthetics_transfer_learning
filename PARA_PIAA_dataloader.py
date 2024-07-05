@@ -14,6 +14,11 @@ from sklearn.model_selection import KFold
 import argparse
 from utils.argflags import parse_arguments_piaa
 
+import yaml
+file_path = 'data_config.yaml'
+with open(file_path, 'r') as file:
+    datapath = yaml.safe_load(file)
+
 
 class PARA_PIAADataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -372,8 +377,7 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     return train_dataset, val_dataset, test_dataset
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+def load_data(args, root_dir = datapath['PARA_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -417,8 +421,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
     return train_dataset, val_dataset, test_dataset
 
 
-def load_user_sample_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
-# def load_user_sample_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/PARA/'):
+def load_user_sample_data(args, root_dir = datapath['PARA_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -444,15 +447,10 @@ def load_user_sample_data(args, root_dir = '/home/lwchen/datasets/PARA/'):
 
 
 if __name__ == '__main__':
-    # Usage example:
-    root_dir = '/home/lwchen/datasets/PARA/'
-
     args = parse_arguments_piaa()
-
-    train_dataset, val_dataset, test_dataset = load_data(args)    
+    train_dataset, val_dataset, test_dataset = load_data(args, datapath['PARA_datapath'])
     raise Exception
-
-
+    
     # Create dataloaders for training and test sets
     n_workers = 8
     batch_size = 100

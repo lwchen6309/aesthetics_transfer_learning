@@ -2,20 +2,16 @@ import os
 import torch
 from torchvision import transforms
 import torch.nn.functional as F
-from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold
+from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold, datapath
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data._utils.collate import default_collate
 
 import random
 import pickle
 from tqdm import tqdm
 import copy
 import pandas as pd
-from scipy.stats import pearsonr, spearmanr
 import numpy as np
 import warnings
-
-# Ignore all warnings
 warnings.filterwarnings('ignore')
 
 
@@ -661,8 +657,7 @@ def collate_fn_imgsort(batch):
     }
 
 
-def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+def load_data(args, root_dir = datapath['LAPIS_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -785,8 +780,7 @@ def load_data(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
 
-def load_data_testpair(args, root_dir = '/home/lwchen/datasets/LAPIS'):
-# def load_data_testpair(args, root_dir = '/data/leuven/362/vsc36208/datasets/LAPIS'):
+def load_data_testpair(args, root_dir = datapath['LAPIS_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -890,109 +884,12 @@ def load_data_testpair(args, root_dir = '/home/lwchen/datasets/LAPIS'):
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset
 
 
-
 if __name__ == '__main__':
-    # Usage example:
-    root_dir = '/home/lwchen/datasets/LAPIS'
-    
-    # Define transformations for training set and test set
-    train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
+    from utils.argflags import parse_arguments
+    args = parse_arguments()
 
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
-
-    # Create datasets with the appropriate transformations
-    piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
-    train_piaa_dataset, test_piaa_dataset = create_image_split_dataset(piaa_dataset)
-    
-    """Precompute"""
-    pkl_dir = './LAPIS_dataset_pkl'
-    train_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct.pkl'))
-    # train_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_piaa_dataset.data, map_file=os.path.join(pkl_dir,'trainset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'trainset_MIAA_dct.pkl'))
-    train_piaa_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform)
-    
-    # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'), importance_sampling=False)
-    test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct_IS.pkl'), importance_sampling=True)
-    raise Exception
-    test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_piaa_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl'))
-    
-    train_dataloader = DataLoader(train_piaa_dataset, batch_size=32, shuffle=True, collate_fn=collate_fn, num_workers=8)
-    test_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=3, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=8)
-
-
-    # piaa_dataset.data['participantid']
-
-    # unique_df = test_dataset.data.reset_index()
-    # ids = unique_df.drop_duplicates(subset='userId').index
-    # userIds = test_dataset.data.iloc[ids]['userId']
-    # samples = [test_dataset[i] for i in ids]
-    # user_traits = torch.stack([torch.cat([sample['traits'], sample['onehot_traits']], dim=0) for sample in samples])
-    # userIds_map = {user:idx for idx,user in enumerate(userIds)}
-
-    # # test_dataset.data['userId']
-    # for fold_id in range(1,5):
-    #     train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
-    #     test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
-    #     print('Read Image Set')
-    #     with open(train_ids_path, "r") as train_file:
-    #         train_user_id = train_file.read().splitlines()
-    #     with open(test_ids_path, "r") as test_file:
-    #         test_user_id = test_file.read().splitlines()
-
-    #     # Extract traits for train and test users
-    #     train_traits = user_traits[torch.tensor([userIds_map[user] for user in train_user_id])].numpy()
-    #     test_traits = user_traits[torch.tensor([userIds_map[user] for user in test_user_id])].numpy()
-
-    #     # Initialize list to store Jaccard scores for all test-train pairs in the current fold
-    #     jaccard_scores = []
-    #     # Compute Jaccard similarity for each test user against all train users
-    #     for test_trait in test_traits:
-    #         scores = [jaccard_score(test_trait, train_trait, average='binary') for train_trait in train_traits]
-    #         # You might want to store individual scores or just the max/average; here we take the average
-    #         jaccard_scores.append(np.mean(scores))
-
-    #     # Calculate and print the average Jaccard similarity for the fold
-    #     average_similarity = np.mean(jaccard_scores)
-    #     print(average_similarity)
-    raise Exception
-
-
-    for sample in tqdm(train_dataloader):
-        # raise Exception
-        pass
+    train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['LAPIS_datapath'])
+    train_dataloader = DataLoader(train_dataset, batch_size=100, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers)
+    test_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=args.num_workers)
     for sample in tqdm(test_dataloader):
-        raise Exception
         pass
-    
-    compare_giaa = False
-    if compare_giaa:
-        annot_dir = os.path.join(root_dir, 'annotation')
-        giaa_path = os.path.join(annot_dir, 'AADB_dataset_bak.csv')
-        giaa_table = pd.read_csv(giaa_path)
-        giaa_score_map = {img_path: mean_score for img_path, mean_score in zip(giaa_table['imgName'], giaa_table['meanScore'])}
-        
-        scale = torch.arange(0, 1, 0.1)
-        inferred_scores = []
-        giaa_scores = []
-        for sample in tqdm(train_giaa_dataset):
-            outputs_mean = torch.sum(sample['aestheticScore'] * scale)
-            inferred_scores.append(outputs_mean)
-            giaa_scores.append(giaa_score_map[sample['imgName']])
-        plcc, _ = pearsonr(inferred_scores, giaa_scores)
-        print(plcc)
-
-        inferred_scores = []
-        giaa_scores = []
-        for sample in tqdm(test_giaa_dataset):
-            outputs_mean = torch.sum(sample['aestheticScore'] * scale)
-            inferred_scores.append(outputs_mean)
-            giaa_scores.append(giaa_score_map[sample['imgName']])
-        plcc, _ = pearsonr(inferred_scores, giaa_scores)
-        print(plcc)
