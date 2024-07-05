@@ -9,7 +9,7 @@ from PARA_PIAA_dataloader import load_data, collect_batch_attribute, collect_bat
 import wandb
 from scipy.stats import spearmanr
 from train_nima_attr import NIMA_attr
-from utils.argflags import parse_arguments_piaa
+from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
 class MLP(nn.Module):
@@ -217,10 +217,7 @@ if __name__ == '__main__':
 
     if args.is_log:
         tags = ["no_attr","PIAA"]
-        if args.use_cv:
-            tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
-        if args.dropout is not None:
-            tags += [f"dropout={args.dropout}"]            
+        tags += wandb_tags(args)
         wandb.init(project="resnet_PARA_PIAA",
                 notes="PIAA-MIR",
                 tags = tags)
@@ -257,15 +254,10 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # Initialize the best test loss and the best model
-    best_model = None
-    best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-    best_modelname += '_%s'%experiment_name
-    best_modelname += '.pth'
-    dirname = 'models_pth'
-    if args.use_cv:
-        dirname = os.path.join(dirname, 'random_cvs')
+    best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
+    dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
-
+    
     # Training loop
     trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
     
