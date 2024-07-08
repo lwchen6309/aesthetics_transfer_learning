@@ -158,6 +158,12 @@ def evaluate(model, dataloader, criterion_mse, device):
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
 
     train_dataloader, val_dataloader, test_dataloader = dataloaders
+    
+    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
+    if args.is_log:
+        wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
+                   "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
+    
     num_patience_epochs = 0
     best_test_srocc = 0
     for epoch in range(args.num_epochs):

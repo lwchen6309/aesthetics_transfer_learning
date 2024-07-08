@@ -5,7 +5,7 @@ run_script="train_piaa_mir.py"
 # run_script="train_histonet_traitsample.py"
 # run_script="compare_traitsample.py"
 
-# resume="models_pth/best_model_resnet50_nima_lr5e-05_decay_20epoch_woven-fire-109.pth"
+resume="models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
 training_args="--lr 5e-5 --dropout 0.5 --no_log"
 
 # Gender
