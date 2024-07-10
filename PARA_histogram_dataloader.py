@@ -900,6 +900,73 @@ def load_data_testpair(args, root_dir = datapath['PARA_datapath']):
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset
 
 
+def load_testdata(args, root_dir = datapath['PARA_datapath']):
+    # Dataset transformations
+    train_transform = transforms.Compose([
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomResizedCrop(224),
+        transforms.ToTensor(),
+    ])
+    test_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+    ])
+    fold_id = getattr(args, 'fold_id', None)
+    n_fold = getattr(args, 'n_fold', None)
+    trainset = getattr(args, 'trainset', 'GIAA')
+
+    # Load datasets
+    # Create datasets with the appropriate transformations
+    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
+    train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
+    # Assuming shell_users_df contains the shell user DataFrame
+    if getattr(args, 'use_cv', False) and (fold_id is not None) and (n_fold is not None):
+        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
+    
+    is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
+    is_disjoint_trait = getattr(args, 'trait_disjoint', True)
+    if is_trait_specific:
+        if is_disjoint_trait:    
+            print(f'Split trait according to {args.trait} == {args.value} with disjoint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
+        else:
+            print(f'Split trait according to {args.trait} == {args.value} with joint user')
+            train_dataset.data = train_dataset.data[train_dataset.data[args.trait] == args.value]
+            val_dataset.data = val_dataset.data[val_dataset.data[args.trait] == args.value]
+        test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
+        
+    print(len(train_dataset), len(val_dataset), len(test_dataset))
+    
+    pkl_dir = './dataset_pkl'
+    if getattr(args, 'use_cv', False):
+        pkl_dir = os.path.join(pkl_dir, 'user_cv')
+        ensure_dir_exists(pkl_dir)
+        test_mapfile = os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id) 
+        test_precompute_file = os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id)
+
+    elif is_trait_specific:
+        if is_disjoint_trait:
+            pkl_dir = os.path.join(pkl_dir, 'trait_split')
+        else:
+            pkl_dir = os.path.join(pkl_dir, 'trait_specific')
+        ensure_dir_exists(pkl_dir)
+        suffix = '%s_%s'%(args.trait, args.value)
+        test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
+        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
+
+    else:
+        ensure_dir_exists(pkl_dir)
+        test_mapfile=os.path.join(pkl_dir,'testset_image_dct.pkl')
+        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl')
+
+    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)
+    test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
+    
+    return test_giaa_dataset, test_piaa_imgsort_dataset
+
 
 if __name__ == '__main__':
     from utils.argflags import parse_arguments
