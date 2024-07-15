@@ -6,7 +6,7 @@ run_script="train_piaa_mir_lapis.py"
 # training_args=" --resume $resume --num_epochs 5 --lr 5e-7 --trait_joint"
 # training_args="--lr 5e-5 --dropout 0.5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 resume="models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
-training_args="--lr 5e-6 --resume $resume --num_epochs 5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
+training_args="--no_log --lr 5e-6 --resume $resume --num_epochs 5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 
 list=("male" "female")
 for value in "${list[@]}"; do

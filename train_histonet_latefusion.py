@@ -68,14 +68,12 @@ def train(model, dataloader, optimizer, device):
     running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
     # scale_aesthetic = torch.arange(1, 5.5, 0.5).to(device)
-    running_ce_improvement = 0
-    running_ce_init = 0
     for sample in progress_bar:
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
         onehot_big5 = sample['big5'].to(device)
-        attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
+        # attributes_target_histogram = sample['attributes'].to(device).view(-1, num_attr, num_bins_attr) # Reshape to match our logits shape
         total_traits_histogram = torch.cat([traits_histogram, onehot_big5], dim=1)
         # traits_histogram = traits_histogram[:,:5]
         

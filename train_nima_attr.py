@@ -220,7 +220,7 @@ if __name__ == '__main__':
     num_workers = args.num_workers
     
     if args.is_log:
-        tags = ["no_attr", args.trainset]
+        tags = ["no_attr"]
         tags += wandb_tags(args)
         wandb.init(project="resnet_PARA_PIAA", 
                    notes="NIMA_attr",

@@ -69,7 +69,7 @@ def parse_arguments_piaa(parse=True):
 
 
 def wandb_tags(args):
-    tags = []
+    tags = [args.trainset]
     if args.use_cv:
         tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
     if args.dropout is not None:

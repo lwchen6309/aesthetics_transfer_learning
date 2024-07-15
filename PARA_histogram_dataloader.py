@@ -187,49 +187,14 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
             self.precomputed_data = pickle.load(f)
 
 
-class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
+class PARA_sGIAA_HistogramDataset(PARA_GIAA_HistogramDataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None, 
                 importance_sampling=False, num_samples=40):
-        super().__init__(root_dir, transform)
-        if data is not None:
-            self.data = data
+
         self.importance_sampling = importance_sampling
         self.num_samples = num_samples
-        
-        if map_file and os.path.exists(map_file):
-            print('Loading image to indices map from file...')
-            self.image_to_indices_map = self._load_map(map_file)
-            self.unique_images = [img for img in self.image_to_indices_map.keys()]
-        else:
-            self.image_to_indices_map = dict()
-            for image in tqdm(self.data['imageName'].unique(), desc='Processing images'):
-                indices_for_image = [i for i, img in enumerate(self.data['imageName']) if img == image]
-                if any(not idx < len(self.data) for idx in indices_for_image):
-                    print(indices_for_image)
-                    raise Exception('Index out of bounds for the data.')
-                if len(indices_for_image) > 0:  # Only add if there are indices for the image
-                    self.image_to_indices_map[image] = indices_for_image
-            
-            self.unique_images = [img for img in self.image_to_indices_map.keys()]  # Filtered unique_images
+        super().__init__(root_dir, transform, data, map_file, precompute_file)
 
-            if map_file:
-                print(f"Saving image to indices map to {map_file}")
-                self._save_map(map_file)
-        
-        # If precompute_file is given and exists, load it, otherwise recompute the data
-        if precompute_file and os.path.exists(precompute_file):
-            print(f'Loading precomputed data from {precompute_file}...')
-            self.load(precompute_file)
-        else:
-            self.precompute_data()
-            if precompute_file:
-                print(f"Saving precomputed data to {precompute_file}")
-                self.save(precompute_file)
-
-    def update_image_to_indices_map(self):
-        self.unique_images = self.data['imageName'].unique()
-        self.image_to_indices_map = {img: self.image_to_indices_map[img] for img in self.unique_images if img in self.image_to_indices_map}
-    
     def precompute_data(self):
         self.precomputed_data = []
         for idx in tqdm(range(len(self))):
@@ -253,7 +218,7 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
     def compute_score_hist(self, associated_indices):
         bin_indecies = []
         for random_idx in associated_indices:
-            sample = super().__getitem__(random_idx, use_image=False)
+            sample = PARA_GIAA_HistogramDataset.super().__getitem__(random_idx, use_image=False)
             bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
             bin_indecies.append(bin_idx)
         scores = np.array(bin_indecies)
@@ -331,7 +296,7 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
         }
         
         for random_idx in associated_indices:
-            sample = super().__getitem__(random_idx, use_image=False)
+            sample = PARA_PIAADataset.__getitem__(self, random_idx, use_image=False)
             
             # Compute aesthetic score histogram
             bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
@@ -383,7 +348,8 @@ class PARA_sGIAA_HistogramDataset(PARA_PIAADataset):
     def __getitem__(self, idx):
         histograms = self.precomputed_data[idx]
         selected_histogram = copy.deepcopy(random.choice(histograms))
-        img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+        img_sample = PARA_PIAADataset.__getitem__(self, self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+            
         selected_histogram['image'] = img_sample['image']
         selected_histogram['semantic'] = img_sample['imageAttributes']['semantic']
         return selected_histogram
