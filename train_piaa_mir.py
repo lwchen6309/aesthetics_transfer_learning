@@ -248,10 +248,11 @@ if __name__ == '__main__':
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = CombinedModel(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
-    model = model.to(device)
+    if args.pretrained_model:
+        model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     if args.resume:
         model.load_state_dict(torch.load(args.resume))
+    model = model.to(device)
 
     # Define the loss functions
     criterion_mse = nn.MSELoss()

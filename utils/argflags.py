@@ -49,7 +49,6 @@ def parse_arguments_piaa(parse=True):
     
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--pretrained_model', type=str, default=None)
-    # parser.add_argument('--pretrained_model', type=str, required=True)
     
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
@@ -69,7 +68,11 @@ def parse_arguments_piaa(parse=True):
 
 
 def wandb_tags(args):
-    tags = [args.trainset]
+    tags = [args.trainset,
+        f"learning_rate: {args.lr}",
+        f"batch_size: {args.batch_size}",
+        f"num_epochs: {args.num_epochs}" ]
+    
     if args.use_cv:
         tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
     if args.dropout is not None:

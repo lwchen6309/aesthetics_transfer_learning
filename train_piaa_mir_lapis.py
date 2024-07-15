@@ -156,10 +156,7 @@ if __name__ == '__main__':
     num_pt = 137
     
     if args.is_log:
-        tags = ["no_attr","PIAA",
-                f"learning_rate: {args.lr}",
-                f"batch_size: {args.batch_size}",
-                f"num_epochs: {args.num_epochs}"]
+        tags = ["no_attr"]
         tags += wandb_tags(args)
         wandb.init(project="resnet_LAVIS_PIAA",
                 notes="PIAA-MIR",
@@ -180,7 +177,8 @@ if __name__ == '__main__':
     model = CombinedModel(num_bins, num_attr, num_pt, dropout=args.dropout)
     # model = SimplePerModel(num_bins, num_attr, num_pt)
     
-    model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
+    if args.pretrained_model:
+        model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     if args.resume:
         model.load_state_dict(torch.load(args.resume))
     model = model.to(device)
