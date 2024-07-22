@@ -57,6 +57,52 @@ class PIAA_MIR(nn.Module):
         return interaction_outputs + direct_outputs
 
 
+class PIAA_MIR_Embed(nn.Module):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
+        super(PIAA_MIR_Embed, self).__init__()
+        self.num_bins = num_bins
+        self.num_attr = num_attr
+        self.num_pt = num_pt
+        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
+        
+        # Placeholder for the NIMA_attr model
+        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        
+        # Embedding layers
+        self.attr_embedding = nn.Embedding(num_attr, 512)
+        self.pt_embedding = nn.Embedding(num_pt, 512)
+        
+        # Interaction MLPs
+        self.dropout = dropout
+        if dropout is not None:
+            self.dropout_layer = nn.Dropout(self.dropout)
+        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
+        self.mlp2 = MLP(num_bins, hidden_size, 1)
+
+    def forward(self, images, personal_traits):
+        logit, attr_mean_pred = self.nima_attr(images)
+        prob = F.softmax(logit, dim=1)
+        
+        # Compute embeddings
+        attr_embed = self.attr_embedding(torch.arange(self.num_attr).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
+        pt_embed = self.pt_embedding(torch.arange(self.num_pt).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
+        
+        attr_embed = attr_embed * attr_mean_pred.unsqueeze(2)  # [B, 10, 512]
+        pt_embed = pt_embed * personal_traits.unsqueeze(2)     # [B, 70, 512]
+        
+        # Compute inner product over the last channel to get [B, 10, 70]
+        A_ij = torch.matmul(attr_embed, pt_embed.transpose(1, 2))
+        
+        I_ij = A_ij.view(images.size(0), -1)  # Flatten to [B, 10 * 70]
+        if self.dropout is not None:
+            I_ij = self.dropout_layer(I_ij)
+        interaction_outputs = self.mlp1(I_ij)
+        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
+        
+        return interaction_outputs + direct_outputs
+
+
+
 class PIAA_MIR_Exp(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
         super(PIAA_MIR_Exp, self).__init__()

@@ -221,13 +221,13 @@ if __name__ == '__main__':
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if args.model == 'CrossAttn':
-        model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=1).to(device)
+        model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
         best_modelname = f'best_model_resnet50_crossattn_mir_{experiment_name}.pth'
     if args.model == 'CrossAttnExp':
         model = CrossAttn_MIR_Exp(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_crossattn_mir_exp_{experiment_name}.pth'
     elif args.model == 'SelfAttn':
-        model = SelfAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=1).to(device)
+        model = SelfAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
         best_modelname = f'best_model_resnet50_selfattn_mir_{experiment_name}.pth'
     elif args.model == 'MIRExp':
         model = PIAA_MIR_Exp(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
