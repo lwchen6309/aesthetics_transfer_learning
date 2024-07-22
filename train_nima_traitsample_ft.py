@@ -11,7 +11,7 @@ import wandb
 # from scipy.stats import spearmanr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from train_nima import NIMA, train, evaluate #, trainer
-from utils.argflags import parse_arguments
+from utils.argflags import parse_arguments, wandb_tags, model_dir
 
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
@@ -94,6 +94,12 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
     print(f"Test GIAA SROCC Loss: {test_giaa_srocc:.4f}, "
         f"Test PIAA SROCC Loss: {test_piaa_srocc:.4f}, "
         )
+
+
+num_bins = 9
+num_attr = 8
+num_bins_attr = 5
+num_pt = 50 + 20
 
 
 if __name__ == '__main__':    
