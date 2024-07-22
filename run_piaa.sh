@@ -18,10 +18,11 @@
 # python train_piaa_mir.py --trainset PIAA --use_cv --n_fold 4 --fold_id 3 --pretrained_model models_pth/random_cvs/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_driven-vortex-254.pth
 # python train_piaa_mir.py --trainset PIAA --use_cv --n_fold 4 --fold_id 4 --pretrained_model models_pth/random_cvs/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_faithful-surf-255.pth
 
-trainparams="--trainset PIAA --lr 5e-5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
+trainparams="--trainset PIAA --lr 5e-5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth --no_log"
 # trainparams="--trainset GIAA --lr 5e-5 --dropout 0.5"
 # python train_piaa_mir_lapis.py $trainparams --model MIRExp
-python train_piaa_mir_lapis.py $trainparams --model CrossAttn
+# python train_piaa_mir_lapis.py $trainparams --model CrossAttn
+python train_piaa_mir_lapis.py $trainparams --model MIR_Embed
 # python train_piaa_mir_lapis.py $trainparams --model SelfAttn
 # python train_piaa_mir_lapis.py $trainparams --model CrossAttnExp
 

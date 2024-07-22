@@ -102,7 +102,6 @@ class PIAA_MIR_Embed(nn.Module):
         return interaction_outputs + direct_outputs
 
 
-
 class PIAA_MIR_Exp(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
         super(PIAA_MIR_Exp, self).__init__()

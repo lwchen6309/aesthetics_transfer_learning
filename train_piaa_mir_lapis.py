@@ -9,7 +9,7 @@ from tqdm import tqdm
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
-from train_piaa_mir import PIAA_MIR, PIAA_MIR_Exp, CrossAttn_MIR, CrossAttn_MIR_Exp, SelfAttn_MIR, trainer
+from train_piaa_mir import PIAA_MIR, PIAA_MIR_Exp, CrossAttn_MIR, CrossAttn_MIR_Exp, SelfAttn_MIR, PIAA_MIR_Embed, trainer
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
@@ -232,6 +232,9 @@ if __name__ == '__main__':
     elif args.model == 'MIRExp':
         model = PIAA_MIR_Exp(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_selfattn_mir_{experiment_name}.pth'
+    elif args.model == 'MIR_Embed':
+        model = PIAA_MIR_Embed(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+        best_modelname = f'best_model_resnet50_piaamir_embed_{experiment_name}.pth'
     else:
         model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
