@@ -15,391 +15,127 @@ from train_nima_attr import NIMA_attr
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
-class NIMA_avgp(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr):
-        super(NIMA_avgp, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        
-        # Modify the ResNet model
-        self.features = nn.Sequential(*list(self.resnet.children())[:-2])
-        self.avgpool = self.resnet.avgpool
-        self.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
-        
-        self.num_bins_aesthetic = num_bins_aesthetic
-        
-        # 1x1 Conv layer to map 2048 channels to 32 channels
-        self.conv1x1 = nn.Conv2d(2048, 32, kernel_size=1)
-
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, num_bins_aesthetic)
-        )
-        self.fc_attributes = nn.Sequential(
-            nn.Linear(512, num_attr)  # 32*7*7 is the flattened size of the reduced features
-        )
-        self.attr_size = num_attr + 32*7*7
-
-    def forward(self, images):
-        # Extract features using ResNet
-        features = self.features(images)
-        
-        # Input to avgpool
-        avgpool_input = features
-        # Apply 1x1 convolution to reduce channels from 2048 to 32
-        reduced_features = self.conv1x1(avgpool_input)
-        
-        # Apply avgpool and flatten
-        x = self.avgpool(avgpool_input)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        aesthetic_logits = self.fc_aesthetic(x)
-        attribute_logits = self.fc_attributes(x)
-
-        reduced_features_flat = torch.flatten(reduced_features, 1)
-        # num_attr + 32*7*7
-        attribute_logits = torch.cat((attribute_logits, reduced_features_flat), dim=1) 
-
-        return aesthetic_logits, attribute_logits
-
-
 class MLP(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_dim, hidden_dim, output_dim):
         super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, output_size)
-
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
+    
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.fc2(x)
 
-class PIAA_MIR(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-class PIAA_MIR_avgp(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_avgp, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_avgp(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(self.nima_attr.attr_size * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
-class PIAA_MIR_Conv(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_Conv, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Convolutional layer to be applied to A_ij
-        self.conv_layer = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1)
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(num_attr * num_pt * 16, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        A_ij = A_ij.unsqueeze(1)  # Add a channel dimension for the conv layer
-        A_ij = self.conv_layer(A_ij)  # Apply convolution
-        A_ij = A_ij.view(images.size(0), -1)  # Flatten
-        
-        if self.dropout > 0:
-            A_ij = self.dropout_layer(A_ij)
-        
-        interaction_outputs = self.mlp1(A_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
-class PIAA_MIR_1layer(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_1layer, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        # self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp1 = nn.Sequential(
-            nn.Linear(in_features=num_attr * num_pt, out_features=1),
-            nn.ReLU()
+class InternalInteraction(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(InternalInteraction, self).__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(2 * input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim)
         )
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
+        self.input_dim = input_dim
+    
+    def forward(self, attribute_embeddings):
+        num_attributes = attribute_embeddings.size(1)
+        batch_size = attribute_embeddings.size(0)
 
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
+        # Initialize the output matrix
+        interaction_matrix = torch.zeros(batch_size, num_attributes, num_attributes).to(attribute_embeddings.device)
 
-class PIAA_MIR_4layers(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_4layers, self).__init__()
+        for i in range(num_attributes):
+            for j in range(num_attributes):
+                # Concatenate the embeddings of the i-th and j-th attributes
+                combined_features = torch.cat((attribute_embeddings[:, i, None], attribute_embeddings[:, j, None]), dim=-1)  # Shape: [batch_size, 2 * input_dim]
+                # Apply MLP to the concatenated features and store in the interaction matrix
+                interaction_matrix[:, i, j] = self.mlp(combined_features).squeeze(1)
+        # Sum over the second dimension (dim=1)
+        aggregated_interactions = torch.sum(interaction_matrix, dim=1)  # Shape: [batch_size, num_attributes, input_dim]
+        return aggregated_interactions
+    
+class ExternalInteraction(nn.Module):
+    def __init__(self):
+        super(ExternalInteraction, self).__init__()
+    
+    def forward(self, user_attributes, image_attributes):
+        # user_attributes and image_attributes have shapes [B, num_attr]
+        # Compute the outer product: the result will have shape [B, num_attr_user, num_attr_img]
+        interaction_results = user_attributes.unsqueeze(2) * image_attributes.unsqueeze(1)
+        
+        aggregated_interactions_user = torch.sum(interaction_results, dim=2)
+        aggregated_interactions_img = torch.sum(interaction_results, dim=1)
+        return aggregated_interactions_user, aggregated_interactions_img
+
+class Interfusion(nn.Module):
+    def __init__(self, input_dim=1):
+        super(Interfusion, self).__init__()
+        self.gru = nn.GRUCell(input_dim, input_dim)
+    
+    def forward(self, initial_node, internal_interaction, external_interaction):
+        assert(initial_node.shape[-1] == internal_interaction.shape[-1])
+        assert(initial_node.shape[-1] == external_interaction.shape[-1])
+        num_attr = initial_node.shape[-1]
+        results = []
+        for i in range(num_attr):
+            fused_node = initial_node[:, i, None]
+            fused_node = self.gru(initial_node[:, i, None], fused_node)
+            fused_node = self.gru(internal_interaction[:, i, None], fused_node)
+            fused_node = self.gru(external_interaction[:, i, None], fused_node)
+            results.append(fused_node)
+        results = torch.stack(results, dim=1)
+        return results
+
+class PIAA_ICI(nn.Module):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=256, dropout=None):
+        super(PIAA_ICI, self).__init__()
+        dims = 1
         self.num_bins = num_bins
         self.num_attr = num_attr
         self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
+        self.scale = torch.arange(1, 5.5, 0.5)
         
         # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        self.nima_attr = NIMA_attr(num_bins, num_attr)
         
-        # Dropout layer
+        # Internal and External Interaction Modules
+        self.internal_interaction_img = InternalInteraction(input_dim=dims, hidden_dim=hidden_size)
+        self.internal_interaction_user = InternalInteraction(input_dim=dims, hidden_dim=hidden_size)
+        self.external_interaction = ExternalInteraction()
+        
+        # Interfusion Module
+        self.interfusion = Interfusion(input_dim=dims)
+        
+        # MLPs for final prediction
+        self.mlp_attr_user = MLP(num_pt, hidden_size, num_attr)
+        self.mlp_dist = MLP(num_bins, hidden_size, 1)
+
+        # Dropout
         self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        
-        # 4-layer MLP for interaction
-        self.mlp1 = nn.Sequential(
-            nn.Linear(num_attr * num_pt, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, 1)
-        )
-        
-        # MLP for direct outputs
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
-class PIAA_MIR_SelfAttn(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None, num_heads=8, num_repeats=6):
-        super(PIAA_MIR_SelfAttn, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Dropout layer
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        
-        # Self-attention and MLP layers with normalization and residual connections
-        self.attention_mlp_layers = nn.ModuleList()
-        for _ in range(num_repeats):
-            self.attention_mlp_layers.append(nn.ModuleDict({
-                'attention': nn.MultiheadAttention(embed_dim=num_attr * num_pt, num_heads=num_heads, dropout=dropout),
-                'attn_norm': nn.LayerNorm(num_attr * num_pt),
-                'mlp': MLP(num_attr * num_pt, hidden_size, num_attr * num_pt),
-                'mlp_norm': nn.LayerNorm(num_attr * num_pt)
-            }))
-        
-        # Final MLP for direct outputs
-        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1, self.num_attr * self.num_pt).permute(1, 0, 2)  # (seq_len, batch, embed_dim)
-        
-        attn_output = I_ij
-        for layer in self.attention_mlp_layers:
-            # Apply self-attention with residual and normalization
-            attn_output_residual = attn_output
-            attn_output, _ = layer['attention'](attn_output, attn_output, attn_output)
-            attn_output = layer['attn_norm'](attn_output[0] + attn_output_residual)
-            
-            # Apply MLP with residual and normalization
-            attn_output_residual = attn_output
-            attn_output = layer['mlp'](attn_output)
-            attn_output = layer['mlp_norm'](attn_output + attn_output_residual)
-        
-        interaction_outputs = self.mlp1(attn_output)
-        
-        # Calculate direct outputs
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
-class PIAA_MIR_Embed(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_Embed, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Embedding layers
-        self.attr_embedding = nn.Embedding(num_attr, 512)
-        self.pt_embedding = nn.Embedding(num_pt, 512)
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Compute embeddings
-        attr_embed = self.attr_embedding(torch.arange(self.num_attr).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
-        pt_embed = self.pt_embedding(torch.arange(self.num_pt).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
-        
-        attr_embed = attr_embed * attr_mean_pred.unsqueeze(2)  # [B, 10, 512]
-        pt_embed = pt_embed * personal_traits.unsqueeze(2)     # [B, 70, 512]
-        
-        # Compute inner product over the last channel to get [B, 10, 70]
-        A_ij = torch.matmul(attr_embed, pt_embed.transpose(1, 2))
-        
-        I_ij = A_ij.view(images.size(0), -1)  # Flatten to [B, 10 * 70]
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
-class CrossAttn_MIR(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None, num_heads=7):
-        super(CrossAttn_MIR, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        if dropout < 1:
+        if self.dropout:
             self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-        
-        # Cross-attention mechanism
-        self.cross_attention = nn.MultiheadAttention(embed_dim=num_pt, num_heads=num_heads, dropout=dropout if dropout else 0)
-
-        # Linear projections to embedding dimension
-        self.query_proj = nn.Linear(num_attr, num_pt)
-        self.key_proj = nn.Linear(num_pt, num_pt)
 
     def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
+        logit, attr_img = self.nima_attr(images)
+        if self.dropout:
+            personal_traits = self.dropout_layer(personal_traits)
+        attr_user = self.mlp_attr_user(personal_traits)
         prob = F.softmax(logit, dim=1)
-
-        key = self.key_proj(personal_traits) # Project to 512
-        query = self.query_proj(attr_mean_pred) # Project to 512
-        # Cross-attention calculation
-        personal_traits, _ = self.cross_attention(query, key, personal_traits)
         
-        # Preparing input for cross-attention
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
+        # Internal Interaction (among image attributes)
+        internal_img = self.internal_interaction_img(attr_img)
+        internal_user = self.internal_interaction_user(attr_user)
+        # External Interaction (between user and image attributes)
+        aggregated_interactions_user, aggregated_interactions_img = self.external_interaction(attr_user, attr_img)
+
+        # Interfusion to combine interactions and initial attributes
+        fused_features_img = self.interfusion(attr_img, internal_img, aggregated_interactions_img)
+        fused_features_user = self.interfusion(attr_user, internal_user, aggregated_interactions_user)
+        
+        # Final prediction
+        interaction_outputs = torch.sum(fused_features_img, dim=1) + torch.sum(fused_features_user, dim=1)
+        direct_outputs = self.mlp_dist(prob * self.scale.to(images.device))
         
         return interaction_outputs + direct_outputs
+
 
 
 def train_piaa(model, dataloader, criterion_mse, optimizer, device):
@@ -732,7 +468,7 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
-    parser.add_argument('--model', type=str, default='PIAA-MIR')
+    parser.add_argument('--model', type=str, default='PIAA-ICI')
     args = parser.parse_args()
     print(args)
     
@@ -781,21 +517,8 @@ if __name__ == '__main__':
     num_classes = num_attr + num_bins
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if args.model == 'CrossAttn':
-        model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
-        best_modelname = f'best_model_resnet50_crossattn_mir_{experiment_name}.pth'
-    elif args.model == 'MIR_Embed':
-        model = PIAA_MIR_Embed(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_embed_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_1layer':
-        model = PIAA_MIR_1layer(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_4layers':
-        model = PIAA_MIR_4layers(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'        
-    else:
-        model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
+    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+    best_modelname = f'best_model_resnet50_piaaici_{experiment_name}.pth'
 
 
     if args.pretrained_model:

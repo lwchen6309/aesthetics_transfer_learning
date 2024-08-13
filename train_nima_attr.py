@@ -209,7 +209,8 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
 
 
 num_bins = 9
-num_attr = 8
+# num_attr = 8
+num_attr = 512
 num_bins_attr = 5
 num_pt = 50 + 20
 criterion_mse = nn.MSELoss()

@@ -39,7 +39,8 @@ class LAPIS_PIAADataset(Dataset):
         self.image_dir = os.path.join(root_dir, 'datasetImages_originalSize')
         
         # Load and preprocess data
-        data = pd.read_excel(piaa_path)
+        # data = pd.read_excel(piaa_path)
+        data = pd.read_excel(piaa_path, engine='openpyxl')
         split_paths = [os.path.split(path) for path in data['image_filename'].values]
         data['art_type'], data['imageName'] = zip(*split_paths)
         # Filter non-exsiting file, or the non-detected file caused by error code of filenames
@@ -82,7 +83,11 @@ class LAPIS_PIAADataset(Dataset):
         sample.update({
             attribute: torch.tensor(self.data.iloc[idx][attribute], dtype=torch.int) for attribute in self.trait_columns
         })
-
+        
+        # One-hot encode VAIAK fields ranging from 0-6
+        for field in self.art_interest_fields:
+            sample[f'{field}_onehot'] = F.one_hot(sample[field].long(), num_classes=7)
+        
         img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
         sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
@@ -394,16 +399,24 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
     return train_dataset, val_dataset, test_dataset
 
 def collate_fn(batch):
-    max_vaia_score = 7
     traits_columns = ['nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
 
     # Use the default collate function to handle the batch
     sample = default_collate(batch)
     
     # Normalize VAIAK scores
-    vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1) / max_vaia_score
-    vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1) / max_vaia_score
+    # max_vaia_score = 6
+    # vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1) / max_vaia_score
+    # vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1) / max_vaia_score
+    vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1)
+    vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1)
     
+    # vaiak1 = torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=1)
+    # vaiak2 = torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=1)
+    # bsize = vaiak1.shape[0]
+    # vaiak1 = vaiak1.view(bsize,-1)
+    # vaiak2 = vaiak2.view(bsize,-1)
+
     # Collect and concatenate one-hot encoded trait values
     onehot_traits = torch.cat([sample[f'{trait}_onehot'] for trait in traits_columns], dim=1)
 
@@ -412,6 +425,8 @@ def collate_fn(batch):
 
     # Add the concatenated traits to the sample
     sample['traits'] = concatenated_traits
+    
+    sample['response'] = (sample['response'] / 10).int().clamp(max=9)
 
     return sample
 

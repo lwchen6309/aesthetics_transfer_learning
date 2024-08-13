@@ -218,7 +218,7 @@ class PARA_sGIAA_HistogramDataset(PARA_GIAA_HistogramDataset):
     def compute_score_hist(self, associated_indices):
         bin_indecies = []
         for random_idx in associated_indices:
-            sample = PARA_GIAA_HistogramDataset.super().__getitem__(random_idx, use_image=False)
+            sample = PARA_PIAADataset.__getitem__(random_idx, use_image=False)
             bin_idx = self._discretize(sample['aestheticScores']['aestheticScore'], [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
             bin_indecies.append(bin_idx)
         scores = np.array(bin_indecies)

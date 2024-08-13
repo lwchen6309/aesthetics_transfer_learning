@@ -25,7 +25,7 @@ def parse_arguments(parse=True):
     parser.add_argument('--num_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=100)
     parser.add_argument('--max_patience_epochs', type=int, default=10)
-    parser.add_argument('--dropout', type=float, default=None)
+    parser.add_argument('--dropout', type=float, default=0.)
     parser.add_argument('--lr', type=float, default=5e-5)
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)        
@@ -39,6 +39,8 @@ def parse_arguments(parse=True):
 def parse_arguments_piaa(parse=True):
     parser = parse_arguments(False)
     parser.add_argument('--pretrained_model', type=str, default=None)
+    parser.add_argument('--disable_onehot', action='store_true', help='Disable Onehot encoding')
+    parser.add_argument('--blur_pt', action='store_true', help='Disable Onehot encoding')
     
     if parse:
         return parser.parse_args()
@@ -54,7 +56,7 @@ def wandb_tags(args):
     
     if args.use_cv:
         tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
-    if args.dropout is not None:
+    if args.dropout > 0.:
         tags += [f"dropout={args.dropout}"]
     if args.trait is not None and args.value is not None:
         tags = ["Trait specific", "Test trait: %s_%s"%(args.trait, args.value)]

@@ -5,7 +5,7 @@ run_script="train_piaa_mir_lapis.py"
 # run_script="train_histonet_latefusion_lapis.py"
 # run_script="train_histonet_latefusion_lapis_dou.py"
 # trainparams="--lr 5e-5 --dropout 0.5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
-trainparams="--trainset GIAA --lr 5e-5 --dropout 0.5 --model PIAA-MIR"
+trainparams="--disable_onehot --trainset PIAA --lr 5e-5 --model PIAA-MIR"
 
 # python train_nima_lapis.py
 
@@ -30,8 +30,8 @@ trainparams="--trainset GIAA --lr 5e-5 --dropout 0.5 --model PIAA-MIR"
 # python $run_script --n_fold 4 --fold_id 3 --use_cv --trainset sGIAA
 # python $run_script --n_fold 4 --fold_id 4 --use_cv --trainset sGIAA
 
-python $run_script --n_fold 4 --fold_id 1 --use_cv --trainset GIAA $trainparams
-python $run_script --n_fold 4 --fold_id 2 --use_cv --trainset GIAA $trainparams
-python $run_script --n_fold 4 --fold_id 3 --use_cv --trainset GIAA $trainparams
-python $run_script --n_fold 4 --fold_id 4 --use_cv --trainset GIAA $trainparams
+python $run_script --n_fold 4 --fold_id 1 --use_cv $trainparams
+python $run_script --n_fold 4 --fold_id 2 --use_cv $trainparams
+python $run_script --n_fold 4 --fold_id 3 --use_cv $trainparams
+python $run_script --n_fold 4 --fold_id 4 --use_cv $trainparams
 

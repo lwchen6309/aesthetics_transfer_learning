@@ -21,10 +21,11 @@ def ensure_dir_exists(directory):
 
 
 class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None, disable_onehot=False):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
+        self.disable_onehot = disable_onehot
         
         if map_file and os.path.exists(map_file):
             print('Loading image to indices map from file...')
@@ -75,10 +76,14 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
         
         # Initialize accumulators for one-hot encoded vectors
         accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
-        
+        if self.disable_onehot:
+            accumulated_vaia = torch.zeros(7, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+            accumulated_2vaia = torch.zeros(4, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
+        else:
+            accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+            accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+
         for ai in associated_indices:
             sample = super().__getitem__(ai, use_image=False)
 
@@ -86,24 +91,14 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
             round_score = min(int(sample['response'])//10, 9)
             response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
             accumulated_response += response_one_hot
-            
-            # Encode and accumulate VAIAK1 to VAIAK7
-            for i in range(1, 8):  # VAIAK1 to VAIAK7
-                vaia_score = sample[f'VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_vaia[offset:offset+max_vaia_score] += vaia_one_hot
-                
-            # Encode and accumulate 2VAIAK1 to 2VAIAK4
-            for i in range(1, 5):  # 2VAIAK1 to 2VAIAK4
-                vaia_score = sample[f'2VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_2vaia[offset:offset+max_vaia_score] += vaia_one_hot
-
+            if self.disable_onehot:
+                accumulated_vaia = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+            else:
+                accumulated_vaia += torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
             for trait in self.encoded_trait_columns:
-                vaia_one_hot = F.one_hot(torch.tensor(int(sample[trait])), num_classes=len(accumulated_trait[trait]))
-                accumulated_trait[trait] += vaia_one_hot
+                accumulated_trait[trait] += sample[f'{trait}_onehot']
 
         # Prepare the final accumulated histogram for the image
         accumulated_histogram = {
@@ -166,10 +161,13 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
             self.precomputed_data = pickle.load(f)
 
 
-class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
+class LAPIS_sGIAA_HistogramDataset(LAPIS_GIAA_HistogramDataset):
     def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None,
-                importance_sampling=False, num_samples=40):
-        super(LAPIS_sGIAA_HistogramDataset, self).__init__(root_dir, transform)
+                importance_sampling=False, num_samples=40, disable_onehot=False):
+        # super(LAPIS_sGIAA_HistogramDataset, self).__init__()
+        LAPIS_PIAADataset.__init__(self, root_dir, transform)
+        self.disable_onehot = disable_onehot
+
         if data is not None:
             self.data = data
         self.importance_sampling = importance_sampling
@@ -218,7 +216,7 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def compute_score_hist(self, associated_indices):
         bin_indecies = []
         for random_idx in associated_indices:
-            sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(random_idx, use_image=False)
+            sample = LAPIS_PIAADataset.__getitem__(self, random_idx, use_image=False)
             round_score = min(int(sample['response'])//10, 9)
             bin_indecies.append(round_score)
         scores = np.array(bin_indecies)
@@ -269,35 +267,30 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
         
         # Initialize accumulators for one-hot encoded vectors
         accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
+        if self.disable_onehot:
+            accumulated_vaia = torch.zeros(7, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+            accumulated_2vaia = torch.zeros(4, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
+        else:
+            accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+            accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         
         accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
         for ai in associated_indices:
-            sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(ai, use_image=False)
+            # sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(ai, use_image=False)
+            sample = LAPIS_PIAADataset.__getitem__(self, ai, use_image=False)
 
             # One-hot encode 'response' and accumulate
             round_score = min(int(sample['response'])//10, 9)
             response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
             accumulated_response += response_one_hot
-            
-            # Encode and accumulate VAIAK1 to VAIAK7
-            for i in range(1, 8):  # VAIAK1 to VAIAK7
-                vaia_score = sample[f'VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_vaia[offset:offset+max_vaia_score] += vaia_one_hot
-            
-            # Encode and accumulate 2VAIAK1 to 2VAIAK4
-            for i in range(1, 5):  # 2VAIAK1 to 2VAIAK4
-                vaia_score = sample[f'2VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_2vaia[offset:offset+max_vaia_score] += vaia_one_hot
-
+            if self.disable_onehot:
+                accumulated_vaia += torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+            else:
+                accumulated_vaia += torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
             for trait in self.encoded_trait_columns:
-                vaia_one_hot = F.one_hot(torch.tensor(int(sample[trait])), num_classes=len(accumulated_trait[trait]))
-                accumulated_trait[trait] += vaia_one_hot
+                accumulated_trait[trait] += sample[f'{trait}_onehot']
 
         # Prepare the final accumulated histogram for the image
         accumulated_histogram = {
@@ -335,28 +328,9 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_PIAADataset):
     def __getitem__(self, idx):
         histograms = self.precomputed_data[idx]
         item_data = copy.deepcopy(random.choice(histograms))
-        img_sample = super(LAPIS_sGIAA_HistogramDataset, self).__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
+        img_sample = LAPIS_PIAADataset.__getitem__(self, self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
         item_data['image'] = img_sample['image']
         return item_data
-
-    def _save_map(self, file_path):
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.image_to_indices_map, f)
-
-    def _load_map(self, file_path):
-        with open(file_path, 'rb') as f:
-            return pickle.load(f)
-
-    def __len__(self):
-        return len(self.image_to_indices_map)
-
-    def save(self, file_path):
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.precomputed_data, f)
-
-    def load(self, file_path):
-        with open(file_path, 'rb') as f:
-            self.precomputed_data = pickle.load(f)
 
 
 class LAPIS_PairsGIAA_HistogramDataset(LAPIS_sGIAA_HistogramDataset):
@@ -382,10 +356,11 @@ class LAPIS_PairsGIAA_HistogramDataset(LAPIS_sGIAA_HistogramDataset):
 
 
 class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, precompute_file=None, disable_onehot=False):
         super().__init__(root_dir, transform)
         if data is not None:
             self.data = data
+        self.disable_onehot = disable_onehot
 
     def traits_len(self):
         units_len = [len(enc) for enc in self.trait_encoders[1:]]  # Encoders for various traits
@@ -399,35 +374,22 @@ class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
         
         # Initialize accumulators for one-hot encoded vectors
         accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
-        accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
-        accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
-        
+        # accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
+        # accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
         accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
+        sample = LAPIS_PIAADataset.__getitem__(self, idx, use_image=True)
         
-        sample = super().__getitem__(idx, use_image=True)
-
         # One-hot encode 'response' and accumulate
         round_score = min(int(sample['response'])//10, 9)
-        response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
-        accumulated_response += response_one_hot
-        
-        # Encode and accumulate VAIAK1 to VAIAK7
-        for i in range(1, 8):  # VAIAK1 to VAIAK7
-            vaia_score = sample[f'VAIAK{i}']
-            offset = (i-1) * max_vaia_score
-            vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-            accumulated_vaia[offset:offset+max_vaia_score] += vaia_one_hot
-            
-        # Encode and accumulate 2VAIAK1 to 2VAIAK4
-        for i in range(1, 5):  # 2VAIAK1 to 2VAIAK4
-            vaia_score = sample[f'2VAIAK{i}']
-            offset = (i-1) * max_vaia_score
-            vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-            accumulated_2vaia[offset:offset+max_vaia_score] += vaia_one_hot
-
+        accumulated_response = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
+        if self.disable_onehot:
+            accumulated_vaia = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
+            accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+        else:
+            accumulated_vaia = torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
+            accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
         for trait in self.encoded_trait_columns:
-            vaia_one_hot = F.one_hot(torch.tensor(int(sample[trait])), num_classes=len(accumulated_trait[trait]))
-            accumulated_trait[trait] += vaia_one_hot
+            accumulated_trait[trait] += sample[f'{trait}_onehot']
 
         # Prepare the final accumulated histogram for the image
         accumulated_histogram = {
@@ -449,11 +411,12 @@ class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
         return accumulated_histogram
 
 
-class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
-    def __init__(self, root_dir, transform=None, data=None, map_file=None):
-        super().__init__(root_dir, transform)
+class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_GIAA_HistogramDataset):
+    def __init__(self, root_dir, transform=None, data=None, map_file=None, disable_onehot=False):
+        LAPIS_PIAADataset.__init__(self, root_dir, transform)
         if data is not None:
             self.data = data
+        self.disable_onehot = disable_onehot
         
         if map_file and os.path.exists(map_file):
             print('Loading image to indices map from file...')
@@ -482,46 +445,32 @@ class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
 
     def __getitem__(self, idx):
         associated_indices = self.image_to_indices_map[self.unique_images[idx]]
-        sample = super().__getitem__(associated_indices[0], use_image=True)
+        sample = LAPIS_PIAADataset.__getitem__(self, associated_indices[0], use_image=True)
         image = sample['image']
 
         # Assuming maximum scores for response and VAIAK/2VAIAK ratings for proper one-hot encoding
         max_response_score = 10  # Adjust based on your data
-        max_vaia_score = 7
+        # max_vaia_score = 7
 
         # List to hold histograms for each sample
         histograms_list = []
         for ai in associated_indices:
             # Initialize accumulators for one-hot encoded vectors
-            accumulated_response = torch.zeros(max_response_score, dtype=torch.float32)
-            accumulated_vaia = torch.zeros(7 * max_vaia_score, dtype=torch.float32)  # For VAIAK1 to VAIAK7
-            accumulated_2vaia = torch.zeros(4 * max_vaia_score, dtype=torch.float32)  # For 2VAIAK1 to 2VAIAK4
             accumulated_trait = {triat:torch.zeros(len(enc), dtype=torch.float32) for triat, enc in zip(self.encoded_trait_columns, self.trait_encoders)}
-
-            sample = super().__getitem__(ai, use_image=False)
+            sample = LAPIS_PIAADataset.__getitem__(self, ai, use_image=False)
 
             # One-hot encode 'response' and accumulate
             round_score = min(int(sample['response'])//10, 9)
-            response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
-            accumulated_response += response_one_hot
-            
-            # Encode and accumulate VAIAK1 to VAIAK7
-            for i in range(1, 8):  # VAIAK1 to VAIAK7
-                vaia_score = sample[f'VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_vaia[offset:offset+max_vaia_score] += vaia_one_hot
-            
-            # Encode and accumulate 2VAIAK1 to 2VAIAK4
-            for i in range(1, 5):  # 2VAIAK1 to 2VAIAK4
-                vaia_score = sample[f'2VAIAK{i}']
-                offset = (i-1) * max_vaia_score
-                vaia_one_hot = F.one_hot(torch.tensor(int(vaia_score)), num_classes=max_vaia_score)
-                accumulated_2vaia[offset:offset+max_vaia_score] += vaia_one_hot
+            accumulated_response = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
 
+            if self.disable_onehot:
+                accumulated_vaia = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+            else:
+                accumulated_vaia = torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
+                accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
             for trait in self.encoded_trait_columns:
-                vaia_one_hot = F.one_hot(torch.tensor(int(sample[trait])), num_classes=len(accumulated_trait[trait]))
-                accumulated_trait[trait] += vaia_one_hot
+                accumulated_trait[trait] = sample[f'{trait}_onehot']
 
             # Prepare the final accumulated histogram for the image
             accumulated_histogram = {
@@ -554,25 +503,6 @@ class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_PIAADataset):
         accumulated_histogram['imgName'] = sample['imgName']
         
         return accumulated_histogram
-
-    def _save_map(self, file_path):
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.image_to_indices_map, f)
-
-    def _load_map(self, file_path):
-        with open(file_path, 'rb') as f:
-            return pickle.load(f)
-
-    def __len__(self):
-        return len(self.image_to_indices_map)
-
-    def save(self, file_path):
-        with open(file_path, 'wb') as f:
-            pickle.dump(self.precomputed_data, f)
-
-    def load(self, file_path):
-        with open(file_path, 'rb') as f:
-            self.precomputed_data = pickle.load(f)
 
     def decode_batch_to_dataframe(self, batch_features):
         encoded_trait_columns = self.encoded_trait_columns[1:]
@@ -671,6 +601,7 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
     ])
     fold_id = getattr(args, 'fold_id', None)
     n_fold = getattr(args, 'n_fold', None)
+    disable_onehot = getattr(args, 'disable_onehot', False)
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
@@ -703,20 +634,20 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
         map_file = os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id)
         if args.trainset == 'GIAA':
             train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, 
-                data=train_dataset.data, map_file=map_file, 
+                data=train_dataset.data, map_file=map_file, disable_onehot=disable_onehot,
                 precompute_file=os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id))
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if args.importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
             train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, 
-                data=train_dataset.data, map_file=map_file, 
+                data=train_dataset.data, map_file=map_file, disable_onehot=disable_onehot,
                 precompute_file=os.path.join(pkl_dir,precompute_file))
         elif args.trainset == 'sGIAA-pair':
             precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if args.importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
             train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, 
-                data=train_dataset.data, map_file=map_file, 
+                data=train_dataset.data, map_file=map_file, disable_onehot=disable_onehot,
                 precompute_file=os.path.join(pkl_dir,precompute_file))                
         else:
-            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, disable_onehot=disable_onehot)
         
         val_mapfile = os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id)
         val_precompute_file = os.path.join(pkl_dir,'valset_GIAA_dct_%dfold.pkl'%fold_id)
@@ -733,17 +664,17 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
         map_file = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
         if args.trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix)
-            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)    
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)    
         elif args.trainset == 'sGIAA-pair':
             precompute_file = 'trainset_MIAA_dct_IS_%s.pkl'%suffix if args.importance_sampling else 'trainset_MIAA_dct_%s.pkl'%suffix
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)
+            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)
         else:
-            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, disable_onehot=disable_onehot)
         # test_sgiaa_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=os.path.join(pkl_dir,'testset_image_dct.pkl'), precompute_file=os.path.join(pkl_dir,'testset_MIAA_dct.pkl'))
         
         val_mapfile=os.path.join(pkl_dir,'valset_image_dct_%s.pkl'%suffix)
@@ -756,27 +687,27 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
         map_file = os.path.join(pkl_dir,'trainset_image_dct.pkl')
         if args.trainset == 'GIAA':
             precompute_file = os.path.join(pkl_dir, 'trainset_GIAA_dct.pkl')
-            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)
+            train_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)
         elif args.trainset == 'sGIAA':
             precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)
+            train_dataset = LAPIS_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)
         elif args.trainset == 'sGIAA-pair':
             precompute_file = 'trainset_MIAA_dct_IS.pkl' if args.importance_sampling else 'trainset_MIAA_dct.pkl'
             precompute_file = os.path.join(pkl_dir,precompute_file)
-            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file)
+            train_dataset = LAPIS_PairsGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=map_file, precompute_file=precompute_file, disable_onehot=disable_onehot)
         else:
-            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
+            train_dataset = LAPIS_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, disable_onehot=disable_onehot)
 
         val_mapfile=os.path.join(pkl_dir,'valset_image_dct.pkl')
         val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl')
         test_mapfile=os.path.join(pkl_dir,'testset_image_dct.pkl')
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl')
     
-    val_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, precompute_file=val_precompute_file)
-    val_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile)
-    test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)
-    test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
+    val_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, precompute_file=val_precompute_file, disable_onehot=disable_onehot)
+    val_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, disable_onehot=disable_onehot)
+    test_giaa_dataset = LAPIS_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file, disable_onehot=disable_onehot)
+    test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, disable_onehot=disable_onehot)
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
 
