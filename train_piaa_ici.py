@@ -65,14 +65,12 @@ class ExternalInteraction(nn.Module):
         aggregated_interactions_img = torch.sum(interaction_results, dim=1)
         return aggregated_interactions_user, aggregated_interactions_img
 
-class Interfusion(nn.Module):
+class Interfusion_GRU(nn.Module):
     def __init__(self, input_dim=1):
-        super(Interfusion, self).__init__()
+        super(Interfusion_GRU, self).__init__()
         self.gru = nn.GRUCell(input_dim, input_dim)
-    
+
     def forward(self, initial_node, internal_interaction, external_interaction):
-        assert(initial_node.shape[-1] == internal_interaction.shape[-1])
-        assert(initial_node.shape[-1] == external_interaction.shape[-1])
         num_attr = initial_node.shape[-1]
         results = []
         for i in range(num_attr):
@@ -84,8 +82,18 @@ class Interfusion(nn.Module):
         results = torch.stack(results, dim=1)
         return results
 
+class Interfusion_MLP(nn.Module):
+    def __init__(self, input_dim=1, hidden_size=1024):
+        super(Interfusion_MLP, self).__init__()
+        self.mlp = MLP(input_dim*3, hidden_size, input_dim)
+
+    def forward(self, initial_node, internal_interaction, external_interaction):
+        results = self.mlp(torch.cat([initial_node, internal_interaction, external_interaction], dim=1))
+        return results
+   
+
 class PIAA_ICI(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=256, dropout=None):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
         super(PIAA_ICI, self).__init__()
         dims = 1
         self.num_bins = num_bins
@@ -102,7 +110,9 @@ class PIAA_ICI(nn.Module):
         self.external_interaction = ExternalInteraction()
         
         # Interfusion Module
-        self.interfusion = Interfusion(input_dim=dims)
+        # self.interfusion = Interfusion_GRU(input_dim=1)
+        self.interfusion_img = Interfusion_MLP(input_dim=num_attr)
+        self.interfusion_user = Interfusion_MLP(input_dim=num_attr)
         
         # MLPs for final prediction
         self.mlp_attr_user = MLP(num_pt, hidden_size, num_attr)
@@ -127,15 +137,14 @@ class PIAA_ICI(nn.Module):
         aggregated_interactions_user, aggregated_interactions_img = self.external_interaction(attr_user, attr_img)
 
         # Interfusion to combine interactions and initial attributes
-        fused_features_img = self.interfusion(attr_img, internal_img, aggregated_interactions_img)
-        fused_features_user = self.interfusion(attr_user, internal_user, aggregated_interactions_user)
+        fused_features_img = self.interfusion_img(attr_img, internal_img, aggregated_interactions_img)
+        fused_features_user = self.interfusion_user(attr_user, internal_user, aggregated_interactions_user)
         
         # Final prediction
-        interaction_outputs = torch.sum(fused_features_img, dim=1) + torch.sum(fused_features_user, dim=1)
+        interaction_outputs = torch.sum(fused_features_img, dim=1, keepdim=True) + torch.sum(fused_features_user, dim=1, keepdim=True)
         direct_outputs = self.mlp_dist(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
+        output = interaction_outputs + direct_outputs
+        return output
 
 
 def train_piaa(model, dataloader, criterion_mse, optimizer, device):
@@ -151,7 +160,7 @@ def train_piaa(model, dataloader, criterion_mse, optimizer, device):
         images = images.to(device)
         sample_score = sample_score.to(device).float()
         sample_attr = sample_attr.to(device)
-        sample_pt = sample_pt.to(device)
+        sample_pt = sample_pt.to(device).float()
         optimizer.zero_grad()
 
         y_ij = model(images, sample_pt)
@@ -188,7 +197,7 @@ def evaluate_piaa(model, dataloader, criterion_mse, device):
             sample_pt = collect_batch_personal_trait(sample)
             images = images.to(device)
             sample_score = sample_score.to(device).float()
-            sample_attr = sample_attr.to(device)
+            sample_attr = sample_attr.to(device).float()
             sample_pt = sample_pt.to(device)
             batch_size = len(images)
 
@@ -411,11 +420,12 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
 def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
 
     train_dataloader, val_dataloader, test_dataloader = dataloaders
-    
-    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
-    if args.is_log:
-        wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
-                   "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
+
+    if args.resume is not None:    
+        test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
+        if args.is_log:
+            wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
+                    "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
     
     num_patience_epochs = 0
     best_test_srocc = 0
@@ -517,7 +527,7 @@ if __name__ == '__main__':
     num_classes = num_attr + num_bins
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout)
     best_modelname = f'best_model_resnet50_piaaici_{experiment_name}.pth'
 
 
