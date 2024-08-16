@@ -29,7 +29,7 @@ class InternalInteraction(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super(InternalInteraction, self).__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(2 * input_dim, hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, input_dim)
         )
@@ -40,18 +40,19 @@ class InternalInteraction(nn.Module):
         batch_size = attribute_embeddings.size(0)
 
         # Initialize the output matrix
-        interaction_matrix = torch.zeros(batch_size, num_attributes, num_attributes).to(attribute_embeddings.device)
+        interaction_matrix = torch.zeros(batch_size, num_attributes, num_attributes, self.input_dim).to(attribute_embeddings.device)
 
         for i in range(num_attributes):
             for j in range(num_attributes):
                 # Concatenate the embeddings of the i-th and j-th attributes
-                combined_features = torch.cat((attribute_embeddings[:, i, None], attribute_embeddings[:, j, None]), dim=-1)  # Shape: [batch_size, 2 * input_dim]
+                # combined_features = torch.cat((attribute_embeddings[:, i], attribute_embeddings[:, j]), dim=-1)  # Shape: [batch_size, 2 * input_dim]
+                combined_features = attribute_embeddings[:, i] * attribute_embeddings[:, j]
                 # Apply MLP to the concatenated features and store in the interaction matrix
-                interaction_matrix[:, i, j] = self.mlp(combined_features).squeeze(1)
+                interaction_matrix[:, i, j] = self.mlp(combined_features)
         # Sum over the second dimension (dim=1)
         aggregated_interactions = torch.sum(interaction_matrix, dim=1)  # Shape: [batch_size, num_attributes, input_dim]
         return aggregated_interactions
-    
+
 class ExternalInteraction(nn.Module):
     def __init__(self):
         super(ExternalInteraction, self).__init__()
@@ -66,24 +67,23 @@ class ExternalInteraction(nn.Module):
         return aggregated_interactions_user, aggregated_interactions_img
 
 class Interfusion_GRU(nn.Module):
-    def __init__(self, input_dim=1):
+    def __init__(self, input_dim=64):
         super(Interfusion_GRU, self).__init__()
         self.gru = nn.GRUCell(input_dim, input_dim)
 
     def forward(self, initial_node, internal_interaction, external_interaction):
-        num_attr = initial_node.shape[-1]
+        num_attr = initial_node.shape[1]
         results = []
         for i in range(num_attr):
-            fused_node = initial_node[:, i, None]
-            fused_node = self.gru(initial_node[:, i, None], fused_node)
-            fused_node = self.gru(internal_interaction[:, i, None], fused_node)
-            fused_node = self.gru(external_interaction[:, i, None], fused_node)
+            fused_node = self.gru(initial_node[:, i], None)
+            fused_node = self.gru(internal_interaction[:, i], fused_node)
+            fused_node = self.gru(external_interaction[:, i], fused_node)
             results.append(fused_node)
         results = torch.stack(results, dim=1)
         return results
 
 class Interfusion_MLP(nn.Module):
-    def __init__(self, input_dim=1, hidden_size=1024):
+    def __init__(self, input_dim=64, hidden_size=256):
         super(Interfusion_MLP, self).__init__()
         self.mlp = MLP(input_dim*3, hidden_size, input_dim)
 
@@ -93,9 +93,8 @@ class Interfusion_MLP(nn.Module):
    
 
 class PIAA_ICI(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
+    def __init__(self, num_bins, num_attr, num_pt, input_dim = 64, hidden_size=256, dropout=None):
         super(PIAA_ICI, self).__init__()
-        dims = 1
         self.num_bins = num_bins
         self.num_attr = num_attr
         self.num_pt = num_pt
@@ -103,20 +102,22 @@ class PIAA_ICI(nn.Module):
         
         # Placeholder for the NIMA_attr model
         self.nima_attr = NIMA_attr(num_bins, num_attr)
-        
+        self.input_dim = input_dim
         # Internal and External Interaction Modules
-        self.internal_interaction_img = InternalInteraction(input_dim=dims, hidden_dim=hidden_size)
-        self.internal_interaction_user = InternalInteraction(input_dim=dims, hidden_dim=hidden_size)
+        
+        self.internal_interaction_img = InternalInteraction(input_dim=input_dim, hidden_dim=hidden_size)
+        self.internal_interaction_user = InternalInteraction(input_dim=input_dim, hidden_dim=hidden_size)
         self.external_interaction = ExternalInteraction()
         
         # Interfusion Module
-        # self.interfusion = Interfusion_GRU(input_dim=1)
-        self.interfusion_img = Interfusion_MLP(input_dim=num_attr)
-        self.interfusion_user = Interfusion_MLP(input_dim=num_attr)
+        self.interfusion_img = Interfusion_GRU(input_dim=input_dim)
+        self.interfusion_user = Interfusion_GRU(input_dim=input_dim)
         
         # MLPs for final prediction
-        self.mlp_attr_user = MLP(num_pt, hidden_size, num_attr)
+        self.node_attr_user = MLP(num_pt, hidden_size, num_attr*input_dim)
+        self.node_attr_img = MLP(num_attr, hidden_size, num_attr*input_dim)
         self.mlp_dist = MLP(num_bins, hidden_size, 1)
+        self.attr_corr = nn.Linear(input_dim, 1)
 
         # Dropout
         self.dropout = dropout
@@ -127,7 +128,9 @@ class PIAA_ICI(nn.Module):
         logit, attr_img = self.nima_attr(images)
         if self.dropout:
             personal_traits = self.dropout_layer(personal_traits)
-        attr_user = self.mlp_attr_user(personal_traits)
+        n_attr = attr_img.shape[1]
+        attr_img = self.node_attr_img(attr_img).view(-1,n_attr,self.input_dim)
+        attr_user = self.node_attr_user(personal_traits).view(-1,n_attr,self.input_dim)
         prob = F.softmax(logit, dim=1)
         
         # Internal Interaction (among image attributes)
@@ -135,13 +138,14 @@ class PIAA_ICI(nn.Module):
         internal_user = self.internal_interaction_user(attr_user)
         # External Interaction (between user and image attributes)
         aggregated_interactions_user, aggregated_interactions_img = self.external_interaction(attr_user, attr_img)
-
+        
         # Interfusion to combine interactions and initial attributes
         fused_features_img = self.interfusion_img(attr_img, internal_img, aggregated_interactions_img)
         fused_features_user = self.interfusion_user(attr_user, internal_user, aggregated_interactions_user)
         
         # Final prediction
-        interaction_outputs = torch.sum(fused_features_img, dim=1, keepdim=True) + torch.sum(fused_features_user, dim=1, keepdim=True)
+        interaction_outputs = torch.sum(fused_features_img, dim=1, keepdim=False) + torch.sum(fused_features_user, dim=1, keepdim=False)
+        interaction_outputs = self.attr_corr(interaction_outputs)
         direct_outputs = self.mlp_dist(prob * self.scale.to(images.device))
         output = interaction_outputs + direct_outputs
         return output
@@ -197,9 +201,9 @@ def evaluate_piaa(model, dataloader, criterion_mse, device):
             sample_pt = collect_batch_personal_trait(sample)
             images = images.to(device)
             sample_score = sample_score.to(device).float()
-            sample_attr = sample_attr.to(device).float()
-            sample_pt = sample_pt.to(device)
-            batch_size = len(images)
+            sample_attr = sample_attr.to(device)
+            sample_pt = sample_pt.to(device).float()
+            # batch_size = len(images)
 
             y_ij = model(images, sample_pt)
 
