@@ -437,7 +437,7 @@ def load_user_sample_data(args, root_dir = datapath['PARA_datapath']):
     max_annotations_per_user = getattr(args, 'max_annotations_per_user', 100)
     num_image_threshold = getattr(args, 'num_image_threshold', 500)
     num_users = getattr(args, 'num_users', 10)
-
+    
     # Load datasets
     # Create datasets with the appropriate transformations
     dataset = PARA_PIAADataset(root_dir, transform=train_transform)

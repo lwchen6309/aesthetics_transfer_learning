@@ -15,55 +15,6 @@ from train_nima_attr import NIMA_attr
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
-class NIMA_avgp(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr):
-        super(NIMA_avgp, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        
-        # Modify the ResNet model
-        self.features = nn.Sequential(*list(self.resnet.children())[:-2])
-        self.avgpool = self.resnet.avgpool
-        self.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
-        
-        self.num_bins_aesthetic = num_bins_aesthetic
-        
-        # 1x1 Conv layer to map 2048 channels to 32 channels
-        self.conv1x1 = nn.Conv2d(2048, 32, kernel_size=1)
-
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, num_bins_aesthetic)
-        )
-        self.fc_attributes = nn.Sequential(
-            nn.Linear(512, num_attr)  # 32*7*7 is the flattened size of the reduced features
-        )
-        self.attr_size = num_attr + 32*7*7
-
-    def forward(self, images):
-        # Extract features using ResNet
-        features = self.features(images)
-        
-        # Input to avgpool
-        avgpool_input = features
-        # Apply 1x1 convolution to reduce channels from 2048 to 32
-        reduced_features = self.conv1x1(avgpool_input)
-        
-        # Apply avgpool and flatten
-        x = self.avgpool(avgpool_input)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        aesthetic_logits = self.fc_aesthetic(x)
-        attribute_logits = self.fc_attributes(x)
-
-        reduced_features_flat = torch.flatten(reduced_features, 1)
-        # num_attr + 32*7*7
-        attribute_logits = torch.cat((attribute_logits, reduced_features_flat), dim=1) 
-
-        return aesthetic_logits, attribute_logits
-
-
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(MLP, self).__init__()
@@ -105,38 +56,6 @@ class PIAA_MIR(nn.Module):
         direct_outputs = self.mlp2(prob * self.scale.to(images.device))
         
         return interaction_outputs + direct_outputs
-
-class PIAA_MIR_avgp(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_avgp, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_avgp(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(self.nima_attr.attr_size * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Interaction map calculation
-        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
-        I_ij = A_ij.view(images.size(0), -1)
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
 
 class PIAA_MIR_Conv(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
@@ -314,51 +233,6 @@ class PIAA_MIR_SelfAttn(nn.Module):
         
         return interaction_outputs + direct_outputs
 
-
-class PIAA_MIR_Embed(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
-        super(PIAA_MIR_Embed, self).__init__()
-        self.num_bins = num_bins
-        self.num_attr = num_attr
-        self.num_pt = num_pt
-        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
-        
-        # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
-        
-        # Embedding layers
-        self.attr_embedding = nn.Embedding(num_attr, 512)
-        self.pt_embedding = nn.Embedding(num_pt, 512)
-        
-        # Interaction MLPs
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(self.dropout)
-        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
-        self.mlp2 = MLP(num_bins, hidden_size, 1)
-
-    def forward(self, images, personal_traits):
-        logit, attr_mean_pred = self.nima_attr(images)
-        prob = F.softmax(logit, dim=1)
-        
-        # Compute embeddings
-        attr_embed = self.attr_embedding(torch.arange(self.num_attr).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
-        pt_embed = self.pt_embedding(torch.arange(self.num_pt).to(images.device)).unsqueeze(0).expand(images.size(0), -1, -1)
-        
-        attr_embed = attr_embed * attr_mean_pred.unsqueeze(2)  # [B, 10, 512]
-        pt_embed = pt_embed * personal_traits.unsqueeze(2)     # [B, 70, 512]
-        
-        # Compute inner product over the last channel to get [B, 10, 70]
-        A_ij = torch.matmul(attr_embed, pt_embed.transpose(1, 2))
-        
-        I_ij = A_ij.view(images.size(0), -1)  # Flatten to [B, 10 * 70]
-        if self.dropout > 0:
-            I_ij = self.dropout_layer(I_ij)
-        interaction_outputs = self.mlp1(I_ij)
-        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
-        
-        return interaction_outputs + direct_outputs
-
-
 class CrossAttn_MIR(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None, num_heads=7):
         super(CrossAttn_MIR, self).__init__()
@@ -402,7 +276,7 @@ class CrossAttn_MIR(nn.Module):
         return interaction_outputs + direct_outputs
 
 
-def train_piaa(model, dataloader, criterion_mse, optimizer, device):
+def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
     model.train()
     running_mse_loss = 0.0
 
@@ -436,7 +310,7 @@ def train_piaa(model, dataloader, criterion_mse, optimizer, device):
     return epoch_mse_loss
 
 
-def evaluate_piaa(model, dataloader, criterion_mse, device):
+def evaluate_piaa(model, dataloader, criterion_mse, device, args):
     model.eval()  # Set the model to evaluation mode
     running_mse_loss = 0.0
 
@@ -608,7 +482,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
     if args.resume is not None:
         test_piaa_loss, test_piaa_srocc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
         test_giaa_loss, test_giaa_srocc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
-        test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device)
+        test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
         if args.is_log:
             wandb.log({"Test PIAA MSE Loss (Pretrained)": test_piaa_loss,
                     "Test PIAA SROCC (Pretrained)": test_piaa_srocc,
@@ -676,10 +550,11 @@ def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, dev
 
     train_dataloader, val_dataloader, test_dataloader = dataloaders
     
-    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
-    if args.is_log:
-        wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
-                   "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
+    if args.resume is not None:
+        test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
+        if args.is_log:
+            wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
+                    "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
     
     num_patience_epochs = 0
     best_test_srocc = 0
@@ -691,9 +566,9 @@ def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, dev
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= args.lr_decay_factor
         # Training
-        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device)
+        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
         # Testing
-        val_mse_loss, val_srocc = evaluate_fn(model, val_dataloader, criterion_mse, device)
+        val_mse_loss, val_srocc = evaluate_fn(model, val_dataloader, criterion_mse, device, args)
 
         if args.is_log:
             wandb.log({"Train PIAA MSE Loss": train_mse_loss,
@@ -715,7 +590,7 @@ def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, dev
     if not args.is_eval:
         model.load_state_dict(torch.load(best_modelname))
     # Testing
-    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
+    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
     if args.is_log:
         wandb.log({"Test PIAA MSE Loss": test_mse_loss,
                    "Test PIAA SROCC": test_srocc}, commit=True)
@@ -784,9 +659,6 @@ if __name__ == '__main__':
     if args.model == 'CrossAttn':
         model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
         best_modelname = f'best_model_resnet50_crossattn_mir_{experiment_name}.pth'
-    elif args.model == 'MIR_Embed':
-        model = PIAA_MIR_Embed(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_embed_{experiment_name}.pth'
     elif args.model == 'PIAA_MIR_1layer':
         model = PIAA_MIR_1layer(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'

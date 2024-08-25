@@ -6,18 +6,19 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from PARA_PIAA_dataloader import load_user_sample_data, collect_batch_attribute, collect_batch_personal_trait
+from PARA_PIAA_dataloader import load_user_sample_data #, collect_batch_attribute, collect_batch_personal_trait
 import wandb
-from scipy.stats import spearmanr
+# from scipy.stats import spearmanr
 import argparse
-from train_piaa_mir import CombinedModel, train, evaluate
+from train_piaa_mir import PIAA_MIR, train_piaa, evaluate_piaa, train, evaluate, evaluate_with_prior, trainer_piaa, trainer
 import matplotlib.pyplot as plt
 import warnings
+from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 warnings.simplefilter("ignore")
 
 
-def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
+def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
 
     train_dataloader, test_dataloader = dataloaders
     num_patience_epochs = 0
@@ -31,9 +32,9 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= args.lr_decay_factor
         # Training
-        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device)
+        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
         # Testing
-        val_mse_loss, val_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
+        val_mse_loss, val_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
 
         if args.is_log:
             wandb.log({"Train PIAA MSE Loss": train_mse_loss,
@@ -58,7 +59,7 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         model.load_state_dict(best_model_state)
     
     # Testing
-    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device)
+    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
     if args.is_log:
         wandb.log({"Test PIAA MSE Loss": test_mse_loss,
                    "Test PIAA SROCC": test_srocc}, commit=True)
@@ -66,38 +67,108 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
     
     return test_srocc  
 
+
+def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device, best_modelname):
+
+    train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader = dataloaders
+    evaluate_fn, evaluate_fn_with_prior = evaluate_fns
+
+    if args.resume is not None:
+        test_piaa_loss, test_piaa_srocc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
+        test_giaa_loss, test_giaa_srocc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
+        test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
+        if args.is_log:
+            wandb.log({"Test PIAA MSE Loss (Pretrained)": test_piaa_loss,
+                    "Test PIAA SROCC (Pretrained)": test_piaa_srocc,
+                    "Test GIAA MSE Loss (Pretrained)": test_giaa_loss,
+                    "Test GIAA SROCC (Pretrained)": test_giaa_srocc,
+                    "Test GIAA MSE Loss (Prior)(Pretrained)": test_giaa_loss_wprior,
+                    "Test GIAA SROCC (Prior)(Pretrained)": test_giaa_srocc_wprior,                   
+                    }, commit=True)
+    
+    num_patience_epochs = 0
+    best_test_srocc = 0
+    for epoch in range(args.num_epochs):
+        if args.is_eval:
+            break
+        # Learning rate schedule
+        if (epoch + 1) % args.lr_schedule_epochs == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= args.lr_decay_factor
+        # Training
+        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
+        # Testing
+        val_mse_loss, val_srocc = evaluate_fn(model, val_piaa_imgsort_dataloader, criterion_mse, device, args)
+
+        if args.is_log:
+            wandb.log({"Train PIAA MSE Loss": train_mse_loss,
+                        "Val PIAA MSE Loss": val_mse_loss,
+                        "Val PIAA SROCC": val_srocc,
+                    }, commit=True)
+
+        # Early stopping check
+        if val_srocc > best_test_srocc:
+            best_test_srocc = val_srocc
+            num_patience_epochs = 0
+            torch.save(model.state_dict(), best_modelname)
+        else:
+            num_patience_epochs += 1
+            if num_patience_epochs >= args.max_patience_epochs:
+                print("Validation loss has not decreased for {} epochs. Stopping training.".format(args.max_patience_epochs))
+                break
+    
+    if not args.is_eval:
+        model.load_state_dict(torch.load(best_modelname))
+    # Testing
+    test_piaa_loss, test_piaa_srocc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
+    print(test_piaa_srocc)
+    test_giaa_loss, test_giaa_srocc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
+    test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
+    if args.is_log:
+        wandb.log({"Test PIAA MSE Loss": test_piaa_loss,
+                   "Test PIAA SROCC": test_piaa_srocc,
+                   "Test GIAA MSE Loss": test_giaa_loss,
+                   "Test GIAA SROCC": test_giaa_srocc,
+                   "Test GIAA MSE Loss (Prior)": test_giaa_loss_wprior,
+                   "Test GIAA SROCC (Prior)": test_giaa_srocc_wprior,                   
+                   }, commit=True)
+    print(
+        f"Test GIAA SROCC: {test_giaa_srocc:.4f}, "
+        f"Test GIAA SROCC (Prior): {test_giaa_srocc_wprior:.4f}, "
+        f"Test PIAA SROCC: {test_piaa_srocc:.4f}, ")
+    
+    return test_piaa_srocc  
+
 criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Training and Testing the Combined Model for data spliting')
-    parser.add_argument('--resume', type=str, default=None)
-    parser.add_argument('--pretrained_model', type=str, required=True)
-    parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--no_log', action='store_false', dest='is_log', help='Disable logging')
-
-    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate')
-    parser.add_argument('--batch_size', type=int, default=100, help='Batch size')
-    parser.add_argument('--num_epochs', type=int, default=5, help='Number of epochs')
+    parser = parse_arguments_piaa(False)
+    parser.add_argument('--model', type=str, default='PIAA-MIR')
     parser.add_argument('--num_users', type=int, default=40, help='Number of users for sampling')
     parser.add_argument('--num_image_threshold', type=int, default=200, help='Number of users for sampling')
-    
-    parser.add_argument('--lr_schedule_epochs', type=int, default=5, help='Epochs after which to apply learning rate decay')
-    parser.add_argument('--lr_decay_factor', type=float, default=0.1, help='Factor by which to decay the learning rate')
-    parser.add_argument('--max_patience_epochs', type=int, default=10, help='Max patience epochs for early stopping')    
     args = parser.parse_args()
+    print(args)    
+    # model_dir
     
     batch_size = args.batch_size
-    n_workers = 8
+    n_workers = args.num_workers
     num_bins = 9
     num_attr = 8
-    num_pt = 25 # number of personal trait
-    
+
+    if args.disable_onehot:
+        num_pt = 25 # number of personal trait
+    else:
+        num_pt = 50 + 20
+
     if args.is_log:
-        tags = ["no_attr","PIAA", "User sample"]
+        tags = wandb_tags(args)
+        if not args.disable_onehot:
+            tags += ['onehot enc']
+        tags += ['User sample']
         wandb.init(project="resnet_PARA_PIAA",
-                notes="PIAA-MIR",
-                tags = tags)
+                notes=args.model,
+                tags=tags)
         wandb.config = {
             "learning_rate": args.lr,
             "batch_size": batch_size,
@@ -106,20 +177,23 @@ if __name__ == '__main__':
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
-    
+        
     # Create dataloaders for training and test sets
     test_sroccs = []
     piaa_data_gen = load_user_sample_data(args)
     for user_id, train_dataset, test_dataset in piaa_data_gen:
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
-        test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
-        dataloaders = (train_dataloader, test_dataloader)
+        if args.disable_onehot:
+            train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=n_workers, timeout=300)
+            test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers, timeout=300)
+            dataloaders = (train_dataloader, test_dataloader)
+        else:
+            raise NotImplementedError()
         
         # Define the number of classes in your dataset
         num_classes = num_attr + num_bins
         # Define the device for training
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = CombinedModel(num_bins, num_attr, num_pt).to(device)
+        model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
         model = model.to(device)
         if args.resume:
@@ -136,29 +210,38 @@ if __name__ == '__main__':
         best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
         best_modelname += '_%s'%experiment_name
         best_modelname += '.pth'
-        dirname = 'models_pth'
+        dirname = model_dir(args)
         best_modelname = os.path.join(dirname, best_modelname)
 
         # Training loop
-        test_srocc = trainer(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
-        test_sroccs.append(test_srocc)
-    test_sroccs = np.array(test_sroccs)
-    # print(test_sroccs.mean(), test_sroccs.std())
-    # print(test_sroccs)
+        if args.disable_onehot:
+            test_srocc = trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
+        else:
+            test_srocc = trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+                
+        # Append the user_id and test_srocc as a tuple
+        test_sroccs.append((user_id, test_srocc))
+
+    # Convert the list of tuples into a numpy array
+    test_sroccs_array = np.array(test_sroccs, dtype=[('user_id', 'U20'), ('srocc', 'f4')])
 
     # Sort the SROCCs in descending order and select the top 40 values
-    top_40_sroccs = np.sort(test_sroccs)[-40:]
+    sorted_sroccs = np.sort(test_sroccs_array, order='srocc')[-40:]
+
     # Compute the mean and standard deviation of the top 40 SROCCs
-    mean_top_40 = top_40_sroccs.mean()
-    std_top_40 = top_40_sroccs.std()
+    mean_top_40 = sorted_sroccs['srocc'].mean()
+    std_top_40 = sorted_sroccs['srocc'].std()
+
     # Print the results
     print("Mean of top 40 SROCCs:", mean_top_40)
     print("Standard deviation of top 40 SROCCs:", std_top_40)
-    print("Top 40 SROCCs:", top_40_sroccs)
-    
-    # Save the test_sroccs array into a text file
-    np.savetxt('test_sroccs.txt', test_sroccs, fmt='%.6f')
-    plt.hist(test_sroccs, bins=20)
+    print("Top 40 SROCCs with user IDs:", sorted_sroccs)
+
+    # Save the test_sroccs array into a text file, including user IDs
+    np.savetxt('test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
+
+    # Plot histogram of the SROCC scores
+    plt.hist(test_sroccs_array['srocc'], bins=20)
     plt.savefig('test_score.jpg')
     
 

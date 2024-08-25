@@ -36,7 +36,7 @@ def apply_1d_gaussian_blur(tensor, kernel_size, sigma):
     return smoothed_tensor
 
 
-def train_piaa(model, dataloader, criterion_mse, optimizer, device):
+def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
     model.train()
     running_mse_loss = 0.0
 
@@ -63,7 +63,7 @@ def train_piaa(model, dataloader, criterion_mse, optimizer, device):
     return epoch_mse_loss
 
 
-def evaluate_piaa(model, dataloader, criterion_mse, device):
+def evaluate_piaa(model, dataloader, criterion_mse, device, args):
     model.eval()  # Set the model to evaluation mode
     running_mse_loss = 0.0
 
