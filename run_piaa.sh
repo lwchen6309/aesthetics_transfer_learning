@@ -10,7 +10,7 @@
 # python train_nima_attr.py --use_cv --n_fold 4 --fold_id 3
 # python train_nima_attr.py --use_cv --n_fold 4 --fold_id 4
 
-python train_piaa_mir_usersample.py --batch_size 50 --disable_onehot --num_users 500 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth
+# python train_piaa_mir_usersample.py --batch_size 50 --disable_onehot --num_users 500 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth
 
 # trainparams="--trainset PIAA --lr 5e-5 --num_epochs 20 --disable_onehot --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 # trainparams="--trainset PIAA --lr 5e-5 --disable_onehot"
@@ -21,10 +21,10 @@ python train_piaa_mir_usersample.py --batch_size 50 --disable_onehot --num_users
 # python train_piaa_mir.py --trainset PIAA --use_cv --n_fold 4 --fold_id 4 --pretrained_model models_pth/random_cvs/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_faithful-surf-255.pth
 # python train_piaa_ici.py $trainparams
 
-# trainparams="--trainset PIAA --lr 5e-5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
-# trainparams="--trainset PIAA --lr 5e-5 --is_eval --resume models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
+# trainparams="--trainset PIAA --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
+trainparams="--trainset PIAA --num_epochs 20"
 # python train_piaa_mir_lapis.py $trainparams --model PIAA_MIR
-
+python train_piaa_mir_lapis.py $trainparams --model PIAA_MIR_CF
 
 # pretrained="--pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 # python train_piaa_mir_lapis.py $trainparams $pretrained

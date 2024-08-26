@@ -57,6 +57,48 @@ class PIAA_MIR(nn.Module):
         
         return interaction_outputs + direct_outputs
 
+class PIAA_MIR_CF(nn.Module):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
+        super(PIAA_MIR_CF, self).__init__()
+        self.num_bins = num_bins
+        self.num_attr = num_attr
+        self.num_pt = num_pt
+        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
+        
+        # Placeholder for the NIMA_attr model
+        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        
+        # Interaction MLPs
+        self.dropout = dropout
+        self.dropout_layer = nn.Dropout(self.dropout)
+        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
+        self.mlp2 = MLP(num_bins, hidden_size, 1)
+        self.batch_norm = nn.BatchNorm1d(num_attr * num_pt)
+
+    def forward(self, images, personal_traits, A_ij_prev=None):
+        logit, attr_mean_pred = self.nima_attr(images)
+        prob = F.softmax(logit, dim=1)
+                
+        # Interaction map calculation
+        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
+        I_ij = A_ij.view(images.size(0), -1)
+        if A_ij_prev is not None:
+            A_ij_prev_flat = A_ij_prev.view(A_ij_prev.size(0), -1)
+            A_ij_prev_flat = self.batch_norm(A_ij_prev_flat)
+            mask = torch.sigmoid(torch.mean(A_ij_prev_flat, dim=0, keepdim=True))  # Logistic function and thresholding
+            mask = mask.float().to(I_ij.device)  # Convert boolean mask to float and move to the correct device
+            I_ij = I_ij * mask
+        else:
+            if self.dropout > 0:
+                I_ij = self.dropout_layer(I_ij)
+        interaction_outputs = self.mlp1(I_ij)
+        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
+
+        if self.training:
+            return interaction_outputs + direct_outputs, A_ij
+        else:
+            return interaction_outputs + direct_outputs
+
 class PIAA_MIR_Conv(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
         super(PIAA_MIR_Conv, self).__init__()
