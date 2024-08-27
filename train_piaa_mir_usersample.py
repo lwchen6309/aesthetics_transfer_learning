@@ -147,7 +147,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)    
     # model_dir
-    
+    args.trainset = 'PIAA'
     batch_size = args.batch_size
     n_workers = args.num_workers
     num_bins = 9
@@ -193,10 +193,12 @@ if __name__ == '__main__':
         if args.model == 'PIAA_MIR':
             model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
             best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-        else:
+        elif args.model == 'PIAA_ICI':
             model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
             best_modelname = 'best_model_resnet50_piaaici_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
-        
+        else:
+            raise NotImplementedError()
+
         if args.pretrained_model is not None:
             model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
         if args.resume:
