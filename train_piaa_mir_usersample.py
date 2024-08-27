@@ -2,15 +2,13 @@ import os
 import torch
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
+# import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
-from PARA_PIAA_dataloader import load_user_sample_data #, collect_batch_attribute, collect_batch_personal_trait
+from PARA_PIAA_dataloader import load_user_sample_data
 import wandb
-# from scipy.stats import spearmanr
-import argparse
-from train_piaa_mir import PIAA_MIR, train_piaa, evaluate_piaa, train, evaluate, evaluate_with_prior, trainer_piaa, trainer
+from train_piaa_mir import PIAA_MIR, train_piaa, evaluate_piaa, train, evaluate, evaluate_with_prior
+from train_piaa_ici import PIAA_ICI
 import matplotlib.pyplot as plt
 import warnings
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
@@ -141,7 +139,6 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
 
 criterion_mse = nn.MSELoss()
 
-
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
     parser.add_argument('--model', type=str, default='PIAA-MIR')
@@ -193,21 +190,23 @@ if __name__ == '__main__':
         num_classes = num_attr + num_bins
         # Define the device for training
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
-        model = model.to(device)
+        if args.model == 'PIAA_MIR':
+            model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+            best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
+        else:
+            model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+            best_modelname = 'best_model_resnet50_piaaici_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
+        
+        if args.pretrained_model is not None:
+            model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
         if args.resume:
             model.load_state_dict(torch.load(args.resume))
-
-        # Define the loss functions
-        criterion_mse = nn.MSELoss()
+        model = model.to(device)
 
         # Define the optimizer
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
         # Initialize the best test loss and the best model
-        best_model = None
-        best_modelname = 'best_model_resnet50_piaamir_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
         best_modelname += '_%s'%experiment_name
         best_modelname += '.pth'
         dirname = model_dir(args)

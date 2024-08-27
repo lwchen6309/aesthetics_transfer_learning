@@ -331,7 +331,7 @@ def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
         images = images.to(device)
         sample_score = sample_score.to(device).float()
         sample_attr = sample_attr.to(device)
-        sample_pt = sample_pt.to(device)
+        sample_pt = sample_pt.to(device).float()
         optimizer.zero_grad()
 
         y_ij = model(images, sample_pt)
@@ -369,7 +369,7 @@ def evaluate_piaa(model, dataloader, criterion_mse, device, args):
             images = images.to(device)
             sample_score = sample_score.to(device).float()
             sample_attr = sample_attr.to(device)
-            sample_pt = sample_pt.to(device)
+            sample_pt = sample_pt.to(device).float()
             batch_size = len(images)
 
             y_ij = model(images, sample_pt)
@@ -408,8 +408,41 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
         sample_pt = torch.cat([traits_histogram, onehot_big5], dim=1)
 
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
+        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
         score_pred = model(images, sample_pt)
+        loss = criterion_mse(score_pred, sample_score)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        running_mse_loss += loss.item()
+
+        progress_bar.set_postfix({
+            'Train MSE Mean Loss': loss.item(),
+        })
+
+    epoch_mse_loss = running_mse_loss / len(dataloader)
+    return epoch_mse_loss
+
+
+def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
+    model.train()
+    running_mse_loss = 0.0
+    scale = torch.arange(1, 5.5, 0.5).to(device)
+
+    A_ij = None
+    progress_bar = tqdm(dataloader, leave=False)
+    for sample in progress_bar:
+        images = sample['image'].to(device)
+        traits_histogram = sample['traits'].to(device)
+        onehot_big5 = sample['big5'].to(device)
+        sample_pt = torch.cat([traits_histogram, onehot_big5], dim=1)
+
+        aesthetic_score_histogram = sample['aestheticScore'].to(device)
+        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
+        if A_ij is not None:
+            A_ij = A_ij.detach()
+        score_pred, A_ij = model(images, sample_pt, A_ij)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -436,13 +469,11 @@ def evaluate(model, dataloader, criterion_mse, device, args):
     for sample in progress_bar:
         with torch.no_grad():
             images = sample['image'].to(device)
-            # sample_pt = sample['traits'].float().to(device)
             traits_histogram = sample['traits'].to(device)
             onehot_big5 = sample['big5'].to(device)
             sample_pt = torch.cat([traits_histogram, onehot_big5], dim=1)            
-            # sample_score = sample['response'].float().to(device) / 20.
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
+            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
 
             # MSE loss
             score_pred = model(images, sample_pt)
@@ -484,13 +515,9 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, devi
         progress_bar = tqdm(dataloader, leave=False)
         for sample in progress_bar:
             images = sample['image'].to(device)
-            # sample_pt = sample['traits'].float().to(device)
-            # traits_histogram = sample['traits'].to(device)
-            # onehot_big5 = sample['big5'].to(device)
-            # sample_pt = torch.cat([traits_histogram, onehot_big5], dim=1)
             sample_pt = mean_traits_histogram.repeat(images.shape[0], 1)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
+            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
 
             # MSE loss
             score_pred = model(images, sample_pt)
@@ -707,10 +734,12 @@ if __name__ == '__main__':
     elif args.model == 'PIAA_MIR_4layers':
         model = PIAA_MIR_4layers(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'        
+    elif args.model == 'PIAA_MIR_CF':
+        model = PIAA_MIR_CF(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+        best_modelname = f'best_model_resnet50_piaamir_cl_{experiment_name}.pth'        
     else:
         model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
-
 
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
@@ -730,8 +759,11 @@ if __name__ == '__main__':
     best_modelname = os.path.join(dirname, best_modelname)
     
     # Training loop
-    if args.disable_onehot:
-        trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
+    if args.model == 'PIAA_MIR_CF':
+        trainer(dataloaders, model, optimizer, args, train_cf, (evaluate, evaluate_with_prior), device, best_modelname)
     else:
-        trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
+        if args.disable_onehot:
+            trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
+        else:
+            trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
     

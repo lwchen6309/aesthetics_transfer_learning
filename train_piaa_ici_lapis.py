@@ -10,7 +10,8 @@ from tqdm import tqdm
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
-from train_piaa_mir import PIAA_MIR, CrossAttn_MIR, PIAA_MIR_1layer, PIAA_MIR_CF
+# from train_piaa_mir import PIAA_MIR, CrossAttn_MIR, PIAA_MIR_Embed, PIAA_MIR_1layer, PIAA_MIR_avgp, PIAA_MIR_SelfAttn, PIAA_MIR_Conv
+from train_piaa_ici import PIAA_ICI
 from train_piaa_mir import trainer, trainer_piaa
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
@@ -36,7 +37,7 @@ def apply_1d_gaussian_blur(tensor, kernel_size, sigma):
     return smoothed_tensor
 
 
-def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
+def train_piaa(model, dataloader, criterion_mse, optimizer, device):
     model.train()
     running_mse_loss = 0.0
 
@@ -63,7 +64,7 @@ def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
     return epoch_mse_loss
 
 
-def evaluate_piaa(model, dataloader, criterion_mse, device, args):
+def evaluate_piaa(model, dataloader, criterion_mse, device):
     model.eval()  # Set the model to evaluation mode
     running_mse_loss = 0.0
 
@@ -121,46 +122,6 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
         score_pred = model(images, sample_pt)
-        loss = criterion_mse(score_pred, sample_score)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        running_mse_loss += loss.item()
-
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
-
-def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
-    scale = torch.arange(0, 10).to(device)
-
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
-
-    progress_bar = tqdm(dataloader, leave=False)
-    A_ij = None
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-
-        # Conditionally apply Gaussian blur if args.blur_pt is True
-        if args.blur_pt:
-            sample_pt = apply_1d_gaussian_blur(sample_pt, kernel_size, sigma)
-        
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-        if A_ij is not None:
-            A_ij = A_ij.detach()
-        score_pred, A_ij = model(images, sample_pt, A_ij)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -262,7 +223,7 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
-    parser.add_argument('--model', type=str, default='PIAA-MIR')
+    parser.add_argument('--model', type=str, default='PIAA-ICI')
     parser.add_argument('--freeze_nima', action='store_true', help='Enable evaluation mode')
     parser.add_argument('--kernel_size', type=int, default=3)
     parser.add_argument('--sigma', type=float, default=2e-1)
@@ -305,28 +266,9 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if args.model == 'CrossAttn':
-        model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
-        best_modelname = f'best_model_resnet50_crossattn_mir_{experiment_name}.pth'
-    # elif args.model == 'MIR_Embed':
-    #     model = PIAA_MIR_Embed(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_embed_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_1layer':
-        model = PIAA_MIR_1layer(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_CF':
-        model = PIAA_MIR_CF(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_cl_{experiment_name}.pth'
-    # elif args.model == 'PIAA_MIR_SelfAttn':
-    #     model = PIAA_MIR_SelfAttn(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_selfattn_{experiment_name}.pth'
-    # elif args.model == 'PIAA_MIR_Conv':
-    #     model = PIAA_MIR_Conv(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_selfattn_{experiment_name}.pth'        
-    else:
-        model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
-    
+    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout)
+    best_modelname = f'lapis_best_model_resnet50_piaaici_{experiment_name}.pth'
+
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
     if args.resume:
@@ -347,14 +289,8 @@ if __name__ == '__main__':
     best_modelname = os.path.join(dirname, best_modelname)
     
     # Training loop
-    if args.model == 'PIAA_MIR_CF':
-        trainer(dataloaders, model, optimizer, args, train_cf, (evaluate, evaluate_with_prior), device, best_modelname)
+    if args.disable_onehot:
+        trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
+        # trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
     else:
-        if args.disable_onehot:
-            trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
-            # trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
-        else:
-            trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    
-    
-        
+        trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
