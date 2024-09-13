@@ -10,7 +10,7 @@ from tqdm import tqdm
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
-from train_piaa_mir import PIAA_MIR, CrossAttn_MIR, PIAA_MIR_1layer, PIAA_MIR_CF
+from train_piaa_mir import PIAA_MIR, CrossAttn_MIR, PIAA_MIR_1layer, PIAA_MIR_CF, PIAA_MIR_Rank
 from train_piaa_mir import trainer, trainer_piaa
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
@@ -314,6 +314,9 @@ if __name__ == '__main__':
     elif args.model == 'PIAA_MIR_1layer':
         model = PIAA_MIR_1layer(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'
+    elif args.model == 'PIAA_MIR_Rank':
+        model = PIAA_MIR_Rank(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+        best_modelname = f'best_model_resnet50_piaamir_rank_{experiment_name}.pth'             
     elif args.model == 'PIAA_MIR_CF':
         model = PIAA_MIR_CF(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
         best_modelname = f'best_model_resnet50_piaamir_cl_{experiment_name}.pth'
