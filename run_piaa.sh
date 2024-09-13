@@ -10,7 +10,10 @@
 # python train_nima_attr.py --use_cv --n_fold 4 --fold_id 3
 # python train_nima_attr.py --use_cv --n_fold 4 --fold_id 4
 
-# python train_piaa_mir_usersample.py --batch_size 50 --model PIAA_ICI --disable_onehot --num_users 3 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth
+giaa_pretrain=models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth
+python train_piaa_mir_usersample.py --no_log --max_annotations_per_user 10 --batch_size 50 --model PIAA_ICI --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
+python train_piaa_mir_usersample.py --no_log --max_annotations_per_user 10 --batch_size 100 --model PIAA_MIR --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
+
 
 # trainparams="--trainset PIAA --lr 5e-5 --num_epochs 20 --disable_onehot --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 # trainparams="--trainset PIAA --lr 5e-5 --disable_onehot"
@@ -22,10 +25,10 @@
 # python train_piaa_ici.py $trainparams
 
 # trainparams="--trainset PIAA --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
-trainparams="--trainset PIAA --num_epochs 20"
+# trainparams="--trainset PIAA --num_epochs 20"
 # python train_piaa_mir_lapis.py $trainparams --model PIAA_MIR
 # python train_piaa_mir.py $trainparams --model PIAA_MIR_CF
-python train_piaa_mir_lapis.py $trainparams --model PIAA_MIR_Rank
+# python train_piaa_mir_lapis.py $trainparams --model PIAA_MIR_Rank
 
 
 # pretrained="--pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"

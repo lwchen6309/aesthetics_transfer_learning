@@ -144,6 +144,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='PIAA-MIR')
     parser.add_argument('--num_users', type=int, default=40, help='Number of users for sampling')
     parser.add_argument('--num_image_threshold', type=int, default=200, help='Number of users for sampling')
+    parser.add_argument('--max_annotations_per_user', type=int, default=100, help='Number of users for sampling')
     args = parser.parse_args()
     print(args)    
     # model_dir
@@ -152,7 +153,7 @@ if __name__ == '__main__':
     n_workers = args.num_workers
     num_bins = 9
     num_attr = 8
-
+    
     if args.disable_onehot:
         num_pt = 25 # number of personal trait
     else:
@@ -232,14 +233,14 @@ if __name__ == '__main__':
     # Compute the mean and standard deviation of the top 40 SROCCs
     mean_top_40 = sorted_sroccs['srocc'].mean()
     std_top_40 = sorted_sroccs['srocc'].std()
-
+    
     # Print the results
     print("Mean of top 40 SROCCs:", mean_top_40)
     print("Standard deviation of top 40 SROCCs:", std_top_40)
     print("Top 40 SROCCs with user IDs:", sorted_sroccs)
 
     # Save the test_sroccs array into a text file, including user IDs
-    np.savetxt('test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
+    np.savetxt(f'{args.model}_{args.max_annotations_per_user}_test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
 
     # Plot histogram of the SROCC scores
     plt.hist(test_sroccs_array['srocc'], bins=20)

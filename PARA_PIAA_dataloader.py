@@ -175,7 +175,7 @@ def limit_annotations_per_user(data, max_annotations_per_user=100):
         set1, set2 = sample_disjoint(group.reset_index(drop=True), max_annotations_per_user, n_test)
         train_set.append(set1)
         test_set.append(set2)
-
+    
     # Concatenate the lists into DataFrames
     train_set_df = pd.concat(train_set)
     test_set_df = pd.concat(test_set)

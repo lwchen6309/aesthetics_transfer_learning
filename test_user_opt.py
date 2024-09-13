@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 
 # Load your data
-mir_file = './MIR_test_sroccs.txt'
-ici_file = './ICI_test_sroccs.txt'
+mir_file = './MIR_100_test_sroccs.txt'
+ici_file = './ICI_100_test_sroccs.txt'
 mir_data = pd.read_csv(mir_file, delim_whitespace=True)
 ici_data = pd.read_csv(ici_file, delim_whitespace=True)
 
