@@ -881,13 +881,52 @@ def load_testdata(args, root_dir = datapath['LAPIS_datapath']):
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
     return test_giaa_dataset, test_piaa_imgsort_dataset
 
+def extract_features(model, dataloader, device):
+    model.eval()  # Set the model to evaluation mode
+    feature_dict = {}
+
+    with torch.no_grad():
+        for sample in tqdm(dataloader, leave=False):
+            images = sample['image'].to(device)
+            img_name = sample['imgName']  # Assuming the dataset provides image names
+            
+            # Pass the images through the model up to the avgpool layer
+            features = model(images)
+            features = torch.flatten(features, start_dim=1)  # Flatten the output of avgpool
+            
+            # Store the features in the dictionary with image name as the key
+            for idx, name in enumerate(img_name):
+                feature_dict[name] = features[idx].cpu().numpy()
+
+    return feature_dict
 
 if __name__ == '__main__':
-    from utils.argflags import parse_arguments
+    from utils.argflags import parse_arguments, parse_arguments_piaa
+    import torch.nn as nn
+    from torchvision.models import resnet50
+
     args = parse_arguments()
 
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['LAPIS_datapath'])
     train_dataloader = DataLoader(train_dataset, batch_size=100, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers)
-    test_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=args.num_workers)
-    for sample in tqdm(test_dataloader):
+    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=args.num_workers)
+    for sample in tqdm(test_piaa_imgsort_dataloader):
         pass
+
+    # Initialize the pretrained ResNet50 model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    resnet = resnet50(pretrained=True).to(device)
+    model = nn.Sequential(*list(resnet.children())[:-1])  # Remove the last fc layer
+    model = model.to(device)
+    
+    # Extract features
+    feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
+    
+    # Save the features to a file
+    feature_save_path = 'extracted_features.pkl'
+    with open(feature_save_path, 'wb') as f:
+        pickle.dump(feature_dict, f)
+    
+    print(f"Features saved to {feature_save_path}")
+
+
