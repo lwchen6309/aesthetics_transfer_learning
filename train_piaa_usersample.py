@@ -240,7 +240,15 @@ if __name__ == '__main__':
     print("Top 40 SROCCs with user IDs:", sorted_sroccs)
 
     # Save the test_sroccs array into a text file, including user IDs
-    np.savetxt(f'{args.model}_{args.max_annotations_per_user}_test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
+    # np.savetxt(f'{args.model}_{args.max_annotations_per_user}_test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
+    base_filename = f'{args.model}_{args.max_annotations_per_user}_test_sroccs'
+    file_extension = '.txt'
+    counter = 1
+    filename = f'{base_filename}{file_extension}'
+    while os.path.exists(filename):
+        filename = f'{base_filename}_{counter}{file_extension}'
+        counter += 1
+    np.savetxt(filename, test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
 
     # Plot histogram of the SROCC scores
     plt.hist(test_sroccs_array['srocc'], bins=20)

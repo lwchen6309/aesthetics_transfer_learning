@@ -949,7 +949,8 @@ def extract_features(model, dataloader, device):
             
             # Store the features in the dictionary with image path as the key
             for idx, img_path in enumerate(img_paths):
-                feature_dict[img_path[0]] = features[idx].cpu().numpy()
+                # feature_dict[img_path[0]] = features[idx].cpu().numpy()
+                feature_dict[img_path] = features[idx].cpu().numpy()
 
     return feature_dict
 
@@ -978,13 +979,14 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Extract features
-    feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
+    # feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
+    feature_dict = extract_features(model, train_dataloader, device)
     
     # Save the features to a file
     feature_save_path = 'extracted_features.pkl'
     with open(feature_save_path, 'wb') as f:
         pickle.dump(feature_dict, f)
-
+    
     print(f"Features saved to {feature_save_path}")
 
 
