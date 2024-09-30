@@ -248,10 +248,10 @@ if __name__ == '__main__':
     print("Mean of top 40 SROCCs:", mean_top_40)
     print("Standard deviation of top 40 SROCCs:", std_top_40)
     print("Top 40 SROCCs with user IDs:", sorted_sroccs)
-
+    
     # Save the test_sroccs array into a text file, including user IDs
     # np.savetxt(f'{args.model}_{args.max_annotations_per_user}_test_sroccs.txt', test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
-    base_filename = f'{args.model}_{args.max_annotations_per_user}_test_sroccs'
+    base_filename = f'{args.model}_meta_{args.max_annotations_per_user}_test_sroccs'
     file_extension = '.txt'
     counter = 1
     filename = f'{base_filename}{file_extension}'
@@ -261,7 +261,7 @@ if __name__ == '__main__':
     np.savetxt(filename, test_sroccs_array, fmt='%s %.6f', header='User_ID SROCC')
 
     # Plot histogram of the SROCC scores
-    plt.hist(test_sroccs_array['srocc'], bins=20)
-    plt.savefig('test_score.jpg')
+    # plt.hist(test_sroccs_array['srocc'], bins=20)
+    # plt.savefig('test_score.jpg')
     
 

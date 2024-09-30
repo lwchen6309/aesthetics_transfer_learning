@@ -964,6 +964,7 @@ if __name__ == '__main__':
     args = parse_arguments()
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['PARA_datapath'])
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     # Iterate over the training dataloader
@@ -980,13 +981,15 @@ if __name__ == '__main__':
     
     # Extract features
     # feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
-    feature_dict = extract_features(model, train_dataloader, device)
+    train_feature_dict = extract_features(model, train_dataloader, device)
+    val_feature_dict = extract_features(model, val_dataloader, device)
+    test_feature_dict = extract_features(model, test_dataloader, device)
     
     # Save the features to a file
-    feature_save_path = 'extracted_features.pkl'
-    with open(feature_save_path, 'wb') as f:
-        pickle.dump(feature_dict, f)
-    
-    print(f"Features saved to {feature_save_path}")
-
+    with open('train_extracted_features.pkl', 'wb') as f:
+        pickle.dump(train_feature_dict, f)
+    with open('val_extracted_features.pkl', 'wb') as f:
+        pickle.dump(val_feature_dict, f)
+    with open('test_extracted_features.pkl', 'wb') as f:
+        pickle.dump(test_feature_dict, f)
 

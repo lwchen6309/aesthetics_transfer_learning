@@ -12,11 +12,8 @@
 
 giaa_pretrain=models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth
 # python train_piaa_usersample.py --no_log --max_annotations_per_user 100 --batch_size 100 --model PIAA_MIR --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
-for i in {1..1}
-do
-    echo "Number: $i"
-    python train_piaa_usersample_meta.py --no_log --max_annotations_per_user 10 --batch_size 100 --model PIAA_MIR --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
-done
+# resume=models_pth/best_model_resnet50_piaamir_comic-morning-623.pth
+
 # python train_piaa_usersample.py --no_log --max_annotations_per_user 100 --batch_size 50 --model PIAA_ICI --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
 # python train_piaa_usersample.py --no_log --max_annotations_per_user 10 --batch_size 50 --model PIAA_ICI --disable_onehot --num_users 500 --pretrained_model $giaa_pretrain
 
