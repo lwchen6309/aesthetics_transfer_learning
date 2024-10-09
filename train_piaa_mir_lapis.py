@@ -283,7 +283,7 @@ if __name__ == '__main__':
             tags += ['onehot enc']
         if args.blur_pt:
             tags += ['blur pt']        
-        wandb.init(project="resnet_LAVIS_PIAA",
+        wandb.init(project="resnet_LAPIS_PIAA",
                 notes=args.model,
                 tags = tags)
         experiment_name = wandb.run.name

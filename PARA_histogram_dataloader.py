@@ -967,6 +967,7 @@ if __name__ == '__main__':
     val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    raise Exception
     # Iterate over the training dataloader
     # for sample in tqdm(test_piaa_imgsort_dataloader):
         # Perform training operations here

@@ -2,26 +2,23 @@
 # run_script="train_nima_lapis.py"
 run_script="train_piaa_mir_lapis.py"
 # run_script="compare_traitsample_lapis.py"
-# resume="models_pth/lapis_best_model_resnet50_nima_lr5e-05_decay_20epoch_sleek-pine-468.pth"
-# training_args=" --resume $resume --num_epochs 5 --lr 5e-7 --trait_joint"
-# training_args="--lr 5e-5 --dropout 0.5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
-resume="models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
-training_args="--no_log --lr 5e-6 --resume $resume --num_epochs 5 --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
+training_args="--trainset PIAA --dropout 0.5 --disable_onehot --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
+# resume="models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
 
 list=("male" "female")
 for value in "${list[@]}"; do
     python $run_script --trait demo_gender --value $value $training_args 
 done
 
-list=("primary education" "secondary education" "Bachelor's or equivalent" "Master's or equivalent" "Doctorate")
-for value in "${list[@]}"; do
-    python $run_script --trait demo_edu --value "$value" $training_args
-done
+# list=("primary education" "secondary education" "Bachelor's or equivalent" "Master's or equivalent" "Doctorate")
+# for value in "${list[@]}"; do
+#     python $run_script --trait demo_edu --value "$value" $training_args
+# done
 
-list=("18-27" "28-38" "39-49" "50-60" "61-71")
-for value in "${list[@]}"; do
-    python $run_script --trait age --value "$value" $training_args
-done
+# list=("18-27" "28-38" "39-49" "50-60" "61-71")
+# for value in "${list[@]}"; do
+#     python $run_script --trait age --value "$value" $training_args
+# done
 
 # Define an array of traits
 # traits=("VAIAK1" "VAIAK2" "VAIAK3" "VAIAK4" "VAIAK5" "VAIAK6" "VAIAK7" "2VAIAK1" "2VAIAK2" "2VAIAK3" "2VAIAK4")

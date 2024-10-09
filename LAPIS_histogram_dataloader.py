@@ -681,7 +681,7 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
         val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
         test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
         test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
-
+    
     else:
         ensure_dir_exists(pkl_dir)
         map_file = os.path.join(pkl_dir,'trainset_image_dct.pkl')

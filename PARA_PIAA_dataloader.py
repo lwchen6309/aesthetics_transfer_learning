@@ -449,6 +449,12 @@ def load_user_sample_data(args, root_dir = datapath['PARA_datapath']):
 if __name__ == '__main__':
     args = parse_arguments_piaa()
     train_dataset, val_dataset, test_dataset = load_data(args, datapath['PARA_datapath'])
+    dataset = PARA_PIAADataset(datapath['PARA_datapath'])
+    traits = ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience']
+    for trait in traits:
+        unique_trait = dataset.data[trait].unique()
+        for t in unique_trait:
+            print(trait, t, sum(dataset.data[trait]==t))
     raise Exception
     
     # Create dataloaders for training and test sets

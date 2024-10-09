@@ -29,11 +29,11 @@ criterion_mse = nn.MSELoss()
 if __name__ == '__main__':    
     args = parse_arguments()
     batch_size = args.batch_size
-
+    
     if args.is_log:
         tags = ["no_attr","GIAA"]
         tags += wandb_tags(args)
-        wandb.init(project="resnet_LAVIS_PIAA", 
+        wandb.init(project="resnet_LAPIS_PIAA", 
                    notes="NIMA",
                    tags = tags)
         wandb.config = {
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    
     # Initialize the combined model
     model = NIMA(num_bins).to(device)
 

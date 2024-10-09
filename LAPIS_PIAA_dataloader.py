@@ -437,7 +437,13 @@ if __name__ == '__main__':
     
     train_dataset, val_dataset, test_dataset = load_data(args)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
-    # raise Exception
+    dataset = piaa_dataset = LAPIS_PIAADataset(datapath['LAPIS_datapath'])
+    traits = ['age', 'demo_gender', 'demo_edu',]
+    for trait in traits:
+        unique_trait = dataset.data[trait].unique()
+        for t in unique_trait:
+            print(trait, t, sum(dataset.data[trait]==t))
+    raise Exception
     # test_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     for sample in tqdm(test_dataloader):
         print(sample)
