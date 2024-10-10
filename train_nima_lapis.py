@@ -264,10 +264,11 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(args.resume))
     # Loss and optimizer
     # criterion_mse = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_modelname = f'lapis_resnet50_nima_{experiment_name}.pth'
+    best_modelname = f'lapis_{args.backbone}_nima_{experiment_name}.pth'
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     

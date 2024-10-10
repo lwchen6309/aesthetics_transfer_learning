@@ -7,97 +7,79 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 # from LAPIS_PIAA_dataloader import load_data as piaa_load_data
 # from LAPIS_PIAA_dataloader import collate_fn as piaa_collate_fn
+from torchvision.models import resnet50
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
-from train_piaa_mir import PIAA_MIR, CrossAttn_MIR, PIAA_MIR_1layer, PIAA_MIR_CF, PIAA_MIR_Rank
-from train_piaa_mir import trainer, trainer_piaa
+# from train_piaa_mir import PIAA_MIR
+# from train_piaa_mir import trainer, trainer_piaa
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
-def apply_1d_gaussian_blur(tensor, kernel_size, sigma):
-    # tensor shape is [batch_size, num_features], e.g., [100, 137]
-    batch_size, num_features = tensor.shape
-    
-    # Create a 1D Gaussian kernel
-    kernel = torch.exp(-0.5 * (torch.arange(kernel_size, dtype=torch.float32).to(tensor.device) - (kernel_size - 1) / 2) ** 2 / sigma ** 2)
-    kernel = kernel / kernel.sum()
-    kernel = kernel.view(1, 1, -1)  # Shape [1, 1, kernel_size]
-    
-    # Reshape tensor to [batch_size, 1, num_features] to apply 1D conv
-    tensor = tensor.unsqueeze(1)  # Shape [batch_size, 1, num_features]
-    
-    # Apply 1D convolution
-    smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2, groups=1)
-    
-    # Remove the added dimension
-    smoothed_tensor = smoothed_tensor.squeeze(1)  # Shape [batch_size, num_features]
-    
-    return smoothed_tensor
+class NIMA_attr(nn.Module):
+    def __init__(self, num_bins_aesthetic, num_attr):
+        super(NIMA_attr, self).__init__()
+        self.resnet = resnet50(pretrained=True)
+        self.resnet.fc = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features, 512),
+            nn.ReLU(),
+        )
+        self.num_bins_aesthetic = num_bins_aesthetic
 
+        self.fc_aesthetic = nn.Sequential(
+            nn.Linear(512, num_bins_aesthetic)
+        )
+        self.fc_attributes = nn.Sequential(
+            nn.Linear(512, num_attr)
+        )
 
-def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
+    def forward(self, images):
+        x = self.resnet(images)
+        aesthetic_logits = self.fc_aesthetic(x)
+        attribute_logits = self.fc_attributes(x)
+        return aesthetic_logits, attribute_logits
 
-    progress_bar = tqdm(dataloader, leave=False)
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-        sample_score = sample['response'].float().to(device) / 2.
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(MLP, self).__init__()
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
 
-        score_pred = model(images, sample_pt)
-        # loss = criterion_mse(score_pred, sample_score)
-        loss = criterion_mse(score_pred / 5., sample_score / 5.)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
-        running_mse_loss += loss.item()
+class PIAA_MIR(nn.Module):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
+        super(PIAA_MIR, self).__init__()
+        self.num_bins = num_bins
+        self.num_attr = num_attr
+        self.num_pt = num_pt
+        self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
+        
+        # Placeholder for the NIMA_attr model
+        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        
+        # Interaction MLPs
+        self.dropout = dropout
+        self.dropout_layer = nn.Dropout(self.dropout)
+        self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
+        self.mlp2 = MLP(num_bins, hidden_size, 1)
 
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
-
-def evaluate_piaa(model, dataloader, criterion_mse, device, args):
-    model.eval()  # Set the model to evaluation mode
-    running_mse_loss = 0.0
-
-    all_predicted_scores = []  # List to store all predictions
-    all_true_scores = []  # List to store all true scores
-
-    progress_bar = tqdm(dataloader, leave=False)
-    for sample in progress_bar:
-        with torch.no_grad():
-            images = sample['image'].to(device)
-            sample_pt = sample['traits'].float().to(device)
-            sample_score = sample['response'].float().to(device) / 2.
-            
-            # MSE loss
-            score_pred = model(images, sample_pt)
-            # loss = criterion_mse(score_pred, sample_score)
-            loss = criterion_mse(score_pred / 5., sample_score / 5.)
-            running_mse_loss += loss.item()
-
-            # Store predicted and true scores for SROCC calculation
-            predicted_scores = score_pred.view(-1).cpu().numpy()
-            true_scores = sample_score.view(-1).cpu().numpy()
-            all_predicted_scores.extend(predicted_scores)
-            all_true_scores.extend(true_scores)
-
-            progress_bar.set_postfix({'Test MSE Mean Loss': loss.item()})
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-
-    # Calculate SROCC for all predictions
-    srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
-
-    return epoch_mse_loss, srocc
-
+    def forward(self, images, personal_traits):
+        logit, attr_mean_pred = self.nima_attr(images)
+        prob = F.softmax(logit, dim=1)
+        
+        # Interaction map calculation
+        A_ij = attr_mean_pred.unsqueeze(2) * personal_traits.unsqueeze(1)
+        I_ij = A_ij.view(images.size(0), -1)
+        if self.dropout > 0:
+            I_ij = self.dropout_layer(I_ij)
+        interaction_outputs = self.mlp1(I_ij)
+        direct_outputs = self.mlp2(prob * self.scale.to(images.device))
+        
+        return interaction_outputs + direct_outputs
 
 def train(model, dataloader, criterion_mse, optimizer, device, args):
     model.train()
@@ -112,55 +94,10 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
     progress_bar = tqdm(dataloader, leave=False)
     for sample in progress_bar:
         images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-
-        # Conditionally apply Gaussian blur if args.blur_pt is True
-        if args.blur_pt:
-            sample_pt = apply_1d_gaussian_blur(sample_pt, kernel_size, sigma)
-        
+        sample_pt = sample['traits'].float().to(device)        
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
         score_pred = model(images, sample_pt)
-        loss = criterion_mse(score_pred, sample_score)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        running_mse_loss += loss.item()
-
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
-
-def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
-    scale = torch.arange(0, 10).to(device)
-
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
-
-    progress_bar = tqdm(dataloader, leave=False)
-    A_ij = None
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-
-        # Conditionally apply Gaussian blur if args.blur_pt is True
-        if args.blur_pt:
-            sample_pt = apply_1d_gaussian_blur(sample_pt, kernel_size, sigma)
-        
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-        if A_ij is not None:
-            A_ij = A_ij.detach()
-        score_pred, A_ij = model(images, sample_pt, A_ij)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -212,80 +149,86 @@ def evaluate(model, dataloader, criterion_mse, device, args):
 
     return epoch_mse_loss, srocc
 
+def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
 
-def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, device, args):
-    model.eval()  # Set the model to evaluation mode
-    running_mse_loss = 0.0
-    scale = torch.arange(0, 10).to(device)
-    all_predicted_scores = []  # List to store all predictions
-    all_true_scores = []  # List to store all true scores
+    train_dataloader, val_dataloader, test_dataloader = dataloaders
+    
+    if args.resume is not None:
+        test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
+        if args.is_log:
+            wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
+                    "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
+    
+    num_patience_epochs = 0
+    best_test_srocc = 0
+    for epoch in range(args.num_epochs):
+        if args.is_eval:
+            break
+        # Learning rate schedule
+        if (epoch + 1) % args.lr_schedule_epochs == 0:
+            for param_group in optimizer.param_groups:
+                param_group['lr'] *= args.lr_decay_factor
+        # Training
+        train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
+        # Testing
+        val_mse_loss, val_srocc = evaluate_fn(model, val_dataloader, criterion_mse, device, args)
 
-    progress_bar = tqdm(dataloader, leave=False)
-    with torch.no_grad():
-        traits_histograms = []
-        for sample in tqdm(prior_dataloader, leave=False):
-            traits_histogram = sample['traits'].to(device)
-            traits_histograms.append(traits_histogram)
-        mean_traits_histogram = torch.mean(torch.cat(traits_histograms, dim=0), dim=0).unsqueeze(0)
+        if args.is_log:
+            wandb.log({"Train PIAA MSE Loss": train_mse_loss,
+                        "Val PIAA MSE Loss": val_mse_loss,
+                        "Val PIAA SROCC": val_srocc,
+                    }, commit=True)
 
-        for sample in progress_bar:
-            images = sample['image'].to(device)
-            # sample_pt = sample['traits'].float().to(device)
-            sample_pt = mean_traits_histogram.repeat(images.shape[0], 1)
-            # sample_score = sample['response'].float().to(device) / 20.
-            aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-
-            # MSE loss
-            score_pred = model(images, sample_pt)
-            loss = criterion_mse(score_pred, sample_score)
-            running_mse_loss += loss.item()
-
-            # Store predicted and true scores for SROCC calculation
-            predicted_scores = score_pred.view(-1).cpu().numpy()
-            true_scores = sample_score.view(-1).cpu().numpy()
-            all_predicted_scores.extend(predicted_scores)
-            all_true_scores.extend(true_scores)
-
-            progress_bar.set_postfix({'Test MSE Mean Loss': loss.item()})
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-
-    # Calculate SROCC for all predictions
-    srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
-
-    return epoch_mse_loss, srocc
-
+        # Early stopping check
+        if val_srocc > best_test_srocc:
+            best_test_srocc = val_srocc
+            num_patience_epochs = 0
+            torch.save(model.state_dict(), best_modelname)
+        else:
+            num_patience_epochs += 1
+            if num_patience_epochs >= args.max_patience_epochs:
+                print("Validation loss has not decreased for {} epochs. Stopping training.".format(args.max_patience_epochs))
+                break
+    
+    if not args.is_eval:
+        model.load_state_dict(torch.load(best_modelname))
+    # Testing
+    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
+    if args.is_log:
+        wandb.log({"Test PIAA MSE Loss": test_mse_loss,
+                   "Test PIAA SROCC": test_srocc}, commit=True)
+    print(
+        # f"Train PIAA MSE Loss: {train_mse_loss:.4f}, "
+        f"Test PIAA MSE Loss: {test_mse_loss:.4f}, "
+        f"Test PIAA SROCC Loss: {test_srocc:.4f}, ")
+    
+    return test_srocc  
 
 criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
+    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'mobilenet_v2', 'inception_v3', 'resnet18', 'swin_v2_t', 'swin_v2_s'], 
+                    help="Choose the model backbone from: 'resnet50', 'mobilenet_v2', 'resnet18', 'swin_v2_t', 'swin_v2_s'")
     parser.add_argument('--model', type=str, default='PIAA-MIR')
     parser.add_argument('--freeze_nima', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--kernel_size', type=int, default=3)
-    parser.add_argument('--sigma', type=float, default=2e-1)
     args = parser.parse_args()
+    args.disable_onehot = True
     print(args)
     
     num_bins = 9
     num_attr = 8
-    if args.disable_onehot:
-        num_pt = 71
-    else:
-        num_pt = 137
+    num_pt = 71
     
     if args.is_log:
         tags = ["no_attr"]
         tags += wandb_tags(args)
-        if not args.disable_onehot:
-            tags += ['onehot enc']
-        if args.blur_pt:
-            tags += ['blur pt']        
-        wandb.init(project="resnet_LAPIS_PIAA",
-                notes=args.model,
-                tags = tags)
+        wandb.init(project="LAPIS_IAA", 
+                   notes='PIAA-MIR-'+args.backbone,
+                   tags = tags,
+                   entity='KULeuven-GRAPPA',
+                   )
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -297,38 +240,12 @@ if __name__ == '__main__':
     val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
-    if args.disable_onehot:
-        # train_piaa_dataset, val_piaa_dataset, test_piaa_dataset = piaa_load_data(args)
-        dataloaders = (train_dataloader, val_piaa_imgsort_dataloader, test_piaa_imgsort_dataloader)
-    else:
-        dataloaders = (train_dataloader, val_giaa_dataloader, val_piaa_imgsort_dataloader, test_giaa_dataloader, test_piaa_imgsort_dataloader)
+    dataloaders = (train_dataloader, val_piaa_imgsort_dataloader, test_piaa_imgsort_dataloader)
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if args.model == 'CrossAttn':
-        model = CrossAttn_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, num_heads=num_pt).to(device)
-        best_modelname = f'best_model_resnet50_crossattn_mir_{experiment_name}.pth'
-    # elif args.model == 'MIR_Embed':
-    #     model = PIAA_MIR_Embed(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_embed_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_1layer':
-        model = PIAA_MIR_1layer(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_1layer_{experiment_name}.pth'
-    elif args.model == 'PIAA_MIR_Rank':
-        model = PIAA_MIR_Rank(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_rank_{experiment_name}.pth'             
-    elif args.model == 'PIAA_MIR_CF':
-        model = PIAA_MIR_CF(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_cl_{experiment_name}.pth'
-    # elif args.model == 'PIAA_MIR_SelfAttn':
-    #     model = PIAA_MIR_SelfAttn(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_selfattn_{experiment_name}.pth'
-    # elif args.model == 'PIAA_MIR_Conv':
-    #     model = PIAA_MIR_Conv(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    #     best_modelname = f'best_model_resnet50_piaamir_selfattn_{experiment_name}.pth'        
-    else:
-        model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-        best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
+    model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
+    best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
     
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
@@ -337,27 +254,10 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Define the optimizer
-    if args.freeze_nima:
-        nima_attr_params = list(model.nima_attr.parameters())
-        other_params = [param for param in model.parameters() if param not in nima_attr_params]
-        # Define the optimizer excluding nima_attr parameters
-        optimizer = optim.Adam(other_params, lr=args.lr)
-    else:
-        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     
-    # Training loop
-    if args.model == 'PIAA_MIR_CF':
-        trainer(dataloaders, model, optimizer, args, train_cf, (evaluate, evaluate_with_prior), device, best_modelname)
-    else:
-        if args.disable_onehot:
-            trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
-            # trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
-        else:
-            trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    
-    
-        
+    trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
