@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 # from LAPIS_PIAA_dataloader import load_data as piaa_load_data
 # from LAPIS_PIAA_dataloader import collate_fn as piaa_collate_fn
-from torchvision.models import resnet50
+from torchvision.models import resnet50, mobilenet_v2, resnet18, swin_v2_t, swin_v2_s
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
 from scipy.stats import spearmanr
@@ -17,26 +17,60 @@ from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
 class NIMA_attr(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr):
+    def __init__(self, num_bins_aesthetic, num_attr, backbone='resnet50'):
         super(NIMA_attr, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
+        
+        # Choose model backbone based on the input argument
+        if backbone == 'resnet50':
+            self.backbone = resnet50(pretrained=True)
+            backbone_out_features = self.backbone.fc.in_features
+            self.backbone.fc = nn.Identity()  # Remove the last fully connected layer
+        
+        elif backbone == 'mobilenet_v2':
+            self.backbone = mobilenet_v2(pretrained=True)
+            backbone_out_features = self.backbone.last_channel
+            self.backbone.classifier = nn.Identity()  # Remove the classifier
 
+        elif backbone == 'resnet18':
+            self.backbone = resnet18(pretrained=True)
+            backbone_out_features = self.backbone.fc.in_features
+            self.backbone.fc = nn.Identity()  # Remove the last fully connected layer
+
+        elif backbone == 'swin_v2_t':
+            self.backbone = swin_v2_t(pretrained=True)
+            backbone_out_features = self.backbone.head.in_features
+            self.backbone.head = nn.Identity()  # Remove the head
+
+        elif backbone == 'swin_v2_s':
+            self.backbone = swin_v2_s(pretrained=True)
+            backbone_out_features = self.backbone.head.in_features
+            self.backbone.head = nn.Identity()  # Remove the head
+
+        else:
+            raise ValueError(f"Model {backbone} is not supported.")
+        
+        # Aesthetic score prediction head
         self.fc_aesthetic = nn.Sequential(
+            nn.Linear(backbone_out_features, 512),
+            nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
+        
+        # Attribute prediction head
         self.fc_attributes = nn.Sequential(
+            nn.Linear(backbone_out_features, 512),
+            nn.ReLU(),
             nn.Linear(512, num_attr)
         )
 
     def forward(self, images):
-        x = self.resnet(images)
+        # Pass images through the backbone
+        x = self.backbone(images)
+        
+        # Aesthetic and attribute predictions
         aesthetic_logits = self.fc_aesthetic(x)
         attribute_logits = self.fc_attributes(x)
+        
         return aesthetic_logits, attribute_logits
 
 class MLP(nn.Module):
@@ -51,7 +85,7 @@ class MLP(nn.Module):
         return x
 
 class PIAA_MIR(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None):
+    def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None, backbone='resnet-50'):
         super(PIAA_MIR, self).__init__()
         self.num_bins = num_bins
         self.num_attr = num_attr
@@ -59,7 +93,7 @@ class PIAA_MIR(nn.Module):
         self.scale = torch.arange(1, 5.5, 0.5)  # This will be moved to the correct device in forward()
         
         # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)  # Make sure to define or import NIMA_attr
+        self.nima_attr = NIMA_attr(num_bins, num_attr, backbone=backbone)  # Make sure to define or import NIMA_attr
         
         # Interaction MLPs
         self.dropout = dropout
@@ -209,10 +243,7 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
-    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'mobilenet_v2', 'inception_v3', 'resnet18', 'swin_v2_t', 'swin_v2_s'], 
-                    help="Choose the model backbone from: 'resnet50', 'mobilenet_v2', 'resnet18', 'swin_v2_t', 'swin_v2_s'")
-    parser.add_argument('--model', type=str, default='PIAA-MIR')
-    parser.add_argument('--freeze_nima', action='store_true', help='Enable evaluation mode')
+    parser.add_argument('--backbone', type=str, default='resnet50')
     args = parser.parse_args()
     args.disable_onehot = True
     print(args)
@@ -244,8 +275,8 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
+    model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, backbone=args.backbone).to(device)
+    best_modelname = f'lapis_{args.backbone}_piaamir_{experiment_name}.pth'
     
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))

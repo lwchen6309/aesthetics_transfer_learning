@@ -7,50 +7,66 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 # from torchvision import transforms
 from torchvision.models import resnet50, mobilenet_v2, resnet18, swin_v2_t, swin_v2_s
+from navit.main import NaViT
 import numpy as np
 # import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
-from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
+from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn, collate_fn_noresize, collate_fn_imgsort_noresize
 from utils.argflags import parse_arguments, wandb_tags, model_dir
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 
 
 class NIMA(nn.Module):
-    def __init__(self, num_bins_aesthetic, model_name='resnet50'):
+    def __init__(self, num_bins_aesthetic, backbone='resnet50'):
         super(NIMA, self).__init__()
-        
+
+        if backbone == 'navit':
+            self.backbone = NaViT(
+                image_size = 256,
+                patch_size = 32,
+                num_classes = num_bins_aesthetic,
+                dim = 1024,
+                heads = 16,
+                mlp_dim=512,
+                dropout=0.1,
+                emb_dropout=0.1,
+                token_dropout_prob=0.1,
+                depth=1
+            )
+            self.fc_aesthetic = nn.Identity()
+            return
+
         # Choose model backbone based on the input argument
-        if model_name == 'resnet50':
+        if backbone == 'resnet50':
             self.backbone = resnet50(pretrained=True)
             backbone_out_features = self.backbone.fc.in_features
             self.backbone.fc = nn.Identity()  # Remove the last fully connected layer
         
-        elif model_name == 'mobilenet_v2':
+        elif backbone == 'mobilenet_v2':
             self.backbone = mobilenet_v2(pretrained=True)
             backbone_out_features = self.backbone.last_channel
             self.backbone.classifier = nn.Identity()  # Remove the classifier
 
-        elif model_name == 'resnet18':
+        elif backbone == 'resnet18':
             self.backbone = resnet18(pretrained=True)
             backbone_out_features = self.backbone.fc.in_features
             self.backbone.fc = nn.Identity()  # Remove the last fully connected layer
 
-        elif model_name == 'swin_v2_t':
+        elif backbone == 'swin_v2_t':
             self.backbone = swin_v2_t(pretrained=True)
             backbone_out_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()  # Remove the head
 
-        elif model_name == 'swin_v2_s':
+        elif backbone == 'swin_v2_s':
             self.backbone = swin_v2_s(pretrained=True)
             backbone_out_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()  # Remove the head
-
         else:
-            raise ValueError(f"Model {model_name} is not supported.")
-        print(model_name)
+            raise ValueError(f"Model {backbone} is not supported.")
+        
         # Final fully connected layers for aesthetic score prediction
         self.fc_aesthetic = nn.Sequential(
             nn.Linear(backbone_out_features, 512),
@@ -63,14 +79,14 @@ class NIMA(nn.Module):
         aesthetic_logits = self.fc_aesthetic(x)
         return aesthetic_logits
     
-def train(model, dataloader, optimizer, device):
+def train(model, dataloader, optimizer, device, args):
     model.train()
     running_aesthetic_emd_loss = 0.0
     running_total_emd_loss = 0.0
     progress_bar = tqdm(dataloader, leave=False)
     units_len = dataloader.dataset.traits_len()
     for sample in progress_bar:        
-        images = sample['image'].to(device)
+        images = [x.to(device) for x in sample['image']] if args.disable_resize else sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
         art_type = sample['art_type'].to(device)
@@ -111,7 +127,8 @@ def evaluate(model, dataloader, device):
     mean_target = []
     with torch.no_grad():
         for sample in progress_bar:
-            images = sample['image'].to(device)
+            # images = sample['image'].to(device)
+            images = [x.to(device) for x in sample['image']] if args.disable_resize else sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].to(device)
             art_type = sample['art_type'].to(device)
@@ -223,10 +240,10 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':    
     parser = parse_arguments(False)
-    parser.add_argument('--backbone', type=str, default='resnet50', choices=['resnet50', 'mobilenet_v2', 'inception_v3', 'resnet18', 'swin_v2_t', 'swin_v2_s'], 
-                    help="Choose the model backbone from: 'resnet50', 'mobilenet_v2', 'resnet18', 'swin_v2_t', 'swin_v2_s'")
+    parser.add_argument('--backbone', type=str, default='resnet50')
     args = parser.parse_args()
     batch_size = args.batch_size
+    print(args)
     
     if args.is_log:
         tags = ["no_attr","GIAA"]
@@ -247,8 +264,9 @@ if __name__ == '__main__':
     
     # Create dataloaders
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args)
+    if args.disable_resize:
+        collate_fn, collate_fn_imgsort = collate_fn_noresize, collate_fn_imgsort_noresize
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
-    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     val_giaa_dataloader = DataLoader(val_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
     val_piaa_imgsort_dataloader = DataLoader(val_piaa_imgsort_dataset, batch_size=5, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     test_giaa_dataloader = DataLoader(test_giaa_dataset, batch_size=batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
@@ -258,7 +276,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize the combined model
-    model = NIMA(num_bins, model_name=args.backbone).to(device)
+    model = NIMA(num_bins, backbone=args.backbone).to(device)
 
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))

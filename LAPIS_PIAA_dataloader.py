@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 # import argparse
 from utils.argflags import parse_arguments_piaa
-
+from utils.custom_transform import ResizeToNearestDivisible
 import yaml
 file_path = 'data_config.yaml'
 with open(file_path, 'r') as file:
@@ -365,20 +365,33 @@ def plot_histogram_comparison(dataset):
     plt.savefig('PARA_histogram.jpg', dpi=300)
 
 
-def load_data(args, root_dir = datapath['LAPIS_datapath']):
-    # Dataset transformations
-    train_transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
+def load_data(args, root_dir = datapath['LAPIS_datapath']):    
     fold_id = getattr(args, 'fold_id', None)
     n_fold = getattr(args, 'n_fold', None)
+    disable_resize = getattr(args, 'disable_resize', False)
+
+    # Dataset transformations
+    if disable_resize:
+        train_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(0.5),
+            ResizeToNearestDivisible(n=args.patch_size),
+            transforms.ToTensor(),
+        ])
+        test_transform = transforms.Compose([
+            ResizeToNearestDivisible(n=args.patch_size),
+            transforms.ToTensor(),
+        ])
+    else:
+        train_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.RandomResizedCrop(224),
+            transforms.ToTensor(),
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+        ])
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)

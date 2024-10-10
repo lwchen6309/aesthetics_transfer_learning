@@ -4,6 +4,7 @@ from torchvision import transforms
 import torch.nn.functional as F
 from LAPIS_PIAA_dataloader import LAPIS_PIAADataset, create_image_split_dataset, create_user_split_dataset_kfold, datapath
 from torch.utils.data import DataLoader
+from utils.custom_transform import ResizeToNearestDivisible
 
 # import random
 import pickle
@@ -354,14 +355,21 @@ def collate_fn(batch):
         'art_type':torch.stack([item['art_type'] for item in batch])
     }
 
-
-def collate_fn_pair(batch):
-    # Flatten the batch: convert [(item1, item2), (item3, item4), ...] to [item1, item2, item3, item4, ...]
-    flattened_batch = [item for pair in batch for item in pair]
+def collate_fn_noresize(batch):
+    # Extracting individual components
+    traits_histograms_concatenated = torch.cat([
+        torch.stack([item['onehot_traits'] for item in batch]),
+        torch.stack([item['VAIAK'] for item in batch]),
+        torch.stack([item['2VAIAK'] for item in batch]),
+        ], dim=1)
     
-    # Call the original collate function with the flattened batch
-    return collate_fn(flattened_batch)
-
+    return {
+        'imgName':[item['imgName'] for item in batch],
+        'image': [item['image'].unsqueeze(0) for item in batch],
+        'aestheticScore': torch.stack([item['aestheticScore'] for item in batch]),
+        'traits': traits_histograms_concatenated,
+        'art_type':torch.stack([item['art_type'] for item in batch])
+    }
 
 def collate_fn_imgsort(batch):
     images = [item['image'].unsqueeze(0).repeat(item['aestheticScore'].shape[0], 1, 1, 1) for item in batch]
@@ -390,22 +398,61 @@ def collate_fn_imgsort(batch):
         'art_type': torch.cat([item['art_type'] for item in batch])
     }
 
+def collate_fn_imgsort_noresize(batch):
+    images = [item['image'].unsqueeze(0).repeat(item['aestheticScore'].shape[0], 1, 1, 1) for item in batch]
+    images_stacked = images
+    
+    # Extracting individual components
+    traits_histograms_concatenated = torch.cat([
+        torch.cat([item['onehot_traits'] for item in batch]),
+        torch.cat([item['VAIAK'] for item in batch]),
+        torch.cat([item['2VAIAK'] for item in batch]),
+        ], dim=1)
+    
+    userID = []
+    for item in batch:
+        if isinstance(item['userId'], int):
+            userID.append(item['userId'])
+        elif isinstance(item['userId'], list):
+            userID.extend(item['userId'])
+
+    return {
+        'userId': torch.stack(userID),
+        'imgName':[item['imgName'] for item in batch],
+        'image': images_stacked,
+        'aestheticScore': torch.cat([item['aestheticScore'] for item in batch]),
+        'traits': traits_histograms_concatenated,
+        'art_type': torch.cat([item['art_type'] for item in batch])
+    }
 
 def load_data(args, root_dir = datapath['LAPIS_datapath']):
     # Dataset transformations
-    train_transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
     fold_id = getattr(args, 'fold_id', None)
     n_fold = getattr(args, 'n_fold', None)
     disable_onehot = getattr(args, 'disable_onehot', False)
+    disable_resize = getattr(args, 'disable_resize', False)
+
+    if disable_resize:
+        train_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(0.5),
+            ResizeToNearestDivisible(n=args.patch_size),
+            transforms.ToTensor(),
+        ])
+        test_transform = transforms.Compose([
+            ResizeToNearestDivisible(n=args.patch_size),
+            transforms.ToTensor(),
+        ])
+    else:
+        train_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.RandomResizedCrop(224),
+            transforms.ToTensor(),
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(224),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+        ])
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
@@ -491,7 +538,7 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
 if __name__ == '__main__':
     from utils.argflags import parse_arguments_piaa
     args = parse_arguments_piaa()
-
+    
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['LAPIS_datapath'])
     train_dataloader = DataLoader(train_dataset, batch_size=100, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=args.num_workers)

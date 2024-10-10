@@ -30,6 +30,8 @@ def parse_arguments(parse=True):
     parser.add_argument('--lr_schedule_epochs', type=int, default=5)
     parser.add_argument('--lr_decay_factor', type=float, default=0.5)        
     
+    parser.add_argument('--disable_resize', action='store_true', help='Disable resizeing in transform')
+    parser.add_argument('--patch_size', type=int, default=32)
     if parse:
         return parser.parse_args()
     else:
