@@ -35,19 +35,22 @@ class LAPIS_PIAADataset(Dataset):
         self.root_dir = root_dir
         self.transform = transform
         annot_dir = os.path.join(root_dir, 'annotation')
-        piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
+        # piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
+        # data = pd.read_excel(piaa_path, engine='openpyxl')
+        piaa_path = os.path.join(annot_dir, 'LAPIS_individualratings_metaANDdemodata.csv')
+        data = pd.read_csv(piaa_path)
         self.image_dir = os.path.join(root_dir, 'datasetImages_originalSize')
         
         # Load and preprocess data
         # data = pd.read_excel(piaa_path)
-        data = pd.read_excel(piaa_path, engine='openpyxl')
-        split_paths = [os.path.split(path) for path in data['image_filename'].values]
+        # split_paths = [os.path.split(path) for path in data['image_filename'].values]
+        split_paths = [os.path.split(path) for path in data['file'].values]
         data['art_type'], data['imageName'] = zip(*split_paths)
         # Filter non-exsiting file, or the non-detected file caused by error code of filenames
         image_names = list(data['imageName'].unique())
         existing_image_names = [img for img in image_names if os.path.exists(os.path.join(root_dir, 'datasetImages_originalSize', img))]
         data = data[data['imageName'].isin(existing_image_names)]
-
+        
         # Drop empty entries
         required_fields = ['image_id', 'response', 'participant_id', 'age', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         self.art_interest_fields = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]

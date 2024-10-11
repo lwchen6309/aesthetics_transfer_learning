@@ -605,6 +605,11 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    if getattr(args, 'binarized_vaiak', True):
+        # Define your column names
+        vaiaks = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
+        piaa_dataset.data[vaiaks] = piaa_dataset.data[vaiaks].gt(3).astype(float)
+    
     train_dataset, val_dataset, test_dataset = create_image_split_dataset(piaa_dataset)
     # print(len(train_dataset), len(val_dataset), len(test_dataset))
     if getattr(args, 'use_cv', False):
@@ -728,6 +733,11 @@ def load_data_testpair(args, root_dir = datapath['LAPIS_datapath']):
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    if getattr(args, 'binarized_vaiak', True):
+        # Define your column names
+        vaiaks = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
+        piaa_dataset.data[vaiaks] = piaa_dataset.data[vaiaks].gt(3).astype(float)
+
     train_dataset, val_dataset, test_dataset = create_image_split_dataset(piaa_dataset)
     # print(len(train_dataset), len(val_dataset), len(test_dataset))
     if getattr(args, 'use_cv', False):
