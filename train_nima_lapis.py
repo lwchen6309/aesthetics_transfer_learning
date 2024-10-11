@@ -114,7 +114,7 @@ def train(model, dataloader, optimizer, device, args):
     return epoch_emd_loss, epoch_total_emd_loss
 
 # Evaluation Function
-def evaluate(model, dataloader, device):
+def evaluate(model, dataloader, device, args):
     model.eval()
     running_emd_loss = 0.0
     running_attr_emd_loss = 0.0
@@ -178,15 +178,15 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
                 param_group['lr'] *= args.lr_decay_factor
 
         # Training
-        train_emd_loss, train_total_emd_loss = train_fn(model, train_dataloader, optimizer, device)
+        train_emd_loss, train_total_emd_loss = train_fn(model, train_dataloader, optimizer, device, args)
         if args.is_log:
             wandb.log({"Train EMD Loss": train_emd_loss,
                        "Train Total EMD Loss": train_total_emd_loss,
                        }, commit=False)
         
         # Testing
-        val_giaa_emd_loss, _, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device)
-        val_piaa_emd_loss, _, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
+        val_giaa_emd_loss, _, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device, args)
+        val_piaa_emd_loss, _, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device, args)
         if args.is_log:
             wandb.log({
                 "Val GIAA EMD Loss": val_giaa_emd_loss,
@@ -212,8 +212,8 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
-    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
+    test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device, args)
+    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device, args)
     
     if args.is_log:
         wandb.log({

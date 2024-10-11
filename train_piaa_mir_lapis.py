@@ -48,7 +48,7 @@ class NIMA_attr(nn.Module):
 
         else:
             raise ValueError(f"Model {backbone} is not supported.")
-        
+
         # Aesthetic score prediction head
         self.fc_aesthetic = nn.Sequential(
             nn.Linear(backbone_out_features, 512),
@@ -285,7 +285,8 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Define the optimizer
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
     dirname = model_dir(args)
