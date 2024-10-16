@@ -1,10 +1,9 @@
 #!/bin/bash
-run_script="train_nima_lapis.py"
+# run_script="train_nima_lapis.py"
 # run_script="train_piaa_mir_lapis.py"
-# run_script="compare_traitsample_lapis.py"
+run_script="compare_traitsample_lapis.py"
 # training_args="--trainset PIAA --dropout 0.5 --disable_onehot --pretrained_model models_pth/best_model_resnet50_nima_attr_lr5e-05_decay_20epoch_swept-energy-251.pth"
 training_args="--trainset GIAA"
-# resume="models_pth/lapis_best_model_resnet50_piaamir_still-sponge-1070.pth"
 
 list=("male" "female")
 for value in "${list[@]}"; do
@@ -21,14 +20,14 @@ for value in "${list[@]}"; do
     python $run_script --trait age --value "$value" $training_args
 done
 
-# Define an array of traits
-# traits=("VAIAK1" "VAIAK2" "VAIAK3" "VAIAK4" "VAIAK5" "VAIAK6" "VAIAK7" "2VAIAK1" "2VAIAK2" "2VAIAK3" "2VAIAK4")
-# values=("0.0" "1.0")
-# # values=("0.0" "1.0" "2.0" "3.0" "4.0" "5.0" "6.0")
-# # Loop through each trait
-# for trait in "${traits[@]}"; do
-#     # Nested loop through each value
-#     for value in ${values[@]}; do
-#         python $run_script --trait $trait --value $value $training_args
-#     done
-# done
+traits=("VAIAK1" "VAIAK2" "VAIAK3" "VAIAK4" "VAIAK5" "VAIAK6" "VAIAK7" "2VAIAK1" "2VAIAK2" "2VAIAK3" "2VAIAK4")
+values=("0.0" "1.0")
+# values=("0.0" "1.0" "2.0" "3.0" "4.0" "5.0" "6.0")
+# Loop through each trait
+for trait in "${traits[@]}"; do
+    # Nested loop through each value
+    for value in ${values[@]}; do
+        python $run_script --trait $trait --value $value $training_args
+    done
+done
+
