@@ -451,6 +451,7 @@ if __name__ == '__main__':
     train_dataset, val_dataset, test_dataset = load_data(args, datapath['PARA_datapath'])
     dataset = PARA_PIAADataset(datapath['PARA_datapath'])
     traits = ['age', 'gender', 'EducationalLevel', 'artExperience', 'photographyExperience']
+    traits += ['VAIAK1', 'VAIAK2', 'VAIAK3', 'VAIAK4', 'VAIAK5', 'VAIAK6', 'VAIAK7', '2VAIAK1', '2VAIAK2', '2VAIAK3', '2VAIAK4']
     for trait in traits:
         unique_trait = dataset.data[trait].unique()
         for t in unique_trait:

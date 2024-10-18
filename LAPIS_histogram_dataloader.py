@@ -842,11 +842,15 @@ def load_testdata(args, root_dir = datapath['LAPIS_datapath']):
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
+    if getattr(args, 'binarized_vaiak', True):
+        # Define your column names
+        vaiaks = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
+        piaa_dataset.data[vaiaks] = piaa_dataset.data[vaiaks].gt(3).astype(float)
     train_dataset, val_dataset, test_dataset = create_image_split_dataset(piaa_dataset)
     # print(len(train_dataset), len(val_dataset), len(test_dataset))
     if getattr(args, 'use_cv', False):
         train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(piaa_dataset, train_dataset, val_dataset, test_dataset, fold_id, n_fold=n_fold)
-
+    
     is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
     is_disjoint_trait = getattr(args, 'trait_disjoint', True)    
     train_dataset.data.columns()
@@ -918,10 +922,10 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['LAPIS_datapath'])
-    train_dataloader = DataLoader(train_dataset, batch_size=100, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers)
-    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=5, shuffle=True, collate_fn=collate_fn_imgsort, num_workers=args.num_workers)
-    for sample in tqdm(test_piaa_imgsort_dataloader):
-        pass
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
+    val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
 
     # Initialize the pretrained ResNet50 model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -930,13 +934,18 @@ if __name__ == '__main__':
     model = model.to(device)
     
     # Extract features
-    feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
+    # feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
+    train_feature_dict = extract_features(model, train_dataloader, device)
+    val_feature_dict = extract_features(model, val_dataloader, device)
+    test_feature_dict = extract_features(model, test_dataloader, device)
     
     # Save the features to a file
-    feature_save_path = 'extracted_features.pkl'
-    with open(feature_save_path, 'wb') as f:
-        pickle.dump(feature_dict, f)
-    
-    print(f"Features saved to {feature_save_path}")
+    with open('LAPIS_train_extracted_features.pkl', 'wb') as f:
+        pickle.dump(train_feature_dict, f)
+    with open('LAPIS_val_extracted_features.pkl', 'wb') as f:
+        pickle.dump(val_feature_dict, f)
+    with open('LAPIS_test_extracted_features.pkl', 'wb') as f:
+        pickle.dump(test_feature_dict, f)
+
 
 

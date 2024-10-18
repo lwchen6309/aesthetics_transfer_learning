@@ -440,12 +440,18 @@ if __name__ == '__main__':
     
     train_dataset, val_dataset, test_dataset = load_data(args)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
-    dataset = piaa_dataset = LAPIS_PIAADataset(datapath['LAPIS_datapath'])
-    traits = ['age', 'demo_gender', 'demo_edu',]
+    piaa_dataset = LAPIS_PIAADataset(datapath['LAPIS_datapath'])
+    if getattr(args, 'binarized_vaiak', True):
+        # Define your column names
+        vaiaks = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
+        piaa_dataset.data[vaiaks] = piaa_dataset.data[vaiaks].gt(3).astype(float)
+
+    traits = ['demo_gender', 'demo_edu', 'age']
+    traits += ['VAIAK1', 'VAIAK2', 'VAIAK3', 'VAIAK4', 'VAIAK5', 'VAIAK6', 'VAIAK7', '2VAIAK1', '2VAIAK2', '2VAIAK3', '2VAIAK4']
     for trait in traits:
-        unique_trait = dataset.data[trait].unique()
+        unique_trait = piaa_dataset.data[trait].unique()
         for t in unique_trait:
-            print(trait, t, sum(dataset.data[trait]==t))
+            print(trait, t, sum(piaa_dataset.data[trait]==t))
     raise Exception
     # test_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     for sample in tqdm(test_dataloader):
