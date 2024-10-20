@@ -14,8 +14,8 @@ def compute_mean_emd(giaa_dataset1, giaa_dataset2, args):
     unique_images_2 = set(giaa_dataset2.unique_images)
     common_images = list(unique_images_1.intersection(unique_images_2))
     
-    img_2index1 = {img: index for index, img in enumerate(unique_images_1)}
-    img_2index2 = {img: index for index, img in enumerate(unique_images_2)}
+    img_2index1 = {img: index for index, img in enumerate(giaa_dataset1.unique_images)}
+    img_2index2 = {img: index for index, img in enumerate(giaa_dataset2.unique_images)}
     
     if not common_images:
         raise ValueError("No common images found between the two datasets")

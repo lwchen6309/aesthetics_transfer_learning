@@ -107,7 +107,7 @@ def evaluate(model, dataloader, device):
         for sample in progress_bar:
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            traits_histogram = sample['traits'].to(device)
+            traits_histogram = sample['traits'].float().to(device)
             art_type = sample['art_type'].to(device)
             # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
 
@@ -159,7 +159,7 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
         for sample in tqdm(prior_dataloader, leave=False):
             # images = sample['image'].to(device)
             # aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            traits_histogram = sample['traits'].to(device)
+            traits_histogram = sample['traits'].float().to(device)
             traits_histograms.append(traits_histogram)
         mean_traits_histogram = torch.mean(torch.cat(traits_histograms, dim=0), dim=0)
 
@@ -255,7 +255,7 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
         for sample in progress_bar:
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            traits_histogram = sample['traits'].to(device)
+            traits_histogram = sample['traits'].float().to(device)
             # art_type = sample['art_type'].to(device)
             userIds.extend(sample['userId'])
             # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
@@ -324,7 +324,7 @@ if __name__ == '__main__':
             tags += ["CV%d/%d"%(args.fold_id, args.n_fold)]
         if args.dropout is not None:
             tags += [f"dropout={args.dropout}"]            
-        wandb.init(project="resnet_LAVIS_PIAA", 
+        wandb.init(project="resnet_LAPIS_PIAA", 
                    notes="latefusion",
                    tags=tags)
         wandb.config = {
@@ -368,4 +368,4 @@ if __name__ == '__main__':
     best_modelname = os.path.join(dirname, best_modelname)
     
     trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)
+    # emd_loss, emd_attr_loss, srocc, mse_loss = evaluate_each_datum(model, test_piaa_imgsort_dataloader, device)

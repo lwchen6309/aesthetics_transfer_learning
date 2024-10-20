@@ -27,6 +27,7 @@ if __name__ == '__main__':
         testc_giaa_dataset, _ = load_testdata(args)
     else:
         train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset = load_data_testpair(args)
+    
     mean_EMD = compute_mean_emd(test_giaa_dataset, testc_giaa_dataset, args)
     
     print(f'{args.trait} == {args.value}', mean_EMD)
