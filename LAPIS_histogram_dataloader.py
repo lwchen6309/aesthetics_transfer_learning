@@ -853,7 +853,7 @@ def load_testdata(args, root_dir = datapath['LAPIS_datapath']):
     
     is_trait_specific = getattr(args, 'trait', False) and getattr(args, 'value', False)
     is_disjoint_trait = getattr(args, 'trait_disjoint', True)    
-    train_dataset.data.columns()
+    
     if is_trait_specific:
         args.value = float(args.value) if 'VAIAK' in args.trait else args.value
         if is_disjoint_trait:
