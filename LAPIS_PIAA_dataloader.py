@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 
 # import argparse
 from utils.argflags import parse_arguments_piaa
-
+# from utils.custom_transforms import ResizeKeepAspectRatio, ResizeToDivisible
 import yaml
 file_path = 'data_config.yaml'
 with open(file_path, 'r') as file:
@@ -34,32 +34,35 @@ class LAPIS_PIAADataset(Dataset):
         """
         self.root_dir = root_dir
         self.transform = transform
-        annot_dir = os.path.join(root_dir, 'annotation')
-        # piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
-        # data = pd.read_excel(piaa_path, engine='openpyxl')
-        piaa_path = os.path.join(annot_dir, 'LAPIS_individualratings_metaANDdemodata.csv')
-        data = pd.read_csv(piaa_path)
-        self.image_dir = os.path.join(root_dir, 'datasetImages_originalSize')
+        self.annot_dir = os.path.join(root_dir, 'annotation')
+
+        data = pd.read_csv(os.path.join(self.annot_dir, 
+                'LAPIS_individualratings_metaANDdemodata.csv'))
+        self.qip_data = pd.read_csv(os.path.join(self.annot_dir, 
+                'QIP_LAPIS.csv'))
+        self.qip_data.fillna(0, inplace=True)
+        self.qip_data = self.qip_data.set_index("img_file").to_dict(orient="index")
+        
+        self.image_dir = os.path.join(root_dir, 'images')
         
         # Load and preprocess data
-        # data = pd.read_excel(piaa_path)
         # split_paths = [os.path.split(path) for path in data['image_filename'].values]
         split_paths = [os.path.split(path) for path in data['file'].values]
         data['art_type'], data['imageName'] = zip(*split_paths)
         # Filter non-exsiting file, or the non-detected file caused by error code of filenames
         image_names = list(data['imageName'].unique())
-        existing_image_names = [img for img in image_names if os.path.exists(os.path.join(root_dir, 'datasetImages_originalSize', img))]
+        existing_image_names = [img for img in image_names if os.path.exists(os.path.join(root_dir, 'images', img))]
         data = data[data['imageName'].isin(existing_image_names)]
-        
+
         # Drop empty entries
-        required_fields = ['image_id', 'response', 'participant_id', 'age', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
+        required_fields = ['image_id', 'response', 'participant_id', 'age', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'style', 'genre']
         self.art_interest_fields = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
         required_fields += self.art_interest_fields
         self.data = data.dropna(subset=required_fields)
         # Encode text columna
         self.trait_columns = ['image_id', 'response', 'participant_id', *self.art_interest_fields]
-        self.encoded_trait_columns = ['art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
-    
+        self.encoded_trait_columns = ['genre', 'style', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind', 'age']
+        
         # Categorize ages into 5 bins
         min_age, max_age = data['age'].min(), data['age'].max()
         interval_edges = np.linspace(min_age, max_age, num=6)
@@ -91,46 +94,15 @@ class LAPIS_PIAADataset(Dataset):
         for field in self.art_interest_fields:
             sample[f'{field}_onehot'] = F.one_hot(sample[field].long(), num_classes=7)
         
-        img_path = os.path.join(self.root_dir, 'datasetImages_originalSize', self.data.iloc[idx]['imageName'])
+        img_path = os.path.join(self.image_dir, self.data.iloc[idx]['imageName'])
         sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
             sample['image'] = Image.open(img_path).convert('RGB')
             if self.transform:
                 sample['image'] = self.transform(sample['image'])
+        sample['QIP'] = self.qip_data[sample['imgName']]
 
         return sample
-
-
-def assert_score_to_GIAA(root_dir = datapath['LAPIS_datapath']):
-    annot_dir = os.path.join(root_dir, 'annotation')
-    piaa_path = os.path.join(annot_dir, 'Dataset_individualratings_metadata.xlsx')
-    piaa_table = pd.read_excel(piaa_path)
-    giaa_path = os.path.join(annot_dir, 'AADB_dataset_bak.csv')
-    giaa_table = pd.read_csv(giaa_path)
-    
-    piaa_table['art_type'], piaa_table['imgName'] = zip(*[os.path.split(path) for path in piaa_table['image_filename'].values])
-    v1_col = ['VAIAK%d'%i for i in range(1,8)]
-    v2_col = ['2VAIAK%d'%i for i in range(1,5)]
-    art_interest = [*v1_col, *v2_col]
-    rating = ['response']
-    
-    # Assrt the same score
-    giaa_score_map = {img_path: mean_score for img_path, mean_score in zip(giaa_table['imgName'], giaa_table['meanScore'])}
-    
-    all_data_collection = []
-    matched_score = []
-    for i, (imgname, group) in enumerate(piaa_table.groupby('imgName')):
-        all_data_collection.append(group[rating].mean())
-        matched_score.append(giaa_score_map[imgname])
-        if i > 200:
-            break
-    all_data_collection = np.array(all_data_collection).T
-    matched_score = np.array(matched_score)
-
-    for data in all_data_collection:
-        filtered_idx = np.logical_not(np.isnan(data))
-        plcc, p_value = pearsonr(matched_score, data)
-        print(plcc)
 
 
 def limit_annotations_per_user(data, max_annotations_per_user=[100, 50]):
@@ -155,7 +127,7 @@ def limit_annotations_per_user(data, max_annotations_per_user=[100, 50]):
     # Initialize lists to store the two sets
     first_set = []
     second_set = []
-
+    
     # Apply the function to each group and append results to the lists
     for name, group in grouped:
         set1, set2 = sample_disjoint(group.reset_index(drop=True), max_annotations_per_user[0], max_annotations_per_user[1])
@@ -219,7 +191,7 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=[10, 
     return train_dataset, test_dataset
 
 def create_user_split_kfold(dataset, k=4):
-    root_dir = dataset.root_dir
+    user_dir = os.path.join(dataset.root_dir, 'userset')
     
     # Assuming 'participant_id' is a column in your dataset
     user_ids = dataset.data['participant_id'].unique()
@@ -229,8 +201,8 @@ def create_user_split_kfold(dataset, k=4):
     
     all_files_exist = True
     for fold in range(1, k+1):
-        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
-        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
+        train_ids_path = os.path.join(user_dir, f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(user_dir, f'TestUserIDs_Fold{fold}.txt')
         
         # Check if both files for this fold exist
         if not (os.path.exists(train_ids_path) and os.path.exists(test_ids_path)):
@@ -242,8 +214,8 @@ def create_user_split_kfold(dataset, k=4):
         return
 
     for fold, (train_index, test_index) in enumerate(kf.split(user_ids), start=1):
-        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
-        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
+        train_ids_path = os.path.join(user_dir, f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(user_dir, f'TestUserIDs_Fold{fold}.txt')
         
         print(f"Processing Fold {fold}")
         
@@ -268,9 +240,9 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     create_user_split_kfold(dataset, k=n_fold)
     
     # File paths for saving the user IDs
-    root_dir = dataset.root_dir
-    train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
-    test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
+    userdir = os.path.join(dataset.root_dir, 'userset')
+    train_ids_path = os.path.join(userdir, f'TrainUserIDs_Fold{fold_id}.txt')
+    test_ids_path = os.path.join(userdir, f'TestUserIDs_Fold{fold_id}.txt')
     print('Read Image Set')
     with open(train_ids_path, "r") as train_file:
         train_user_id = train_file.read().splitlines()
@@ -304,9 +276,9 @@ def split_dataset_by_trait(dataset, trait, value):
 def create_image_split_dataset(dataset):
     # Saving the lists to TrainImageSet.txt and TestImageSet.txt
     root_dir = dataset.root_dir
-    train_file_path = os.path.join(root_dir, 'TrainImageSet.txt')
-    val_file_path = os.path.join(root_dir, 'ValImageSet.txt')
-    test_file_path = os.path.join(root_dir, 'TestImageSet.txt')
+    train_file_path = os.path.join(root_dir, 'imageset', 'TrainImageSet.txt')
+    val_file_path = os.path.join(root_dir, 'imageset', 'ValImageSet.txt')
+    test_file_path = os.path.join(root_dir, 'imageset', 'TestImageSet.txt')
     
     print('Read Image Set')
     with open(train_file_path, "r") as train_file:
@@ -365,7 +337,11 @@ def plot_histogram_comparison(dataset):
     plt.savefig('PARA_histogram.jpg', dpi=300)
 
 
-def load_data(args, root_dir = datapath['LAPIS_datapath']):
+def load_data(args, root_dir = datapath['LAPIS_datapath']):    
+    fold_id = getattr(args, 'fold_id', None)
+    n_fold = getattr(args, 'n_fold', None)
+    # disable_resize = getattr(args, 'disable_resize', False)
+
     # Dataset transformations
     train_transform = transforms.Compose([
         transforms.RandomHorizontalFlip(0.5),
@@ -377,8 +353,6 @@ def load_data(args, root_dir = datapath['LAPIS_datapath']):
         transforms.CenterCrop(224),
         transforms.ToTensor(),
     ])
-    fold_id = getattr(args, 'fold_id', None)
-    n_fold = getattr(args, 'n_fold', None)
 
     # Create datasets with the appropriate transformations
     piaa_dataset = LAPIS_PIAADataset(root_dir, transform=train_transform)
@@ -407,19 +381,9 @@ def collate_fn(batch):
     # Use the default collate function to handle the batch
     sample = default_collate(batch)
     
-    # Normalize VAIAK scores
-    # max_vaia_score = 6
-    # vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1) / max_vaia_score
-    # vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1) / max_vaia_score
     vaiak1 = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=1)
     vaiak2 = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=1)
     
-    # vaiak1 = torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=1)
-    # vaiak2 = torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=1)
-    # bsize = vaiak1.shape[0]
-    # vaiak1 = vaiak1.view(bsize,-1)
-    # vaiak2 = vaiak2.view(bsize,-1)
-
     # Collect and concatenate one-hot encoded trait values
     onehot_traits = torch.cat([sample[f'{trait}_onehot'] for trait in traits_columns], dim=1)
 
@@ -430,7 +394,6 @@ def collate_fn(batch):
     sample['traits'] = concatenated_traits
     
     sample['response'] = (sample['response'] / 10).int().clamp(max=9)
-
     return sample
 
 
@@ -440,20 +403,17 @@ if __name__ == '__main__':
     
     train_dataset, val_dataset, test_dataset = load_data(args)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn)
-    piaa_dataset = LAPIS_PIAADataset(datapath['LAPIS_datapath'])
-    if getattr(args, 'binarized_vaiak', True):
-        # Define your column names
-        vaiaks = [f'VAIAK{i}' for i in range(1, 8)] + [f'2VAIAK{i}' for i in range(1, 5)]
-        piaa_dataset.data[vaiaks] = piaa_dataset.data[vaiaks].gt(3).astype(float)
-
-    traits = ['demo_gender', 'demo_edu', 'age']
-    traits += ['VAIAK1', 'VAIAK2', 'VAIAK3', 'VAIAK4', 'VAIAK5', 'VAIAK6', 'VAIAK7', '2VAIAK1', '2VAIAK2', '2VAIAK3', '2VAIAK4']
+    dataset = piaa_dataset = LAPIS_PIAADataset(datapath['LAPIS_datapath'])
+    traits = ['age', 'demo_gender', 'demo_edu',]
     for trait in traits:
-        unique_trait = piaa_dataset.data[trait].unique()
+        unique_trait = dataset.data[trait].unique()
         for t in unique_trait:
-            print(trait, t, sum(piaa_dataset.data[trait]==t))
-    raise Exception
+            print(trait, t, sum(dataset.data[trait]==t))
+    
     # test_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=n_workers, timeout=300)
     for sample in tqdm(test_dataloader):
-        print(sample)
+        print(sample['traits'].shape)
+        print(sample['QIP'].shape)
+        print(sample['genre_onehot'].shape)
+        print(sample['style_onehot'].shape)
         raise Exception

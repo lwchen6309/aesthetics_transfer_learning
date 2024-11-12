@@ -117,28 +117,20 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
             accumulated_histogram['onehot_traits'][trait] /= total_samples
             # print(trait, sum(accumulated_histogram['onehot_traits'][trait]))
         onehot_traits = list(accumulated_histogram['onehot_traits'].values())
-        accumulated_histogram['art_type'] = onehot_traits[0]
-        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[1:])
+        # accumulated_histogram['art_type'] = onehot_traits[0]
+        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[2:])
 
         accumulated_histogram['n_samples'] = total_samples
         accumulated_histogram['imgName'] = sample['imgName']
-        
-        # print(accumulated_histogram['art_type'])
-        # print(accumulated_histogram['onehot_traits'])
-        # print('score', sum(accumulated_histogram['aestheticScore']))
-        # for i in range(1, 8):  # VAIAK1 to VAIAK7
-        #     offset = (i-1) * max_vaia_score
-        #     print(sum(accumulated_histogram['VAIAK'][offset:offset+max_vaia_score]))
-        # for i in range(1, 5):  # VAIAK1 to VAIAK7
-        #     offset = (i-1) * max_vaia_score
-        #     print(sum(accumulated_histogram['2VAIAK'][offset:offset+max_vaia_score]))
-        
+
         return accumulated_histogram
 
     def __getitem__(self, idx):
         item_data = copy.deepcopy(self.precomputed_data[idx])
         img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
-        item_data['image'] = img_sample['image']
+        inherit_list = ['image', 'QIP', 'genre_onehot', 'style_onehot']
+        for item in inherit_list:
+            item_data[item] = img_sample[item]
         return item_data
 
     def _save_map(self, file_path):
@@ -309,27 +301,21 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_GIAA_HistogramDataset):
             accumulated_histogram['onehot_traits'][trait] /= total_samples
             # print(trait, sum(accumulated_histogram['onehot_traits'][trait]))
         onehot_traits = list(accumulated_histogram['onehot_traits'].values())
-        accumulated_histogram['art_type'] = onehot_traits[0]
-        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[1:])
+        # accumulated_histogram['art_type'] = onehot_traits[0]
+        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[2:])
 
         accumulated_histogram['n_samples'] = total_samples
         accumulated_histogram['imgName'] = sample['imgName']
-        
-        # print('score', sum(accumulated_histogram['aestheticScore']))
-        # for i in range(1, 8):  # VAIAK1 to VAIAK7
-        #     offset = (i-1) * max_vaia_score
-        #     print(sum(accumulated_histogram['VAIAK'][offset:offset+max_vaia_score]))
-        # for i in range(1, 5):  # VAIAK1 to VAIAK7
-        #     offset = (i-1) * max_vaia_score
-        #     print(sum(accumulated_histogram['2VAIAK'][offset:offset+max_vaia_score]))
-        
+
         return accumulated_histogram
     
     def __getitem__(self, idx):
         histograms = self.precomputed_data[idx]
         item_data = copy.deepcopy(random.choice(histograms))
         img_sample = LAPIS_PIAADataset.__getitem__(self, self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
-        item_data['image'] = img_sample['image']
+        inherit_list = ['image', 'QIP', 'genre_onehot', 'style_onehot']
+        for item in inherit_list:
+            item_data[item] = img_sample[item]
         return item_data
 
 
@@ -401,12 +387,13 @@ class LAPIS_PIAA_HistogramDataset(LAPIS_PIAADataset):
 
         # Average out histograms over the number of samples
         onehot_traits = list(accumulated_histogram['onehot_traits'].values())
-        accumulated_histogram['art_type'] = onehot_traits[0]
-        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[1:])
+        # accumulated_histogram['art_type'] = onehot_traits[0]
+        accumulated_histogram['onehot_traits'] = torch.cat(onehot_traits[2:])
 
         accumulated_histogram['n_samples'] = 1
-        accumulated_histogram['imgName'] = sample['imgName']
-        accumulated_histogram['image'] = sample['image']
+        inherit_list = ['imgName', 'image', 'QIP', 'genre_onehot', 'style_onehot']
+        for item in inherit_list:
+            accumulated_histogram[item] = sample[item]
 
         return accumulated_histogram
 
@@ -491,23 +478,23 @@ class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_GIAA_HistogramDataset):
             '2VAIAK': torch.stack([h['2VAIAK'] for h in histograms_list]),
         }
         
-        h_art, h_onehot = [], []
+        h_onehot = []
         for h in histograms_list:
             onehot_traits = list(h['onehot_traits'].values())
-            h_art.append(onehot_traits[0])
-            h_onehot.append(torch.cat(onehot_traits[1:]))
-        accumulated_histogram['art_type'] = torch.stack(h_art)
+            h_onehot.append(torch.cat(onehot_traits[2:]))
         accumulated_histogram['onehot_traits'] = torch.stack(h_onehot)
 
         accumulated_histogram['n_samples'] = len(associated_indices)
-        accumulated_histogram['imgName'] = sample['imgName']
-        
+        inherit_list = ['imgName', 'QIP', 'genre_onehot', 'style_onehot']
+        for item in inherit_list:
+            accumulated_histogram[item] = sample[item]
+
         return accumulated_histogram
 
     def decode_batch_to_dataframe(self, batch_features):
-        encoded_trait_columns = self.encoded_trait_columns[1:]
-        trait_encoders = self.trait_encoders[1:]
-        # ['age', 'art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']        
+        encoded_trait_columns = self.encoded_trait_columns[2:]
+        trait_encoders = self.trait_encoders[2:]
+        # ['age', 'art_type', 'nationality', 'demo_gender', 'demo_edu', 'demo_colorblind']
         # Invert the encoders to create decoders
         trait_decoders = [{idx: value for value, idx in encoder.items()} for encoder in trait_encoders]
         
@@ -532,7 +519,6 @@ class LAPIS_PIAA_HistogramDataset_imgsort(LAPIS_GIAA_HistogramDataset):
         return decoded_df
 
 
-
 def collate_fn(batch):
     # Extracting individual components
     traits_histograms_concatenated = torch.cat([
@@ -541,23 +527,23 @@ def collate_fn(batch):
         torch.stack([item['2VAIAK'] for item in batch]),
         ], dim=1)
     
-    
+    QIP_collated = {}
+    for item in batch:
+        for key, value in item['QIP'].items():
+            if key not in QIP_collated:
+                QIP_collated[key] = []
+            QIP_collated[key].append(value)
+    qip = torch.tensor(list(QIP_collated.values())).permute(1, 0)
+
     return {
         'imgName':[item['imgName'] for item in batch],
         'image': torch.stack([item['image'] for item in batch]),
         'aestheticScore': torch.stack([item['aestheticScore'] for item in batch]),
         'traits': traits_histograms_concatenated,
-        'art_type':torch.stack([item['art_type'] for item in batch])
+        'style_onehot': torch.stack([item['style_onehot'] for item in batch]),
+        'genre_onehot': torch.stack([item['genre_onehot'] for item in batch]),
+        'QIP': qip
     }
-
-
-def collate_fn_pair(batch):
-    # Flatten the batch: convert [(item1, item2), (item3, item4), ...] to [item1, item2, item3, item4, ...]
-    flattened_batch = [item for pair in batch for item in pair]
-    
-    # Call the original collate function with the flattened batch
-    return collate_fn(flattened_batch)
-
 
 def collate_fn_imgsort(batch):
     images = [item['image'].unsqueeze(0).repeat(item['aestheticScore'].shape[0], 1, 1, 1) for item in batch]
@@ -576,15 +562,38 @@ def collate_fn_imgsort(batch):
             userID.append(item['userId'])
         elif isinstance(item['userId'], list):
             userID.extend(item['userId'])
-
+    
+    QIP_collated = {}
+    style_onehot_collated, genre_onehot_collated = [], []
+    for item in batch:
+        n_repeat = item['aestheticScore'].shape[0]
+        for key, value in item['QIP'].items():
+            if key not in QIP_collated:
+                QIP_collated[key] = []
+            for i in range(n_repeat):
+                QIP_collated[key].append(value)
+        for i in range(n_repeat):
+            style_onehot_collated.append(item['style_onehot'])
+            genre_onehot_collated.append(item['genre_onehot'])
+    qip = torch.tensor(list(QIP_collated.values())).permute(1, 0)
+    
     return {
         'userId': torch.stack(userID),
         'imgName':[item['imgName'] for item in batch],
         'image': images_stacked,
         'aestheticScore': torch.cat([item['aestheticScore'] for item in batch]),
         'traits': traits_histograms_concatenated,
-        'art_type': torch.cat([item['art_type'] for item in batch])
+        'style_onehot': torch.stack(style_onehot_collated),
+        'genre_onehot': torch.stack(genre_onehot_collated),        
+        'QIP': qip
     }
+
+def collate_fn_pair(batch):
+    # Flatten the batch: convert [(item1, item2), (item3, item4), ...] to [item1, item2, item3, item4, ...]
+    flattened_batch = [item for pair in batch for item in pair]
+    
+    # Call the original collate function with the flattened batch
+    return collate_fn(flattened_batch)
 
 
 def load_data(args, root_dir = datapath['LAPIS_datapath']):
@@ -895,6 +904,7 @@ def load_testdata(args, root_dir = datapath['LAPIS_datapath']):
     test_piaa_imgsort_dataset = LAPIS_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
     return test_giaa_dataset, test_piaa_imgsort_dataset
 
+
 def extract_features(model, dataloader, device):
     model.eval()  # Set the model to evaluation mode
     feature_dict = {}
@@ -914,18 +924,27 @@ def extract_features(model, dataloader, device):
 
     return feature_dict
 
+
 if __name__ == '__main__':
     from utils.argflags import parse_arguments, parse_arguments_piaa
     import torch.nn as nn
     from torchvision.models import resnet50
 
     args = parse_arguments()
+    print(args)
 
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['LAPIS_datapath'])
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-    val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-    test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=collate_fn)
+    val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn)
+    test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    
+    for sample in tqdm(train_dataloader):
+        print(sample['traits'].shape)
+        print(sample['genre_onehot'].shape)
+        print(sample['style_onehot'].shape)
+        raise Exception
+
 
     # Initialize the pretrained ResNet50 model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
