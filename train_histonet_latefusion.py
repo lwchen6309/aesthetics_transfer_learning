@@ -18,22 +18,39 @@ from sklearn.decomposition import PCA
 from utils.argflags import parse_arguments, wandb_tags, model_dir
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
+from timm import create_model
 
 
 class CombinedModel(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt, dropout=None):
+    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt, dropout=None, backbone="resnet50", pretrained=True):
         super(CombinedModel, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-            # nn.Linear(512, num_bins_aesthetic),
-        )
+
+        # Load the specified backbone (ResNet-50, ViT-Small, Swin-Tiny, or Swin-Base)
+        if backbone == "resnet50":
+            self.backbone = resnet50(pretrained=pretrained)
+            feature_dim = self.backbone.fc.in_features
+            self.backbone.fc = nn.Identity()  # Remove the classification head
+        elif backbone == "vit_small_patch16_224":
+            self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.embed_dim
+        elif backbone == "swin_tiny_patch4_window7_224":
+            self.backbone = create_model("swin_tiny_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        elif backbone == "swin_base_patch4_window7_224":
+            self.backbone = create_model("swin_base_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+        print(backbone)
+        
         self.num_bins_aesthetic = num_bins_aesthetic
         self.num_attr = num_attr
         self.num_bins_attr = num_bins_attr
         self.num_pt = num_pt
-        
+
+        # Linear layer to map feature_dim to 512
+        self.feature_mapper = nn.Linear(feature_dim, 512)
+
         # For predicting attribute histograms for each attribute
         pt_encoder_layers = []
         if dropout is not None:
@@ -45,7 +62,7 @@ class CombinedModel(nn.Module):
             nn.BatchNorm1d(512)
         ])
         self.pt_encoder = nn.Sequential(*pt_encoder_layers)
-        
+
         # For predicting aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
             nn.Linear(512, 512),
@@ -54,11 +71,63 @@ class CombinedModel(nn.Module):
         )
 
     def forward(self, images, traits_histogram):
-        x = self.resnet(images)
+        # Extract features using the backbone
+        x = self.backbone(images)
+
+        # Map features to 512 dimensions
+        x = self.feature_mapper(x)
+
+        # Encode the trait histogram
         pt_code = self.pt_encoder(traits_histogram)
+
+        # Combine image and trait histogram features
         xz = x + pt_code
+
+        # Predict aesthetic logits
         aesthetic_logits = self.fc_aesthetic(xz)
         return aesthetic_logits
+
+
+
+# class CombinedModel(nn.Module):
+#     def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt, dropout=None):
+#         super(CombinedModel, self).__init__()
+#         self.resnet = resnet50(pretrained=True)
+#         self.resnet.fc = nn.Sequential(
+#             nn.Linear(self.resnet.fc.in_features, 512),
+#             nn.ReLU(),
+#             # nn.Linear(512, num_bins_aesthetic),
+#         )
+#         self.num_bins_aesthetic = num_bins_aesthetic
+#         self.num_attr = num_attr
+#         self.num_bins_attr = num_bins_attr
+#         self.num_pt = num_pt
+        
+#         # For predicting attribute histograms for each attribute
+#         pt_encoder_layers = []
+#         if dropout is not None:
+#             pt_encoder_layers.append(nn.Dropout(dropout))
+#         pt_encoder_layers.extend([
+#             nn.Linear(num_pt, 512),
+#             nn.ReLU(),
+#             nn.Linear(512, 512),
+#             nn.BatchNorm1d(512)
+#         ])
+#         self.pt_encoder = nn.Sequential(*pt_encoder_layers)
+        
+#         # For predicting aesthetic score histogram
+#         self.fc_aesthetic = nn.Sequential(
+#             nn.Linear(512, 512),
+#             nn.ReLU(),
+#             nn.Linear(512, num_bins_aesthetic)
+#         )
+
+#     def forward(self, images, traits_histogram):
+#         x = self.resnet(images)
+#         pt_code = self.pt_encoder(traits_histogram)
+#         xz = x + pt_code
+#         aesthetic_logits = self.fc_aesthetic(xz)
+#         return aesthetic_logits
 
 
 # Training Function
@@ -474,7 +543,7 @@ if __name__ == '__main__':
         tags += wandb_tags(args)
 
         wandb.init(project="resnet_PARA_PIAA", 
-                   notes="latefusion",
+                   notes=f"latefusion-{args.backbone}",
                    tags=tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -499,7 +568,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout, backbone=args.backbone).to(device)
 
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
@@ -508,7 +577,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_modelname = f'best_model_resnet50_histo_latefusion_{experiment_name}.pth'
+    best_modelname = f'best_model_{args.backbone}_histo_latefusion_{experiment_name}.pth'
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
 

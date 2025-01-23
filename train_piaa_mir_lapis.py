@@ -83,10 +83,6 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
     running_mse_loss = 0.0
     scale = torch.arange(0, 10).to(device)
 
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
 
     progress_bar = tqdm(dataloader, leave=False)
     for sample in progress_bar:
@@ -96,42 +92,6 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
         score_pred = model(images, sample_pt)
-        loss = criterion_mse(score_pred, sample_score)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        running_mse_loss += loss.item()
-
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
-
-def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
-    scale = torch.arange(0, 10).to(device)
-
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
-
-    progress_bar = tqdm(dataloader, leave=False)
-    A_ij = None
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-        
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-        if A_ij is not None:
-            A_ij = A_ij.detach()
-        score_pred, A_ij = model(images, sample_pt, A_ij)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -235,8 +195,6 @@ if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
     parser.add_argument('--model', type=str, default='PIAA-MIR')
     parser.add_argument('--freeze_nima', action='store_true', help='Enable evaluation mode')
-    parser.add_argument('--kernel_size', type=int, default=3)
-    parser.add_argument('--sigma', type=float, default=2e-1)
     args = parser.parse_args()
     print(args)
     
@@ -252,10 +210,8 @@ if __name__ == '__main__':
         tags += wandb_tags(args)
         if not args.disable_onehot:
             tags += ['onehot enc']
-        if args.blur_pt:
-            tags += ['blur pt']        
         wandb.init(project="resnet_LAPIS_PIAA",
-                notes=args.model,
+                notes=f"{args.model}-{args.backbone}",
                 tags = tags)
         experiment_name = wandb.run.name
     else:
@@ -276,8 +232,8 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout).to(device)
-    best_modelname = f'best_model_resnet50_piaamir_{experiment_name}.pth'
+    model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, backbone=args.backbone).to(device)
+    best_modelname = f'best_model_{args.backbone}_piaamir_{experiment_name}.pth'
     
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))

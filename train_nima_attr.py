@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 # from torchvision import transforms
+from timm import create_model
 from torchvision.models import resnet50
 import numpy as np
 # import pandas as pd
@@ -19,27 +20,69 @@ from utils.argflags import parse_arguments, wandb_tags, model_dir
 
 
 class NIMA_attr(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr):
+    def __init__(self, num_bins_aesthetic, num_attr, backbone="resnet50", pretrained=True):
         super(NIMA_attr, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
+
+        # Load the specified backbone (ResNet-50, ViT-Small, Swin-Tiny, or Swin-Base)
+        if backbone == "resnet50":
+            self.backbone = resnet50(pretrained=pretrained)
+            feature_dim = self.backbone.fc.in_features
+            self.backbone.fc = nn.Identity()  # Remove the classification head
+        elif backbone == "vit_small_patch16_224":
+            self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.embed_dim
+        elif backbone == "swin_tiny_patch4_window7_224":
+            self.backbone = create_model("swin_tiny_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        elif backbone == "swin_base_patch4_window7_224":
+            self.backbone = create_model("swin_base_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+        print(backbone)
         self.num_bins_aesthetic = num_bins_aesthetic
 
+        # Fully connected layers for aesthetic and attribute predictions
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, num_bins_aesthetic)
+            nn.Linear(feature_dim, num_bins_aesthetic)
         )
         self.fc_attributes = nn.Sequential(
-            nn.Linear(512, num_attr)
+            nn.Linear(feature_dim, num_attr)
         )
 
     def forward(self, images):
-        x = self.resnet(images)
+        # Extract features using the backbone
+        x = self.backbone(images)
+
+        # Predict aesthetic and attribute logits
         aesthetic_logits = self.fc_aesthetic(x)
         attribute_logits = self.fc_attributes(x)
+
         return aesthetic_logits, attribute_logits
+
+
+# class NIMA_attr(nn.Module):
+#     def __init__(self, num_bins_aesthetic, num_attr):
+#         super(NIMA_attr, self).__init__()
+#         self.resnet = resnet50(pretrained=True)
+#         self.resnet.fc = nn.Sequential(
+#             nn.Linear(self.resnet.fc.in_features, 512),
+#             nn.ReLU(),
+#         )
+#         self.num_bins_aesthetic = num_bins_aesthetic
+
+#         self.fc_aesthetic = nn.Sequential(
+#             nn.Linear(512, num_bins_aesthetic)
+#         )
+#         self.fc_attributes = nn.Sequential(
+#             nn.Linear(512, num_attr)
+#         )
+
+#     def forward(self, images):
+#         x = self.resnet(images)
+#         aesthetic_logits = self.fc_aesthetic(x)
+#         attribute_logits = self.fc_attributes(x)
+#         return aesthetic_logits, attribute_logits
 
 
 # Training Function
@@ -249,7 +292,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = NIMA_attr(num_bins, num_attr).to(device)
+    model = NIMA_attr(num_bins, num_attr, backbone=args.backbone).to(device)
 
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))

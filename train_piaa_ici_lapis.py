@@ -15,28 +15,6 @@ from train_piaa_ici import PIAA_ICI
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
 
-
-def apply_1d_gaussian_blur(tensor, kernel_size, sigma):
-    # tensor shape is [batch_size, num_features], e.g., [100, 137]
-    batch_size, num_features = tensor.shape
-    
-    # Create a 1D Gaussian kernel
-    kernel = torch.exp(-0.5 * (torch.arange(kernel_size, dtype=torch.float32).to(tensor.device) - (kernel_size - 1) / 2) ** 2 / sigma ** 2)
-    kernel = kernel / kernel.sum()
-    kernel = kernel.view(1, 1, -1)  # Shape [1, 1, kernel_size]
-    
-    # Reshape tensor to [batch_size, 1, num_features] to apply 1D conv
-    tensor = tensor.unsqueeze(1)  # Shape [batch_size, 1, num_features]
-    
-    # Apply 1D convolution
-    smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2, groups=1)
-    
-    # Remove the added dimension
-    smoothed_tensor = smoothed_tensor.squeeze(1)  # Shape [batch_size, num_features]
-    
-    return smoothed_tensor
-
-
 def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
     model.train()
     running_mse_loss = 0.0
@@ -105,63 +83,14 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
     running_mse_loss = 0.0
     scale = torch.arange(0, 10).to(device)
 
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
-
     progress_bar = tqdm(dataloader, leave=False)
     for sample in progress_bar:
         images = sample['image'].to(device)
         sample_pt = sample['traits'].float().to(device)
-
-        # Conditionally apply Gaussian blur if args.blur_pt is True
-        if args.blur_pt:
-            sample_pt = apply_1d_gaussian_blur(sample_pt, kernel_size, sigma)
-        
+                
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
         score_pred = model(images, sample_pt)
-        loss = criterion_mse(score_pred, sample_score)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        running_mse_loss += loss.item()
-
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
-
-def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
-    scale = torch.arange(0, 10).to(device)
-
-    # Initialize GaussianBlur transform
-    if args.blur_pt:
-        kernel_size = getattr(args, 'kernel_size', 3)
-        sigma = getattr(args, 'sigma', 1.0)
-
-    progress_bar = tqdm(dataloader, leave=False)
-    A_ij = None
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        sample_pt = sample['traits'].float().to(device)
-
-        # Conditionally apply Gaussian blur if args.blur_pt is True
-        if args.blur_pt:
-            sample_pt = apply_1d_gaussian_blur(sample_pt, kernel_size, sigma)
-        
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-        if A_ij is not None:
-            A_ij = A_ij.detach()
-        score_pred, A_ij = model(images, sample_pt, A_ij)
         loss = criterion_mse(score_pred, sample_score)
         optimizer.zero_grad()
         loss.backward()
@@ -280,10 +209,8 @@ if __name__ == '__main__':
         tags += wandb_tags(args)
         if not args.disable_onehot:
             tags += ['onehot enc']
-        if args.blur_pt:
-            tags += ['blur pt']        
         wandb.init(project="resnet_LAPIS_PIAA",
-                notes=args.model,
+                notes=f"{args.model}-{args.backbone}",
                 tags = tags)
         experiment_name = wandb.run.name
     else:
@@ -304,8 +231,8 @@ if __name__ == '__main__':
     
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout)
-    best_modelname = f'best_model_resnet50_piaaici_{experiment_name}.pth'
+    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout, backbone=args.backbone)
+    best_modelname = f'best_model_{args.backbone}_piaaici_{experiment_name}.pth'
 
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))

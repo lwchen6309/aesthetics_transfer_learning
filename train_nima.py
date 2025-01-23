@@ -17,30 +17,72 @@ from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
 from utils.argflags import parse_arguments, wandb_tags, model_dir
+from timm import create_model
+from torchvision.models import resnet50
 
 
 class NIMA(nn.Module):
-    def __init__(self, num_bins_aesthetic):
+    def __init__(self, num_bins_aesthetic, backbone="resnet50", pretrained=True):
         super(NIMA, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-        )
+
+        # Load the specified backbone (ResNet-50, ViT-Small, or Swin-Tiny)
+        if backbone == "resnet50":
+            self.backbone = resnet50(pretrained=pretrained)
+            feature_dim = self.backbone.fc.in_features
+            self.backbone.fc = nn.Identity()  # Remove the classification head
+        elif backbone == "vit_small_patch16_224":
+            self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.embed_dim
+        elif backbone == "swin_tiny_patch4_window7_224":
+            self.backbone = create_model("swin_tiny_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        elif backbone == "swin_base_patch4_window7_224":
+            self.backbone = create_model("swin_base_patch4_window7_224", pretrained=pretrained, num_classes=0)
+            feature_dim = self.backbone.num_features
+        else:
+            raise ValueError(f"Unsupported backbone: {backbone}")
+        print('backbone: ', backbone)
+
         self.num_bins_aesthetic = num_bins_aesthetic
-        
-        # For predicting aesthetic score histogram
+
+        # Fully connected layers for predicting the aesthetic score histogram
         self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512, 512),
+            nn.Linear(feature_dim, 512),
             nn.ReLU(),
             nn.Linear(512, num_bins_aesthetic)
         )
 
-    def forward(self, images, traits_histogram):
-        # traits_histogram is dummy variable
-        x = self.resnet(images)
+    def forward(self, images, traits_histogram=None):
+        # Extract features using the backbone
+        x = self.backbone(images)
+        
+        # Predict aesthetic logits
         aesthetic_logits = self.fc_aesthetic(x)
         return aesthetic_logits
+
+
+# class NIMA(nn.Module):
+#     def __init__(self, num_bins_aesthetic):
+#         super(NIMA, self).__init__()
+#         self.resnet = resnet50(pretrained=True)
+#         self.resnet.fc = nn.Sequential(
+#             nn.Linear(self.resnet.fc.in_features, 512),
+#             nn.ReLU(),
+#         )
+#         self.num_bins_aesthetic = num_bins_aesthetic
+        
+#         # For predicting aesthetic score histogram
+#         self.fc_aesthetic = nn.Sequential(
+#             nn.Linear(512, 512),
+#             nn.ReLU(),
+#             nn.Linear(512, num_bins_aesthetic)
+#         )
+
+#     def forward(self, images, traits_histogram):
+#         # traits_histogram is dummy variable
+#         x = self.resnet(images)
+#         aesthetic_logits = self.fc_aesthetic(x)
+#         return aesthetic_logits
 
 
 # Training Function
@@ -358,7 +400,7 @@ if __name__ == '__main__':
         tags = ["no_attr", args.trainset]
         tags += wandb_tags(args)
         wandb.init(project="resnet_PARA_PIAA", 
-                   notes="NIMA",
+                   notes=f"NIMA-{args.backbone}",
                    tags = tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -383,15 +425,15 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Initialize the combined model
-    model = NIMA(num_bins).to(device)
+    model = NIMA(num_bins, backbone=args.backbone).to(device)
     
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-        
+    
     # Initialize the best test loss and the best model
-    best_modelname = f'best_model_resnet50_nima_{experiment_name}.pth'
+    best_modelname = f'best_model_{args.backbone}_nima_{experiment_name}.pth'
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     

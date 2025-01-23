@@ -13,6 +13,9 @@ import pandas as pd
 import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
+import matplotlib.pyplot as plt
+from PIL import Image
+import textwrap
 
 
 def ensure_dir_exists(directory):
@@ -125,12 +128,22 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
 
         return accumulated_histogram
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, print_detail=False):
         item_data = copy.deepcopy(self.precomputed_data[idx])
         img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
-        inherit_list = ['image', 'QIP', 'genre_onehot', 'style_onehot']
+        inherit_list = ['image', 'image_path', 'QIP', 'genre_onehot', 'style_onehot']
         for item in inherit_list:
             item_data[item] = img_sample[item]
+
+        if print_detail:
+            item_data['p_id'] = self.image_to_indices_map[self.unique_images[idx]]
+            item_data['p_uid'] = []
+            item_data['p_score'] = []
+            for idx in item_data['p_id']:
+                p_sample = super().__getitem__(idx, use_image=False)
+                item_data['p_uid'].append(p_sample['participant_id'])
+                item_data['p_score'].append(min(int(p_sample['response'])//10, 9))
+
         return item_data
 
     def _save_map(self, file_path):
@@ -925,6 +938,41 @@ def extract_features(model, dataloader, device):
     return feature_dict
 
 
+def print_LAPIS_demodata(giaa_dataset, idx=0, font_size=20, wrap_width=40):
+    # Load sample data from the GIAA dataset
+    sample = giaa_dataset.__getitem__(idx, print_detail=True)
+    
+    # Define the scale and calculate the target mean
+    scale = torch.arange(0, 10)
+    aesthetic_score_histogram = sample['aestheticScore']
+    target_mean = torch.sum(aesthetic_score_histogram * scale)
+    img_path = sample['image_path']
+    
+    # Calculate the mean score for PIAA component
+    mscore = sum(sample['p_score']) / len(sample['p_score'])
+    print(target_mean)
+
+    # Plotting with only two subplots (image and histogram)
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6), gridspec_kw={'width_ratios': [1, 1.5]})
+    
+    # Plot the image on axs[0]
+    image = Image.open(img_path)
+    axs[0].imshow(image)
+    axs[0].axis('off')
+    axs[0].set_title("Image", fontsize=font_size)
+
+    # Plot the aesthetic score histogram on axs[1]
+    axs[1].bar(scale.numpy(), aesthetic_score_histogram.numpy(), width=0.8, align='center')
+    axs[1].set_title("Aesthetic Score Histogram", fontsize=font_size)
+    axs[1].set_xlabel("Aesthetic Score", fontsize=font_size)
+    axs[1].set_ylabel("Probability", fontsize=font_size)
+    axs[1].tick_params(axis='both', labelsize=font_size)  # Set tick label size
+
+    # Adjust layout and save the figure
+    plt.tight_layout()
+    plt.savefig('LAPIS_hito_component.pdf')
+
+
 if __name__ == '__main__':
     from utils.argflags import parse_arguments, parse_arguments_piaa
     import torch.nn as nn
@@ -939,6 +987,8 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     
+    print_LAPIS_demodata(test_giaa_dataset)
+    raise Exception
     for sample in tqdm(train_dataloader):
         print(sample['traits'].shape)
         print(sample['genre_onehot'].shape)

@@ -11,6 +11,9 @@ import numpy as np
 import pandas as pd
 # import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+from PIL import Image
+import textwrap
 
 
 def ensure_dir_exists(directory):
@@ -153,12 +156,20 @@ class PARA_GIAA_HistogramDataset(PARA_PIAADataset):
             traits.extend([decoder[i] for i in range(len(decoder))])
         return traits
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, print_detail=False):
         item_data = copy.deepcopy(self.precomputed_data[idx])
         img_sample = super().__getitem__(self.image_to_indices_map[self.unique_images[idx]][0], use_image=True)
         item_data['image_path'] = img_sample['image_path']
         item_data['image'] = img_sample['image']
         item_data['semantic'] = img_sample['imageAttributes']['semantic']
+        if print_detail:
+            item_data['p_id'] = self.image_to_indices_map[self.unique_images[idx]]
+            item_data['p_uid'] = []
+            item_data['p_score'] = []
+            for idx in item_data['p_id']:
+                p_sample = super().__getitem__(idx, use_image=False)
+                item_data['p_uid'].append(p_sample['userId'])
+                item_data['p_score'].append(p_sample['aestheticScores']['aestheticScore'])
         return item_data
 
     def _discretize(self, value, bins):
@@ -955,6 +966,57 @@ def extract_features(model, dataloader, device):
     return feature_dict
 
 
+def print_PARA_demodata(giaa_dataset, idx=0, font_size=20, wrap_width=40):
+    # Load sample data from the GIAA dataset
+    sample = giaa_dataset.__getitem__(idx, print_detail=True)
+    
+    # Define the scale and calculate the target mean
+    scale = torch.arange(1, 5.5, 0.5)
+    aesthetic_score_histogram = sample['aestheticScore']
+    target_mean = torch.sum(aesthetic_score_histogram * scale)
+    img_path = sample['image_path']
+    
+    # Calculate the mean score for PIAA component
+    mscore = sum(sample['p_score']) / len(sample['p_score'])
+
+    # Group `p_uid`s by their exact `p_score` values
+    p_score_dict = {}
+    for uid, score in zip(sample['p_uid'], sample['p_score']):
+        if score not in p_score_dict:
+            p_score_dict[score] = []
+        p_score_dict[score].append(uid)
+
+    # Generate the dictionary text for console output with Mean Score and Score labels
+    dict_text = f"Mean Score: {mscore:.2f}\n\n"
+    for score, uids in sorted(p_score_dict.items()):
+        uid_text = ", ".join(uids)
+        wrapped_text = textwrap.fill(uid_text, width=wrap_width)
+        dict_text += f"Score {score}: {wrapped_text}\n\n"
+
+    # Print the generated text output
+    print(dict_text)
+
+    # Plotting with only two subplots (image and histogram)
+    fig, axs = plt.subplots(1, 2, figsize=(12, 6), gridspec_kw={'width_ratios': [1, 1.5]})
+    
+    # Plot the image on axs[0]
+    image = Image.open(img_path)
+    axs[0].imshow(image)
+    axs[0].axis('off')
+    axs[0].set_title("Image", fontsize=font_size)
+
+    # Plot the aesthetic score histogram on axs[1]
+    axs[1].bar(scale.numpy(), aesthetic_score_histogram.numpy(), width=0.4, align='center')
+    axs[1].set_title("Aesthetic Score Histogram", fontsize=font_size)
+    axs[1].set_xlabel("Aesthetic Score", fontsize=font_size)
+    axs[1].set_ylabel("Probability", fontsize=font_size)
+    axs[1].tick_params(axis='both', labelsize=font_size)  # Set tick label size
+
+    # Adjust layout and save the figure
+    plt.tight_layout()
+    plt.savefig('PARA_hito_component.pdf')
+
+
 if __name__ == '__main__':
     from utils.argflags import parse_arguments, parse_arguments_piaa
     import torch.nn as nn
@@ -967,6 +1029,8 @@ if __name__ == '__main__':
     val_dataloader = DataLoader(val_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_dataloader = DataLoader(test_giaa_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
+    
+    print_PARA_demodata(test_giaa_dataset)
     raise Exception
     # Iterate over the training dataloader
     # for sample in tqdm(test_piaa_imgsort_dataloader):

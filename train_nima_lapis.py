@@ -34,7 +34,7 @@ if __name__ == '__main__':
         tags = ["no_attr","GIAA"]
         tags += wandb_tags(args)
         wandb.init(project="resnet_LAPIS_PIAA", 
-                   notes="NIMA",
+                   notes=f"NIMA-{args.backbone}",
                    tags = tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize the combined model
-    model = NIMA(num_bins).to(device)
+    model = NIMA(num_bins, backbone=args.backbone).to(device)
 
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-    best_modelname = f'lapis_best_model_resnet50_nima_{experiment_name}.pth'
+    best_modelname = f'lapis_best_model_{args.backbone}_nima_{experiment_name}.pth'
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     

@@ -94,7 +94,7 @@ class Interfusion_MLP(nn.Module):
    
 
 class PIAA_ICI(nn.Module):
-    def __init__(self, num_bins, num_attr, num_pt, input_dim = 64, hidden_size=256, dropout=None):
+    def __init__(self, num_bins, num_attr, num_pt, input_dim = 64, hidden_size=256, dropout=None, backbone='resnet50'):
         super(PIAA_ICI, self).__init__()
         self.num_bins = num_bins
         self.num_attr = num_attr
@@ -102,7 +102,7 @@ class PIAA_ICI(nn.Module):
         self.scale = torch.arange(1, 5.5, 0.5)
         
         # Placeholder for the NIMA_attr model
-        self.nima_attr = NIMA_attr(num_bins, num_attr)
+        self.nima_attr = NIMA_attr(num_bins, num_attr, backbone)
         self.input_dim = input_dim
         # Internal and External Interaction Modules
         
@@ -172,7 +172,7 @@ if __name__ == '__main__':
         if not args.disable_onehot:
             tags += ['onehot enc']
         wandb.init(project="resnet_PARA_PIAA",
-                notes=args.model,
+                notes=f"{args.model}-{args.backbone}",
                 tags=tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -203,8 +203,8 @@ if __name__ == '__main__':
     num_classes = num_attr + num_bins
     # Define the device for training
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout)
-    best_modelname = f'best_model_resnet50_piaaici_{experiment_name}.pth'
+    model = PIAA_ICI(num_bins, num_attr, num_pt, dropout=args.dropout, backbone=args.backbone)
+    best_modelname = f'best_model_{args.backbone}_piaaici_{experiment_name}.pth'
 
 
     if args.pretrained_model:

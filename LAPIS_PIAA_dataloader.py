@@ -95,6 +95,7 @@ class LAPIS_PIAADataset(Dataset):
             sample[f'{field}_onehot'] = F.one_hot(sample[field].long(), num_classes=7)
         
         img_path = os.path.join(self.image_dir, self.data.iloc[idx]['imageName'])
+        sample['image_path'] = img_path
         sample['imgName'] = self.data.iloc[idx]['imageName']
         if use_image:
             sample['image'] = Image.open(img_path).convert('RGB')

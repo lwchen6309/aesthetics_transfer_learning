@@ -67,8 +67,6 @@ def train(model, dataloader, optimizer, device):
         images = sample['image'].to(device)
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         traits_histogram = sample['traits'].to(device)
-        art_type = sample['art_type'].to(device)
-        # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
         
         optimizer.zero_grad()
         aesthetic_logits = model(images, traits_histogram)
@@ -108,9 +106,7 @@ def evaluate(model, dataloader, device):
             images = sample['image'].to(device)
             aesthetic_score_histogram = sample['aestheticScore'].to(device)
             traits_histogram = sample['traits'].float().to(device)
-            art_type = sample['art_type'].to(device)
-            # traits_histogram = torch.cat([traits_histogram, art_type], dim=1)
-
+            
             # aesthetic_logits, _ = model(images, traits_histogram)
             aesthetic_logits = model(images, traits_histogram)
             prob_aesthetic = F.softmax(aesthetic_logits, dim=1)
@@ -325,7 +321,7 @@ if __name__ == '__main__':
         if args.dropout is not None:
             tags += [f"dropout={args.dropout}"]            
         wandb.init(project="resnet_LAPIS_PIAA", 
-                   notes="latefusion",
+                   notes=f"latefusion-{args.backbone}",
                    tags=tags)
         wandb.config = {
             "learning_rate": args.lr,
@@ -349,7 +345,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize the combined model
-    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout).to(device)
+    model = CombinedModel(num_bins, num_attr, num_bins_attr, num_pt, args.dropout, backbone=args.backbone).to(device)
     
     if args.resume is not None:
         model.load_state_dict(torch.load(args.resume))
@@ -359,7 +355,7 @@ if __name__ == '__main__':
     
     # Initialize the best test loss and the best model
     best_model = None
-    best_modelname = 'lapis_best_model_resnet50_histo_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
+    best_modelname = f'lapis_best_model_{args.backbone}_histo_lr%1.0e_decay_%depoch' % (args.lr, args.num_epochs)
     best_modelname += '_%s'%experiment_name
     best_modelname += '.pth'
     dirname = 'models_pth'

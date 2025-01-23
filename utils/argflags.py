@@ -16,6 +16,7 @@ def parse_arguments(parse=True):
 
     parser.add_argument('--trainset', type=str, default='GIAA', choices=["GIAA", "sGIAA", "PIAA", "sGIAA-pair"])
     parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--importance_sampling', action='store_true', help='Enable importance sampling for uniform score distribution')
     
     parser.add_argument('--is_eval', action='store_true', help='Enable evaluation mode')
@@ -40,7 +41,6 @@ def parse_arguments_piaa(parse=True):
     parser = parse_arguments(False)
     parser.add_argument('--pretrained_model', type=str, default=None)
     parser.add_argument('--disable_onehot', action='store_true', help='Disable Onehot encoding')
-    parser.add_argument('--blur_pt', action='store_true', help='Disable Onehot encoding')
     
     if parse:
         return parser.parse_args()
