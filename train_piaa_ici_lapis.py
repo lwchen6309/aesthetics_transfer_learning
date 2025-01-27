@@ -9,7 +9,7 @@ from tqdm import tqdm
 # from LAPIS_PIAA_dataloader import collate_fn as piaa_collate_fn
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from train_piaa_mir import trainer, trainer_piaa
 from train_piaa_ici import PIAA_ICI
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
@@ -74,8 +74,9 @@ def evaluate_piaa(model, dataloader, criterion_mse, device, args):
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 def train(model, dataloader, criterion_mse, optimizer, device, args):
@@ -139,8 +140,9 @@ def evaluate(model, dataloader, criterion_mse, device, args):
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, device, args):
@@ -183,8 +185,9 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, devi
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 criterion_mse = nn.MSELoss()

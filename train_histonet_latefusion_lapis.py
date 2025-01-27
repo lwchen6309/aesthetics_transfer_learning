@@ -9,7 +9,7 @@ from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
 import wandb
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 from train_histonet_latefusion import trainer, CombinedModel
 from utils.losses import EarthMoverDistance
@@ -17,43 +17,6 @@ earth_mover_distance = EarthMoverDistance()
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from utils.argflags import parse_arguments
-
-
-class CombinedModel_earlyfusion(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, num_bins_attr, num_pt):
-        super(CombinedModel_earlyfusion, self).__init__()
-        self.resnet = resnet50(pretrained=True)
-        self.resnet.fc = nn.Sequential(
-            nn.Linear(self.resnet.fc.in_features, 512),
-            nn.ReLU(),
-            # nn.Linear(512, num_bins_aesthetic),
-        )
-        self.num_bins_aesthetic = num_bins_aesthetic
-        self.num_attr = num_attr
-        # self.num_bins_attr = num_bins_attr
-        self.num_pt = num_pt
-        # For predicting attribute histograms for each attribute
-        # self.inv_coef_decoder = nn.Sequential(
-        #     nn.Linear(num_pt + num_bins_aesthetic, 512),
-        #     nn.ReLU(),   
-        #     nn.Linear(512, 512),
-        #     nn.ReLU(),
-        #     nn.Linear(512, 20)
-        # )
-        
-        # For predicting aesthetic score histogram
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(512 + num_pt, 512),
-            nn.ReLU(),
-            nn.Linear(512, num_bins_aesthetic)
-        )
-    
-    def forward(self, images, traits_histogram):
-        x = self.resnet(images)
-        aesthetic_logits = self.fc_aesthetic(torch.cat([x, traits_histogram], dim=1))
-        # coef = self.inv_coef_decoder(torch.cat([aesthetic_logits, traits_histogram], dim=1))
-        return aesthetic_logits #, coef
-
 
 
 # Training Function
@@ -132,11 +95,12 @@ def evaluate(model, dataloader, device):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
-    
+    plcc, _ = pearsonr(predicted_scores, true_scores)
+
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, emd_attr_loss, srocc, mse_loss
+    return emd_loss, srocc, plcc, mse_loss
 
 
 def evaluate_with_prior(model, dataloader, prior_dataloader, device):
@@ -191,11 +155,12 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, device):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
-    
+    plcc, _ = pearsonr(predicted_scores, true_scores)
+
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, emd_attr_loss, srocc, mse_loss
+    return emd_loss, srocc, plcc, mse_loss
 
 
 def save_results(dataset, userIds, traits_histograms, traits_codes, emd_loss_data, predicted_scores, true_scores, **kwargs):
@@ -287,6 +252,8 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
+    plcc, _ = pearsonr(predicted_scores, true_scores)
+
     emd_loss_data = np.concatenate(emd_loss_data)
     traits_histograms = np.concatenate(traits_histograms)
     traits_codes = np.concatenate(traits_codes)
@@ -296,7 +263,7 @@ def evaluate_each_datum(model, dataloader, device, **kwargs):
     emd_loss = running_emd_loss / len(dataloader)
     emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, emd_attr_loss, srocc, mse_loss
+    return emd_loss, srocc, plcc, mse_loss
 
 
 num_bins = 10

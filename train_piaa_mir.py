@@ -10,7 +10,7 @@ from PARA_PIAA_dataloader import collect_batch_attribute, collect_batch_personal
 from PARA_PIAA_dataloader import load_data as piaa_load_data
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 import wandb
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from train_nima_attr import NIMA_attr
 from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
 
@@ -130,8 +130,9 @@ def evaluate_piaa(model, dataloader, criterion_mse, device, args):
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 def train(model, dataloader, criterion_mse, optimizer, device, args):
@@ -163,40 +164,6 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
 
     epoch_mse_loss = running_mse_loss / len(dataloader)
     return epoch_mse_loss
-
-
-def train_cf(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
-    scale = torch.arange(1, 5.5, 0.5).to(device)
-
-    A_ij = None
-    progress_bar = tqdm(dataloader, leave=False)
-    for sample in progress_bar:
-        images = sample['image'].to(device)
-        traits_histogram = sample['traits'].to(device)
-        onehot_big5 = sample['big5'].to(device)
-        sample_pt = torch.cat([traits_histogram, onehot_big5], dim=1)
-
-        aesthetic_score_histogram = sample['aestheticScore'].to(device)
-        sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True)
-        if A_ij is not None:
-            A_ij = A_ij.detach()
-        score_pred, A_ij = model(images, sample_pt, A_ij)
-        loss = criterion_mse(score_pred, sample_score)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        running_mse_loss += loss.item()
-
-        progress_bar.set_postfix({
-            'Train MSE Mean Loss': loss.item(),
-        })
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-    return epoch_mse_loss
-
 
 def evaluate(model, dataloader, criterion_mse, device, args):
     model.eval()  # Set the model to evaluation mode
@@ -232,8 +199,9 @@ def evaluate(model, dataloader, criterion_mse, device, args):
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, device, args):
@@ -276,8 +244,9 @@ def evaluate_with_prior(model, dataloader, prior_dataloader, criterion_mse, devi
 
     # Calculate SROCC for all predictions
     srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
+    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
 
-    return epoch_mse_loss, srocc
+    return epoch_mse_loss, srocc, plcc
 
 
 criterion_mse = nn.MSELoss()
@@ -289,16 +258,19 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
     evaluate_fn, evaluate_fn_with_prior = evaluate_fns
 
     if args.resume is not None:
-        test_piaa_loss, test_piaa_srocc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
-        test_giaa_loss, test_giaa_srocc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
-        test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
+        test_piaa_loss, test_piaa_srocc, test_piaa_plcc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
+        test_giaa_loss, test_giaa_srocc, test_giaa_plcc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
+        test_giaa_loss_wprior, test_giaa_srocc_wprior, test_giaa_plcc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
         if args.is_log:
             wandb.log({"Test PIAA MSE Loss (Pretrained)": test_piaa_loss,
                     "Test PIAA SROCC (Pretrained)": test_piaa_srocc,
+                    "Test PIAA PLCC (Pretrained)": test_piaa_plcc,
                     "Test GIAA MSE Loss (Pretrained)": test_giaa_loss,
                     "Test GIAA SROCC (Pretrained)": test_giaa_srocc,
+                    "Test GIAA PLCC (Pretrained)": test_giaa_plcc,
                     "Test GIAA MSE Loss (Prior)(Pretrained)": test_giaa_loss_wprior,
                     "Test GIAA SROCC (Prior)(Pretrained)": test_giaa_srocc_wprior,                   
+                    "Test GIAA SROCC (Prior)(Pretrained)": test_giaa_plcc_wprior,                   
                     }, commit=True)
     
     num_patience_epochs = 0
@@ -313,12 +285,13 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
         # Training
         train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
         # Testing
-        val_mse_loss, val_srocc = evaluate_fn(model, val_piaa_imgsort_dataloader, criterion_mse, device, args)
+        val_mse_loss, val_srocc, val_plcc = evaluate_fn(model, val_piaa_imgsort_dataloader, criterion_mse, device, args)
 
         if args.is_log:
             wandb.log({"Train PIAA MSE Loss": train_mse_loss,
                         "Val PIAA MSE Loss": val_mse_loss,
                         "Val PIAA SROCC": val_srocc,
+                        "Val PIAA PLCC": val_plcc,
                     }, commit=True)
 
         # Early stopping check
@@ -335,17 +308,19 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
     if not args.is_eval:
         model.load_state_dict(torch.load(best_modelname))
     # Testing
-    test_piaa_loss, test_piaa_srocc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
-    print(test_piaa_srocc)
-    test_giaa_loss, test_giaa_srocc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
-    test_giaa_loss_wprior, test_giaa_srocc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
+    test_piaa_loss, test_piaa_srocc, test_piaa_plcc = evaluate_fn(model, test_piaa_imgsort_dataloader, criterion_mse, device, args)
+    test_giaa_loss, test_giaa_srocc, test_giaa_plcc = evaluate_fn(model, test_giaa_dataloader, criterion_mse, device, args)
+    test_giaa_loss_wprior, test_giaa_srocc_wprior, test_giaa_plcc_wprior = evaluate_fn_with_prior(model, test_giaa_dataloader, val_giaa_dataloader, criterion_mse, device, args)
     if args.is_log:
         wandb.log({"Test PIAA MSE Loss": test_piaa_loss,
                    "Test PIAA SROCC": test_piaa_srocc,
+                   "Test PIAA PLCC": test_piaa_plcc,
                    "Test GIAA MSE Loss": test_giaa_loss,
                    "Test GIAA SROCC": test_giaa_srocc,
+                   "Test GIAA PLCC": test_giaa_plcc,
                    "Test GIAA MSE Loss (Prior)": test_giaa_loss_wprior,
                    "Test GIAA SROCC (Prior)": test_giaa_srocc_wprior,                   
+                   "Test GIAA PLCC (Prior)": test_giaa_plcc_wprior,                   
                    }, commit=True)
     print(
         f"Test GIAA SROCC: {test_giaa_srocc:.4f}, "
@@ -358,32 +333,36 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fns, device,
 def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
 
     train_dataloader, val_dataloader, test_dataloader = dataloaders
-    
+
     if args.resume is not None:
-        test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
+        test_mse_loss, test_srocc, test_plcc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
         if args.is_log:
             wandb.log({"Test PIAA MSE Loss (Pretrained)": test_mse_loss,
-                    "Test PIAA SROCC (Pretrained)": test_srocc}, commit=True)
-    
+                       "Test PIAA SROCC (Pretrained)": test_srocc,
+                       "Test PIAA PLCC (Pretrained)": test_plcc}, commit=True)
+
     num_patience_epochs = 0
     best_test_srocc = 0
     for epoch in range(args.num_epochs):
         if args.is_eval:
             break
+
         # Learning rate schedule
         if (epoch + 1) % args.lr_schedule_epochs == 0:
             for param_group in optimizer.param_groups:
                 param_group['lr'] *= args.lr_decay_factor
+
         # Training
         train_mse_loss = train_fn(model, train_dataloader, criterion_mse, optimizer, device, args)
-        # Testing
-        val_mse_loss, val_srocc = evaluate_fn(model, val_dataloader, criterion_mse, device, args)
+
+        # Validation
+        val_mse_loss, val_srocc, val_plcc = evaluate_fn(model, val_dataloader, criterion_mse, device, args)
 
         if args.is_log:
             wandb.log({"Train PIAA MSE Loss": train_mse_loss,
-                        "Val PIAA MSE Loss": val_mse_loss,
-                        "Val PIAA SROCC": val_srocc,
-                    }, commit=True)
+                       "Val PIAA MSE Loss": val_mse_loss,
+                       "Val PIAA SROCC": val_srocc,
+                       "Val PIAA PLCC": val_plcc}, commit=True)
 
         # Early stopping check
         if val_srocc > best_test_srocc:
@@ -395,20 +374,24 @@ def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, dev
             if num_patience_epochs >= args.max_patience_epochs:
                 print("Validation loss has not decreased for {} epochs. Stopping training.".format(args.max_patience_epochs))
                 break
-    
+
     if not args.is_eval:
         model.load_state_dict(torch.load(best_modelname))
+
     # Testing
-    test_mse_loss, test_srocc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
+    test_mse_loss, test_srocc, test_plcc = evaluate_fn(model, test_dataloader, criterion_mse, device, args)
     if args.is_log:
         wandb.log({"Test PIAA MSE Loss": test_mse_loss,
-                   "Test PIAA SROCC": test_srocc}, commit=True)
+                   "Test PIAA SROCC": test_srocc,
+                   "Test PIAA PLCC": test_plcc}, commit=True)
+
     print(
-        # f"Train PIAA MSE Loss: {train_mse_loss:.4f}, "
         f"Test PIAA MSE Loss: {test_mse_loss:.4f}, "
-        f"Test PIAA SROCC Loss: {test_srocc:.4f}, ")
-    
-    return test_srocc  
+        f"Test PIAA SROCC: {test_srocc:.4f}, "
+        f"Test PIAA PLCC: {test_plcc:.4f}")
+
+    return test_srocc
+
 
 
 criterion_mse = nn.MSELoss()
@@ -485,12 +468,7 @@ if __name__ == '__main__':
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     
-    # Training loop
-    if args.model == 'PIAA_MIR_CF':
-        trainer(dataloaders, model, optimizer, args, train_cf, (evaluate, evaluate_with_prior), device, best_modelname)
+    if args.disable_onehot:
+        trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
     else:
-        if args.disable_onehot:
-            trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
-        else:
-            trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    
+        trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)

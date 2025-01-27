@@ -39,7 +39,7 @@ class NIMA_attr(nn.Module):
             feature_dim = self.backbone.num_features
         else:
             raise ValueError(f"Unsupported backbone: {backbone}")
-        print(backbone)
+        # print(backbone)
         self.num_bins_aesthetic = num_bins_aesthetic
 
         # Fully connected layers for aesthetic and attribute predictions
