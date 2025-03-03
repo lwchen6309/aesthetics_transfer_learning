@@ -19,70 +19,70 @@ earth_mover_distance = EarthMoverDistance()
 from utils.argflags import parse_arguments, wandb_tags, model_dir
 
 
-class NIMA_attr(nn.Module):
-    def __init__(self, num_bins_aesthetic, num_attr, backbone="resnet50", pretrained=True):
-        super(NIMA_attr, self).__init__()
-
-        # Load the specified backbone (ResNet-50, ViT-Small, Swin-Tiny, or Swin-Base)
-        if backbone == "resnet50":
-            self.backbone = resnet50(pretrained=pretrained)
-            feature_dim = self.backbone.fc.in_features
-            self.backbone.fc = nn.Identity()  # Remove the classification head
-        elif backbone == "vit_small_patch16_224":
-            self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
-            feature_dim = self.backbone.embed_dim
-        elif backbone == "swin_tiny_patch4_window7_224":
-            self.backbone = create_model("swin_tiny_patch4_window7_224", pretrained=pretrained, num_classes=0)
-            feature_dim = self.backbone.num_features
-        elif backbone == "swin_base_patch4_window7_224":
-            self.backbone = create_model("swin_base_patch4_window7_224", pretrained=pretrained, num_classes=0)
-            feature_dim = self.backbone.num_features
-        else:
-            raise ValueError(f"Unsupported backbone: {backbone}")
-        # print(backbone)
-        self.num_bins_aesthetic = num_bins_aesthetic
-
-        # Fully connected layers for aesthetic and attribute predictions
-        self.fc_aesthetic = nn.Sequential(
-            nn.Linear(feature_dim, num_bins_aesthetic)
-        )
-        self.fc_attributes = nn.Sequential(
-            nn.Linear(feature_dim, num_attr)
-        )
-
-    def forward(self, images):
-        # Extract features using the backbone
-        x = self.backbone(images)
-
-        # Predict aesthetic and attribute logits
-        aesthetic_logits = self.fc_aesthetic(x)
-        attribute_logits = self.fc_attributes(x)
-
-        return aesthetic_logits, attribute_logits
-
-
 # class NIMA_attr(nn.Module):
-#     def __init__(self, num_bins_aesthetic, num_attr):
+#     def __init__(self, num_bins_aesthetic, num_attr, backbone="resnet50", pretrained=True):
 #         super(NIMA_attr, self).__init__()
-#         self.resnet = resnet50(pretrained=True)
-#         self.resnet.fc = nn.Sequential(
-#             nn.Linear(self.resnet.fc.in_features, 512),
-#             nn.ReLU(),
-#         )
+
+#         # Load the specified backbone (ResNet-50, ViT-Small, Swin-Tiny, or Swin-Base)
+#         if backbone == "resnet50":
+#             self.backbone = resnet50(pretrained=pretrained)
+#             feature_dim = self.backbone.fc.in_features
+#             self.backbone.fc = nn.Identity()  # Remove the classification head
+#         elif backbone == "vit_small_patch16_224":
+#             self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
+#             feature_dim = self.backbone.embed_dim
+#         elif backbone == "swin_tiny_patch4_window7_224":
+#             self.backbone = create_model("swin_tiny_patch4_window7_224", pretrained=pretrained, num_classes=0)
+#             feature_dim = self.backbone.num_features
+#         elif backbone == "swin_base_patch4_window7_224":
+#             self.backbone = create_model("swin_base_patch4_window7_224", pretrained=pretrained, num_classes=0)
+#             feature_dim = self.backbone.num_features
+#         else:
+#             raise ValueError(f"Unsupported backbone: {backbone}")
+#         # print(backbone)
 #         self.num_bins_aesthetic = num_bins_aesthetic
 
+#         # Fully connected layers for aesthetic and attribute predictions
 #         self.fc_aesthetic = nn.Sequential(
-#             nn.Linear(512, num_bins_aesthetic)
+#             nn.Linear(feature_dim, num_bins_aesthetic)
 #         )
 #         self.fc_attributes = nn.Sequential(
-#             nn.Linear(512, num_attr)
+#             nn.Linear(feature_dim, num_attr)
 #         )
 
 #     def forward(self, images):
-#         x = self.resnet(images)
+#         # Extract features using the backbone
+#         x = self.backbone(images)
+
+#         # Predict aesthetic and attribute logits
 #         aesthetic_logits = self.fc_aesthetic(x)
 #         attribute_logits = self.fc_attributes(x)
+
 #         return aesthetic_logits, attribute_logits
+
+
+class NIMA_attr(nn.Module):
+    def __init__(self, num_bins_aesthetic, num_attr, backbone="resnet50", pretrained=True):
+        super(NIMA_attr, self).__init__()
+        self.resnet = resnet50(pretrained=True)
+        self.resnet.fc = nn.Sequential(
+            nn.Linear(self.resnet.fc.in_features, 512),
+            nn.ReLU(),
+        )
+        self.num_bins_aesthetic = num_bins_aesthetic
+
+        self.fc_aesthetic = nn.Sequential(
+            nn.Linear(512, num_bins_aesthetic)
+        )
+        self.fc_attributes = nn.Sequential(
+            nn.Linear(512, num_attr)
+        )
+
+    def forward(self, images):
+        x = self.resnet(images)
+        aesthetic_logits = self.fc_aesthetic(x)
+        attribute_logits = self.fc_attributes(x)
+        return aesthetic_logits, attribute_logits
 
 
 # Training Function

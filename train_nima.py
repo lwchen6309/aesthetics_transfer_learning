@@ -10,7 +10,7 @@ from torchvision.models import resnet50
 import numpy as np
 from tqdm import tqdm
 import wandb
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, pearsonr
 from PARA_histogram_dataloader import load_data, collate_fn_imgsort
 # import matplotlib.pyplot as plt
 # import pandas as pd
@@ -244,12 +244,12 @@ def evaluate(model, dataloader, device):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
-    
-    emd_loss = running_emd_loss / len(dataloader)
-    emd_attr_loss = running_attr_emd_loss / len(dataloader)
-    mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, emd_attr_loss, srocc, mse_loss
+    plcc, _ = pearsonr(predicted_scores, true_scores)
 
+    emd_loss = running_emd_loss / len(dataloader)
+    # emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    mse_loss = running_mse_loss / len(dataloader)
+    return emd_loss, srocc, plcc, mse_loss
 
 # Evaluation Function
 def evaluate_each_datum(model, dataloader, device):
@@ -304,15 +304,16 @@ def evaluate_each_datum(model, dataloader, device):
     predicted_scores = np.concatenate(mean_pred, axis=0)
     true_scores = np.concatenate(mean_target, axis=0)
     srocc, _ = spearmanr(predicted_scores, true_scores)
+    plcc, _ = pearsonr(predicted_scores, true_scores)
 
     traits_histograms = np.concatenate(traits_histograms)
     emd_loss_data = np.concatenate(emd_loss_data)
     save_results(dataloader.dataset, userIds, traits_histograms, emd_loss_data, predicted_scores, true_scores)
     
     emd_loss = running_emd_loss / len(dataloader)
-    emd_attr_loss = running_attr_emd_loss / len(dataloader)
+    # emd_attr_loss = running_attr_emd_loss / len(dataloader)
     mse_loss = running_mse_loss / len(dataloader)
-    return emd_loss, emd_attr_loss, srocc, mse_loss
+    return emd_loss, srocc, plcc, mse_loss
 
 
 def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, best_modelname):
@@ -338,14 +339,16 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
                        }, commit=False)
         
         # Testing
-        val_giaa_emd_loss, _, val_giaa_srocc, _ = evaluate_fn(model, val_giaa_dataloader, device)
-        val_piaa_emd_loss, _, val_piaa_srocc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
+        val_giaa_emd_loss, val_giaa_srocc, val_giaa_plcc, _ = evaluate_fn(model, val_giaa_dataloader, device)
+        val_piaa_emd_loss, val_piaa_srocc, val_piaa_plcc, _ = evaluate_fn(model, val_piaa_imgsort_dataloader, device)
         if args.is_log:
             wandb.log({
                 "Val GIAA EMD Loss": val_giaa_emd_loss,
                 "Val GIAA SROCC": val_giaa_srocc,
+                "Val GIAA PLCC": val_giaa_plcc,
                 "Val PIAA EMD Loss": val_piaa_emd_loss,
                 "Val PIAA SROCC": val_piaa_srocc,
+                "Val PIAA PLCC": val_piaa_plcc,
             }, commit=True)
         
         eval_srocc = val_piaa_srocc if args.eval_on_piaa else val_giaa_srocc
@@ -365,16 +368,18 @@ def trainer(dataloaders, model, optimizer, args, train_fn, evaluate_fn, device, 
         model.load_state_dict(torch.load(best_modelname))   
     
     # Testing
-    test_giaa_emd_loss, _, test_giaa_srocc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
-    test_piaa_emd_loss, _, test_piaa_srocc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
+    test_giaa_emd_loss, test_giaa_srocc, test_giaa_plcc, test_giaa_mse = evaluate_fn(model, test_giaa_dataloader, device)
+    test_piaa_emd_loss, test_piaa_srocc, test_piaa_plcc, test_piaa_mse = evaluate_fn(model, test_piaa_imgsort_dataloader, device)
     
     if args.is_log:
         wandb.log({
             "Test GIAA EMD Loss": test_giaa_emd_loss,
             "Test GIAA SROCC": test_giaa_srocc,
+            "Test GIAA PLCC": test_giaa_plcc,
             "Test GIAA MSE": test_giaa_mse,
             "Test PIAA EMD Loss": test_piaa_emd_loss,
             "Test PIAA SROCC": test_piaa_srocc,
+            "Test PIAA PLCC": test_piaa_plcc,
             "Test PIAA MSE": test_piaa_mse,
         }, commit=True)
 
