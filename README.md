@@ -33,18 +33,20 @@ Please download PARA dataset from [here](https://cv-datasets.institutecv.com/#/d
 
 create the dataset folder ```PARA``` and unzip ```para_image_user_split.tar.gz``` to it. With the following structure:
 
+```
 PARA
 |-- annotation
-|------ARA-GiaaTest.csv  
-|------PARA-GiaaTrain.csv  
-|------PARA-Images.csv  
-|------PARA-UserInfo.csv
-|-- imgs
+|------ARA-GiaaTest.csv
+|------PARA-GiaaTrain.csv
+|------PARA-Images.csv
+|------PARA-UserInfo.csv  
+|-- imgs  
 |------ *.jpg
 |-- validation_images.txt
 |-- userset
 |------TrainUserIDs_Fold[1-4].txt
 |------TestUserIDs_Fold[1-4].txt
+```
 
 ## LAPIS
 Please download LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git), 
