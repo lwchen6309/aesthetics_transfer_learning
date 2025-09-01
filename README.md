@@ -1,4 +1,4 @@
-# LAPIS_IAA
+# Transfer learning in IAA
 
 ## Installation
 
