@@ -456,7 +456,6 @@ if __name__ == '__main__':
         unique_trait = dataset.data[trait].unique()
         for t in unique_trait:
             print(trait, t, sum(dataset.data[trait]==t))
-    raise Exception
     
     # Create dataloaders for training and test sets
     n_workers = 8
@@ -466,15 +465,6 @@ if __name__ == '__main__':
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=n_workers)
 
     # Iterate over the training dataloader
-    t0 = time()
     for sample in tqdm(test_dataloader):
         sample_score, sample_attr = collect_batch_attribute(sample)
         sample_pt = collect_batch_personal_trait(sample)
-    print(time() - t0)
-
-    # Iterate over the training dataloader
-    t0 = time()
-    for sample in tqdm(test_bak_dataloader):
-        sample_score, sample_attr = collect_batch_attribute(sample)
-        sample_pt = collect_batch_personal_trait(sample)        
-    print(time() - t0)
