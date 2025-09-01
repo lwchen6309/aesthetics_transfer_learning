@@ -417,4 +417,3 @@ if __name__ == '__main__':
         print(sample['QIP'].shape)
         print(sample['genre_onehot'].shape)
         print(sample['style_onehot'].shape)
-        raise Exception

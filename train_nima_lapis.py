@@ -5,15 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-# from torchvision import transforms
 from torchvision.models import resnet50, mobilenet_v2, resnet18, swin_v2_t, swin_v2_s
-from navit.main import NaViT
 import numpy as np
-# import pandas as pd
 from tqdm import tqdm
 import wandb
 from scipy.stats import spearmanr
-from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn, collate_fn_noresize, collate_fn_imgsort_noresize
+from LAPIS_histogram_dataloader import load_data, collate_fn_imgsort, collate_fn
 from utils.argflags import parse_arguments, wandb_tags, model_dir
 from utils.losses import EarthMoverDistance
 earth_mover_distance = EarthMoverDistance()
@@ -22,22 +19,6 @@ earth_mover_distance = EarthMoverDistance()
 class NIMA(nn.Module):
     def __init__(self, num_bins_aesthetic, backbone='resnet50'):
         super(NIMA, self).__init__()
-
-        if backbone == 'navit':
-            self.backbone = NaViT(
-                image_size = 256,
-                patch_size = 32,
-                num_classes = num_bins_aesthetic,
-                dim = 1024,
-                heads = 16,
-                mlp_dim=512,
-                dropout=0.1,
-                emb_dropout=0.1,
-                token_dropout_prob=0.1,
-                depth=1
-            )
-            self.fc_aesthetic = nn.Identity()
-            return
 
         # Choose model backbone based on the input argument
         if backbone == 'resnet50':
@@ -239,26 +220,16 @@ criterion_mse = nn.MSELoss()
 
 
 if __name__ == '__main__':    
-    parser = parse_arguments(False)
-    parser.add_argument('--backbone', type=str, default='resnet50')
-    args = parser.parse_args()
+    args = parse_arguments()
     batch_size = args.batch_size
     print(args)
     
     if args.is_log:
         tags = ["no_attr","GIAA"]
         tags += wandb_tags(args)
-<<<<<<< HEAD
-        wandb.init(project="LAPIS_IAA", 
-                   notes='NIMA-'+args.backbone,
-                   tags = tags,
-                   entity='KULeuven-GRAPPA',
-                   )
-=======
         wandb.init(project="resnet_LAPIS_PIAA", 
                    notes=f"NIMA-{args.backbone}",
                    tags = tags)
->>>>>>> release
         wandb.config = {
             "learning_rate": args.lr,
             "batch_size": batch_size,
@@ -292,11 +263,7 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
-<<<<<<< HEAD
-    best_modelname = f'lapis_{args.backbone}_nima_{experiment_name}.pth'
-=======
     best_modelname = f'lapis_best_model_{args.backbone}_nima_{experiment_name}.pth'
->>>>>>> release
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     

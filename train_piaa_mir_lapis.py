@@ -10,7 +10,6 @@ from tqdm import tqdm
 from torchvision.models import resnet50, mobilenet_v2, resnet18, swin_v2_t, swin_v2_s
 from LAPIS_histogram_dataloader import load_data, collate_fn, collate_fn_imgsort
 import wandb
-<<<<<<< HEAD
 from scipy.stats import spearmanr
 # from train_piaa_mir import PIAA_MIR
 # from train_piaa_mir import trainer, trainer_piaa
@@ -41,17 +40,6 @@ class NIMA_attr(nn.Module):
             self.backbone = swin_v2_t(pretrained=True)
             backbone_out_features = self.backbone.head.in_features
             self.backbone.head = nn.Identity()  # Remove the head
-=======
-from scipy.stats import spearmanr, pearsonr
-from train_piaa_mir import PIAA_MIR
-from train_piaa_mir import trainer, trainer_piaa
-from utils.argflags import parse_arguments_piaa, wandb_tags, model_dir
-
-
-def train_piaa(model, dataloader, criterion_mse, optimizer, device, args):
-    model.train()
-    running_mse_loss = 0.0
->>>>>>> release
 
         elif backbone == 'swin_v2_s':
             self.backbone = swin_v2_s(pretrained=True)
@@ -96,7 +84,6 @@ class MLP(nn.Module):
         x = self.fc2(x)
         return x
 
-<<<<<<< HEAD
 class PIAA_MIR(nn.Module):
     def __init__(self, num_bins, num_attr, num_pt, hidden_size=1024, dropout=None, backbone='resnet-50'):
         super(PIAA_MIR, self).__init__()
@@ -113,43 +100,6 @@ class PIAA_MIR(nn.Module):
         self.dropout_layer = nn.Dropout(self.dropout)
         self.mlp1 = MLP(num_attr * num_pt, hidden_size, 1)
         self.mlp2 = MLP(num_bins, hidden_size, 1)
-=======
-def evaluate_piaa(model, dataloader, criterion_mse, device, args):
-    model.eval()  # Set the model to evaluation mode
-    running_mse_loss = 0.0
-
-    all_predicted_scores = []  # List to store all predictions
-    all_true_scores = []  # List to store all true scores
-
-    progress_bar = tqdm(dataloader, leave=False)
-    for sample in progress_bar:
-        with torch.no_grad():
-            images = sample['image'].to(device)
-            sample_pt = sample['traits'].float().to(device)
-            sample_score = sample['response'].float().to(device) / 2.
-            
-            # MSE loss
-            score_pred = model(images, sample_pt)
-            # loss = criterion_mse(score_pred, sample_score)
-            loss = criterion_mse(score_pred / 5., sample_score / 5.)
-            running_mse_loss += loss.item()
-
-            # Store predicted and true scores for SROCC calculation
-            predicted_scores = score_pred.view(-1).cpu().numpy()
-            true_scores = sample_score.view(-1).cpu().numpy()
-            all_predicted_scores.extend(predicted_scores)
-            all_true_scores.extend(true_scores)
-
-            progress_bar.set_postfix({'Test MSE Mean Loss': loss.item()})
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-
-    # Calculate SROCC for all predictions
-    srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
-    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
-
-    return epoch_mse_loss, srocc, plcc
->>>>>>> release
 
     def forward(self, images, personal_traits):
         logit, attr_mean_pred = self.nima_attr(images)
@@ -174,12 +124,7 @@ def train(model, dataloader, criterion_mse, optimizer, device, args):
     progress_bar = tqdm(dataloader, leave=False)
     for sample in progress_bar:
         images = sample['image'].to(device)
-<<<<<<< HEAD
         sample_pt = sample['traits'].float().to(device)        
-=======
-        sample_pt = sample['traits'].float().to(device)
-
->>>>>>> release
         aesthetic_score_histogram = sample['aestheticScore'].to(device)
         sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
         score_pred = model(images, sample_pt)
@@ -259,50 +204,11 @@ def trainer_piaa(dataloaders, model, optimizer, args, train_fn, evaluate_fn, dev
         # Testing
         val_mse_loss, val_srocc = evaluate_fn(model, val_dataloader, criterion_mse, device, args)
 
-<<<<<<< HEAD
         if args.is_log:
             wandb.log({"Train PIAA MSE Loss": train_mse_loss,
                         "Val PIAA MSE Loss": val_mse_loss,
                         "Val PIAA SROCC": val_srocc,
                     }, commit=True)
-=======
-    progress_bar = tqdm(dataloader, leave=False)
-    with torch.no_grad():
-        traits_histograms = []
-        for sample in tqdm(prior_dataloader, leave=False):
-            traits_histogram = sample['traits'].to(device)
-            traits_histograms.append(traits_histogram)
-        mean_traits_histogram = torch.mean(torch.cat(traits_histograms, dim=0), dim=0).unsqueeze(0)
-
-        for sample in progress_bar:
-            images = sample['image'].to(device)
-            # sample_pt = sample['traits'].float().to(device)
-            sample_pt = mean_traits_histogram.repeat(images.shape[0], 1)
-            # sample_score = sample['response'].float().to(device) / 20.
-            aesthetic_score_histogram = sample['aestheticScore'].to(device)
-            sample_score = torch.sum(aesthetic_score_histogram * scale, dim=1, keepdim=True) / 2.
-
-            # MSE loss
-            score_pred = model(images, sample_pt)
-            loss = criterion_mse(score_pred, sample_score)
-            running_mse_loss += loss.item()
-
-            # Store predicted and true scores for SROCC calculation
-            predicted_scores = score_pred.view(-1).cpu().numpy()
-            true_scores = sample_score.view(-1).cpu().numpy()
-            all_predicted_scores.extend(predicted_scores)
-            all_true_scores.extend(true_scores)
-
-            progress_bar.set_postfix({'Test MSE Mean Loss': loss.item()})
-
-    epoch_mse_loss = running_mse_loss / len(dataloader)
-
-    # Calculate SROCC for all predictions
-    srocc, _ = spearmanr(all_predicted_scores, all_true_scores)
-    plcc, _ = pearsonr(all_predicted_scores, all_true_scores)
-
-    return epoch_mse_loss, srocc, plcc
->>>>>>> release
 
         # Early stopping check
         if val_srocc > best_test_srocc:
@@ -334,12 +240,7 @@ criterion_mse = nn.MSELoss()
 
 if __name__ == '__main__':
     parser = parse_arguments_piaa(False)
-<<<<<<< HEAD
     parser.add_argument('--backbone', type=str, default='resnet50')
-=======
-    parser.add_argument('--model', type=str, default='PIAA-MIR')
-    parser.add_argument('--freeze_nima', action='store_true', help='Enable evaluation mode')
->>>>>>> release
     args = parser.parse_args()
     args.disable_onehot = True
     print(args)
@@ -351,19 +252,11 @@ if __name__ == '__main__':
     if args.is_log:
         tags = ["no_attr"]
         tags += wandb_tags(args)
-<<<<<<< HEAD
-        wandb.init(project="LAPIS_IAA", 
-                   notes='PIAA-MIR-'+args.backbone,
-                   tags = tags,
-                   entity='KULeuven-GRAPPA',
-                   )
-=======
         if not args.disable_onehot:
             tags += ['onehot enc']
         wandb.init(project="resnet_LAPIS_PIAA",
                 notes=f"{args.model}-{args.backbone}",
                 tags = tags)
->>>>>>> release
         experiment_name = wandb.run.name
     else:
         experiment_name = ''
@@ -380,11 +273,7 @@ if __name__ == '__main__':
     # Define the number of classes in your dataset
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = PIAA_MIR(num_bins, num_attr, num_pt, dropout=args.dropout, backbone=args.backbone).to(device)
-<<<<<<< HEAD
     best_modelname = f'lapis_{args.backbone}_piaamir_{experiment_name}.pth'
-=======
-    best_modelname = f'best_model_{args.backbone}_piaamir_{experiment_name}.pth'
->>>>>>> release
     
     if args.pretrained_model:
         model.nima_attr.load_state_dict(torch.load(args.pretrained_model))
@@ -400,16 +289,4 @@ if __name__ == '__main__':
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     
-<<<<<<< HEAD
     trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
-=======
-    # Training loop
-    if args.disable_onehot:
-        trainer_piaa(dataloaders, model, optimizer, args, train, evaluate, device, best_modelname)
-        # trainer_piaa(dataloaders, model, optimizer, args, train_piaa, evaluate_piaa, device, best_modelname)
-    else:
-        trainer(dataloaders, model, optimizer, args, train, (evaluate, evaluate_with_prior), device, best_modelname)
-    
-    
-        
->>>>>>> release

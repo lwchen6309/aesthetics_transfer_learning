@@ -1,19 +1,22 @@
 import os
 import torch
 from torchvision import transforms
-# import torch.nn.functional as F
-from PARA_PIAA_dataloader import PARA_PIAADataset, create_user_split_dataset_kfold, split_dataset_by_images, split_data_by_user,datapath
+from PARA_PIAA_dataloader import PARA_PIAADataset, create_user_split_dataset_kfold, split_dataset_by_images, split_data_by_user
 import random
 import pickle
 from tqdm import tqdm
 import copy
 import numpy as np
 import pandas as pd
-# import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from PIL import Image
 import textwrap
+import yaml
+
+file_path = 'data_config.yaml'
+with open(file_path, 'r') as file:
+    datapath = yaml.safe_load(file)
 
 
 def ensure_dir_exists(directory):
@@ -768,115 +771,6 @@ def load_data(args, root_dir = datapath['PARA_datapath']):
     
     return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset
 
-
-def load_data_testpair(args, root_dir = datapath['PARA_datapath']):
-    # Dataset transformations
-    train_transform = transforms.Compose([
-        transforms.RandomHorizontalFlip(0.5),
-        transforms.RandomResizedCrop(224),
-        transforms.ToTensor(),
-    ])
-    test_transform = transforms.Compose([
-        transforms.Resize(224),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-    ])
-    fold_id = getattr(args, 'fold_id', None)
-    n_fold = getattr(args, 'n_fold', None)
-    trainset = getattr(args, 'trainset', 'GIAA')
-
-    # Load datasets
-    # Create datasets with the appropriate transformations
-    dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    piaa_dataset = PARA_PIAADataset(root_dir, transform=train_transform)
-    train_dataset, val_dataset, test_dataset = split_dataset_by_images(piaa_dataset, root_dir)
-    # Assuming shell_users_df contains the shell user DataFrame
-    if getattr(args, 'use_cv', False) and (fold_id is not None) and (n_fold is not None):
-        train_dataset, val_dataset, test_dataset = create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_dataset, fold_id=fold_id, n_fold=n_fold)
-    
-    is_trait_disjoint = getattr(args, 'trait', False) and getattr(args, 'value', False)
-    if is_trait_disjoint:
-        print(f'Split trait according to {args.trait} == {args.value}')
-        train_dataset.data = train_dataset.data[train_dataset.data[args.trait] != args.value]
-        val_dataset.data = val_dataset.data[val_dataset.data[args.trait] != args.value]
-        testc_dataset = copy.deepcopy(test_dataset)
-        test_dataset.data = test_dataset.data[test_dataset.data[args.trait] == args.value]
-        testc_dataset.data = testc_dataset.data[testc_dataset.data[args.trait] != args.value]
-
-    print(len(train_dataset), len(val_dataset), len(test_dataset), len(testc_dataset))
-
-    pkl_dir = './dataset_pkl'
-    if getattr(args, 'use_cv', False):
-        pkl_dir = os.path.join(pkl_dir, 'user_cv')
-        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%dfold.pkl'%fold_id)
-        if trainset == 'GIAA':
-            precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%dfold.pkl'%fold_id)
-            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, 
-                data=train_dataset.data, map_file=train_mapfile, 
-                precompute_file=precompute_file)
-        elif trainset == 'sGIAA':
-            importance_sampling = args.importance_sampling
-            precompute_file = 'trainset_MIAA_dct_%dfold_IS.pkl'%fold_id if importance_sampling else 'trainset_MIAA_dct_%dfold.pkl'%fold_id
-            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, importance_sampling=importance_sampling,
-                data=train_dataset.data, map_file=train_mapfile, 
-                precompute_file=os.path.join(pkl_dir,precompute_file))
-        else:
-            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-
-        val_mapfile = os.path.join(pkl_dir,'valset_image_dct_%dfold.pkl'%fold_id)
-        val_precompute_file = os.path.join(pkl_dir,'valset_GIAA_dct_%dfold.pkl'%fold_id)
-        test_mapfile = os.path.join(pkl_dir,'testset_image_dct_%dfold.pkl'%fold_id) 
-        test_precompute_file = os.path.join(pkl_dir,'testset_GIAA_dct_%dfold.pkl'%fold_id)
-
-    elif is_trait_disjoint:
-        pkl_dir = os.path.join(pkl_dir, 'trait_split')
-        suffix = '%s_%s'%(args.trait, args.value)
-        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct_%s.pkl'%suffix)
-        if trainset == 'GIAA':
-            precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct_%s.pkl'%suffix)
-            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
-        elif trainset == 'sGIAA':
-            importance_sampling = args.importance_sampling
-            precompute_file = 'trainset_MIAA_nopiaa_dct_IS_%s.pkl'%suffix if importance_sampling else 'trainset_MIAA_nopiaa_dct_%s.pkl'%suffix
-            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=os.path.join(pkl_dir,precompute_file))
-        else:
-            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        
-        val_mapfile=os.path.join(pkl_dir,'valset_image_dct_%s.pkl'%suffix)
-        val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct_%s.pkl'%suffix)
-        test_mapfile=os.path.join(pkl_dir,'testset_image_dct_%s.pkl'%suffix)
-        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct_%s.pkl'%suffix)
-
-        testc_mapfile=os.path.join(pkl_dir,'testset_c_image_dct_%s.pkl'%suffix)
-        testc_precompute_file=os.path.join(pkl_dir,'testset_c_GIAA_dct_%s.pkl'%suffix)
-
-    else:
-        train_mapfile = os.path.join(pkl_dir,'trainset_image_dct.pkl')
-        if trainset == 'GIAA':
-            precompute_file = os.path.join(pkl_dir,'trainset_GIAA_dct.pkl')
-            train_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=precompute_file)
-        elif trainset == 'sGIAA':
-            importance_sampling = args.importance_sampling
-            precompute_file = 'trainset_MIAA_nopiaa_dct_IS.pkl' if importance_sampling else 'trainset_MIAA_nopiaa_dct.pkl'
-            train_dataset = PARA_sGIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data, map_file=train_mapfile, precompute_file=os.path.join(pkl_dir,precompute_file))
-        else:
-            train_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=train_transform, data=train_dataset.data)
-        
-        val_mapfile=os.path.join(pkl_dir,'valset_image_dct.pkl')
-        val_precompute_file=os.path.join(pkl_dir,'valset_GIAA_dct.pkl')
-        test_mapfile=os.path.join(pkl_dir,'testset_image_dct.pkl')
-        test_precompute_file=os.path.join(pkl_dir,'testset_GIAA_dct.pkl')
-
-    # test_user_piaa_dataset = PARA_PIAA_HistogramDataset(root_dir, transform=test_transform, data=test_user_piaa_dataset.data)
-    val_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile, precompute_file=val_precompute_file)
-    val_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=val_dataset.data, map_file=val_mapfile)
-    test_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile, precompute_file=test_precompute_file)
-    testc_giaa_dataset = PARA_GIAA_HistogramDataset(root_dir, transform=test_transform, data=testc_dataset.data, map_file=testc_mapfile, precompute_file=testc_precompute_file)
-    
-    test_piaa_imgsort_dataset = PARA_PIAA_HistogramDataset_imgsort(root_dir, transform=test_transform, data=test_dataset.data, map_file=test_mapfile)
-    return train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset, testc_giaa_dataset
-
-
 def load_testdata(args, root_dir = datapath['PARA_datapath']):
     # Dataset transformations
     train_transform = transforms.Compose([
@@ -965,7 +859,6 @@ def extract_features(model, dataloader, device):
 
     return feature_dict
 
-
 def print_PARA_demodata(giaa_dataset, idx=0, font_size=20, wrap_width=40):
     # Load sample data from the GIAA dataset
     sample = giaa_dataset.__getitem__(idx, print_detail=True)
@@ -1018,11 +911,7 @@ def print_PARA_demodata(giaa_dataset, idx=0, font_size=20, wrap_width=40):
 
 
 if __name__ == '__main__':
-    from utils.argflags import parse_arguments, parse_arguments_piaa
-    import torch.nn as nn
-    from torchvision.models import resnet50
-
-
+    from utils.argflags import parse_arguments
     args = parse_arguments()
     train_dataset, val_giaa_dataset, val_piaa_imgsort_dataset, test_giaa_dataset, test_piaa_imgsort_dataset = load_data(args, datapath['PARA_datapath'])
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
@@ -1031,30 +920,8 @@ if __name__ == '__main__':
     test_piaa_imgsort_dataloader = DataLoader(test_piaa_imgsort_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers, timeout=300, collate_fn=collate_fn_imgsort)
     
     print_PARA_demodata(test_giaa_dataset)
-    raise Exception
-    # Iterate over the training dataloader
-    # for sample in tqdm(test_piaa_imgsort_dataloader):
-        # Perform training operations here
-        # [print(k, v.shape) for k, v in sample.items()]
-        # raise Exception
-    
-    # Initialize the pretrained ResNet50 model
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    resnet = resnet50(pretrained=True).to(device)
-    model = nn.Sequential(*list(resnet.children())[:-1])  # Remove the last fc layer
-    model = model.to(device)
-    
-    # Extract features
-    # feature_dict = extract_features(model, test_piaa_imgsort_dataloader, device)
-    train_feature_dict = extract_features(model, train_dataloader, device)
-    val_feature_dict = extract_features(model, val_dataloader, device)
-    test_feature_dict = extract_features(model, test_dataloader, device)
-    
-    # Save the features to a file
-    with open('train_extracted_features.pkl', 'wb') as f:
-        pickle.dump(train_feature_dict, f)
-    with open('val_extracted_features.pkl', 'wb') as f:
-        pickle.dump(val_feature_dict, f)
-    with open('test_extracted_features.pkl', 'wb') as f:
-        pickle.dump(test_feature_dict, f)
 
+    # Iterate over the training dataloader
+    for sample in tqdm(test_piaa_imgsort_dataloader):
+        # Perform training operations here
+        [print(k, v.shape) for k, v in sample.items()]

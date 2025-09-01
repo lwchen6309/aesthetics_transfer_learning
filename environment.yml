@@ -1,4 +1,4 @@
-name: metric
+name: iaa_transfer
 channels:
   - pytorch
   - nvidia
@@ -187,4 +187,4 @@ dependencies:
     - wget==3.2
     - wrapt==1.14.1
     - zipp==3.16.2
-prefix: /home/lwchen/anaconda3/envs/metric
+

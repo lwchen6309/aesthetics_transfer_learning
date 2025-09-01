@@ -4,10 +4,10 @@
 
 Run
 ```
-git clone git@gitlab.kuleuven.be:u0162014/lapis_iaa.git
-cd lapis_iaa
+git clone git@github.com:lwchen6309/aesthetics_transfer_learning.git
+cd aesthetics_transfer_learning
 conda env create -f enviroment.yaml
-conda activate lapis_iaa
+conda activate iaa_transfer
 
 ## Setup models and compiled data path
 mkdir models_pth -p
@@ -19,11 +19,23 @@ mkdir LAPIS_dataset_pkl -p
 cd LAPIS_dataset_pkl
 mkdir user_cv -p
 cd ..
+
+mkdir dataset_pkl -p
+cd dataset_pkl
+mkdir user_cv -p
+cd ..
 ```
 
 
-### Data Path
-Please download the annotation file from [here](https://kuleuven-my.sharepoint.com/:u:/g/personal/li-wei_chen_kuleuven_be/EaS3jktc5xhAqAjIRWB5V6ABkfysoe6IP6wEEcErm4IXLg?e=ekOMW9), 
+### Dataset
+## PARA
+Please download PARA dataset from [here](https://cv-datasets.institutecv.com/#/data-sets).
+
+
+
+
+## LAPIS
+Please download LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git), 
 create the dataset folder ```LAPIS``` and 
 unzip ```LAPIS_annotation_collection.tar.gz``` to it.
 It should be as structured as follows, 
@@ -31,7 +43,6 @@ It should be as structured as follows,
 LAPIS
 |-- annotation
 |------LAPIS_individualratings_metaANDdemodata.csv
-|------QIP_LAPIS.csv
 |-- images
 |------ *.jpg
 |-- imageset
@@ -136,12 +147,11 @@ Our model and code are released under MIT licence.
 ## Citation
 Please cite
 ```
-@misc{maerten2024lapis,
-  author       = {Anne-Sofie Maerten and Li-Wei Chen and Stefanie De Winter and Christophe Bossens and Johan Wagemans},
-  title        = {{LAPIS: A novel dataset for personalized image aesthetic assessment}},
-  year         = {2024},
-  howpublished = {\url{https://github.com/lwchen6309/LAPIS_IAA}},
-  note         = {}
+@article{chen2025role,
+  title={On the Role of Individual Differences in Current Approaches to Computational Image Aesthetics},
+  author={Chen, Li-Wei and Strafforello, Ombretta and Maerten, Anne-Sofie and Tuytelaars, Tinne and Wagemans, Johan},
+  journal={arXiv preprint arXiv:2502.20518},
+  year={2025}
 }
 ```
 if you use this dataset.

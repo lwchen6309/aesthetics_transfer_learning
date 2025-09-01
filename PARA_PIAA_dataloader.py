@@ -320,9 +320,9 @@ def create_user_split_kfold(dataset, k=4):
     
     all_files_exist = True
     for fold in range(1, k+1):
-        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
-        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
-        
+        train_ids_path = os.path.join(root_dir, 'userset', f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(root_dir, 'userset', f'TestUserIDs_Fold{fold}.txt')
+
         # Check if both files for this fold exist
         if not (os.path.exists(train_ids_path) and os.path.exists(test_ids_path)):
             all_files_exist = False
@@ -333,9 +333,9 @@ def create_user_split_kfold(dataset, k=4):
         return
 
     for fold, (train_index, test_index) in enumerate(kf.split(user_ids), start=1):
-        train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold}.txt')
-        test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold}.txt')
-        
+        train_ids_path = os.path.join(root_dir, 'userset', f'TrainUserIDs_Fold{fold}.txt')
+        test_ids_path = os.path.join(root_dir, 'userset', f'TestUserIDs_Fold{fold}.txt')
+
         print(f"Processing Fold {fold}")
         
         # Get train and test user IDs for the current fold
@@ -360,8 +360,8 @@ def create_user_split_dataset_kfold(dataset, train_dataset, val_dataset, test_da
     
     # File paths for saving the user IDs
     root_dir = dataset.root_dir
-    train_ids_path = os.path.join(root_dir, f'TrainUserIDs_Fold{fold_id}.txt')
-    test_ids_path = os.path.join(root_dir, f'TestUserIDs_Fold{fold_id}.txt')
+    train_ids_path = os.path.join(root_dir, 'userset', f'TrainUserIDs_Fold{fold_id}.txt')
+    test_ids_path = os.path.join(root_dir, 'userset', f'TestUserIDs_Fold{fold_id}.txt')
     print('Read Image Set')
     with open(train_ids_path, "r") as train_file:
         train_user_id = train_file.read().splitlines()
