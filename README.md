@@ -1,5 +1,10 @@
 # Transfer Learning in IAA
 
+<p align="center">
+  <img src="scheme.jpg" alt="Overview" width="600"/>
+</p>
+
+
 This repository provides code and models for experiments on **Generic Image Aesthetic Assessment (GIAA)**, **Subsampled GIAA (sGIAA)**, and **Personalized Image Aesthetic Assessment (PIAA)** using the PARA and LAPIS datasets.
 
 ---
