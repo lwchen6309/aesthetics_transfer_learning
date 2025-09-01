@@ -248,11 +248,17 @@ if __name__ == '__main__':
     if args.is_log:
         tags = ["no_attr","GIAA"]
         tags += wandb_tags(args)
+<<<<<<< HEAD
         wandb.init(project="LAPIS_IAA", 
                    notes='NIMA-'+args.backbone,
                    tags = tags,
                    entity='KULeuven-GRAPPA',
                    )
+=======
+        wandb.init(project="resnet_LAPIS_PIAA", 
+                   notes=f"NIMA-{args.backbone}",
+                   tags = tags)
+>>>>>>> release
         wandb.config = {
             "learning_rate": args.lr,
             "batch_size": batch_size,
@@ -286,7 +292,11 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(model.parameters(), lr=args.lr)
     
     # Initialize the best test loss and the best model
+<<<<<<< HEAD
     best_modelname = f'lapis_{args.backbone}_nima_{experiment_name}.pth'
+=======
+    best_modelname = f'lapis_best_model_{args.backbone}_nima_{experiment_name}.pth'
+>>>>>>> release
     dirname = model_dir(args)
     best_modelname = os.path.join(dirname, best_modelname)
     
