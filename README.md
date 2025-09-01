@@ -1,132 +1,172 @@
-# Transfer learning in IAA
+# Transfer Learning in IAA
+
+This repository provides code and models for experiments on **Generic Image Aesthetic Assessment (GIAA)**, **Subsampled GIAA (sGIAA)**, and **Personalized Image Aesthetic Assessment (PIAA)** using the PARA and LAPIS datasets.
+
+---
 
 ## Installation
 
-Run
-```
+Clone the repository and set up the Conda environment:
+
+```bash
 git clone git@github.com:lwchen6309/aesthetics_transfer_learning.git
 cd aesthetics_transfer_learning
-conda env create -f enviroment.yaml
+conda env create -f environment.yaml
 conda activate iaa_transfer
-
-## Setup models and compiled data path
-mkdir models_pth -p
-cd models_pth
-mkdir random_cvs -p
-cd ..
-
-mkdir LAPIS_dataset_pkl -p
-cd LAPIS_dataset_pkl
-mkdir user_cv -p
-cd ..
-
-mkdir dataset_pkl -p
-cd dataset_pkl
-mkdir user_cv -p
-cd ..
 ```
 
+---
 
-### Dataset
-## PARA
-Please download PARA dataset from [here](https://cv-datasets.institutecv.com/#/data-sets).
+## Setup
 
-create the dataset folder ```PARA``` and unzip ```para_image_user_split.tar.gz``` to it. With the following structure:
+Create the required directories for models and preprocessed data:
+
+```bash
+mkdir -p models_pth/random_cvs
+mkdir -p LAPIS_dataset_pkl/user_cv
+mkdir -p dataset_pkl/user_cv
+```
+
+---
+
+## Datasets
+
+### PARA
+
+Download the PARA dataset from [here](https://cv-datasets.institutecv.com/#/data-sets).
+
+Unzip `para_image_user_split.tar.gz` into a `PARA` folder with the following structure:
 
 ```
 PARA
 |-- annotation
-|------ARA-GiaaTest.csv
-|------PARA-GiaaTrain.csv
-|------PARA-Images.csv
-|------PARA-UserInfo.csv  
-|-- imgs  
-|------ *.jpg
+|   |-- ARA-GiaaTest.csv
+|   |-- PARA-GiaaTrain.csv
+|   |-- PARA-Images.csv
+|   |-- PARA-UserInfo.csv
+|-- imgs
+|   |-- *.jpg
 |-- validation_images.txt
 |-- userset
-|------TrainUserIDs_Fold[1-4].txt
-|------TestUserIDs_Fold[1-4].txt
+    |-- TrainUserIDs_Fold[1-4].txt
+    |-- TestUserIDs_Fold[1-4].txt
 ```
 
-## LAPIS
-Please download LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git), 
+### LAPIS
 
-create the dataset folder ```PARA``` and unzip ```lapis_image_user_split.tar.gz``` to it. With the following structure:
+Download the LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git).
+
+Unzip `lapis_image_user_split.tar.gz` into a `LAPIS` folder with the following structure:
 
 ```
 LAPIS
 |-- annotation
-|------LAPIS_individualratings_metaANDdemodata.csv
+|   |-- LAPIS_individualratings_metaANDdemodata.csv
 |-- images
-|------ *.jpg
+|   |-- *.jpg
 |-- imageset
-|------TrainImageSet.txt
-|------ValImageSet.txt
-|------TestImageSet.txt
+|   |-- TrainImageSet.txt
+|   |-- ValImageSet.txt
+|   |-- TestImageSet.txt
 |-- userset
-|------TrainUserIDs_Fold[1-4].txt
-|------TestUserIDs_Fold[1-4].txt
+    |-- TrainUserIDs_Fold[1-4].txt
+    |-- TestUserIDs_Fold[1-4].txt
 ```
-and set the dataset path in ```data_config.yaml```. 
 
-### Model Paths
+Set the dataset paths in `data_config.yaml`.
+
+---
+
+## Model Paths
+
 ```
 models_pth
-|-- random_cvs
-|------*.pth (models trained with the users split by 4-fold cross validation)
-|--- *.pth (models trained with native setup)
+|-- random_cvs          # models trained with 4-fold cross validation
+|   |-- *.pth
+|-- *.pth               # models trained with native setup
 ```
 
-## Run GIAA/sGIAA/PIAA Models with overlapped user
-### Onehot encoded models
-Run
-```
+---
+
+## Running Models
+
+### One-hot Encoded Models (GIAA, NIMA-Trait, PIAA-MIR, PIAA-ICI)
+
+To train all models with all backbones (`resnet50`, `vit_small_patch16_224`, `swin_tiny_patch4_window7_224`) on both PARA and LAPIS datasets:
+
+```bash
 bash run.sh
 ```
-to train all models [NIMA, NIMA-Trait, PIAA-MIR (onehot-enc.) and PIAA-ICI (onehot-enc.)] with all backbones (resnet50, vit_small_patch16_224, swin_tiny_patch4_window7_224) on both PARA and LAPIS datasets.
 
-### PIAA baselines
+### PIAA Baselines
 
-#### Train GIAA models 
-To access the pretrained_model, run 
-```
+#### Train GIAA Models
+
+To access GIAA pretrained models, run:
+
+```bash
 python train_nima_attr.py --trainset GIAA
 python train_nima_attr_lapis.py --trainset GIAA
 ```
-for PARA and LAPIS datasets.
-#### Fine-tuning PIAA-MIR and PIAA-ICI from GIAA pretrained_model
-```
+
+#### Fine-tune PIAA-MIR and PIAA-ICI from GIAA Pretrained Models
+
+```bash
 trainargs='--trainset PIAA'
+
 run_script="train_piaa_mir.py"
+python $run_script $trainargs --pretrained_model path_to_pretrained_giaa
+
 run_script="train_piaa_ici.py"
+python $run_script $trainargs --pretrained_model path_to_pretrained_giaa
+
 run_script="train_piaa_mir_lapis.py"
+python $run_script $trainargs --pretrained_model path_to_pretrained_giaa
+
 run_script="train_piaa_ici_lapis.py"
-python $run_script --pretrained_model pth_to_pretrained_giaa
+python $run_script $trainargs --pretrained_model path_to_pretrained_giaa
 ```
 
-## Run PIAA Models with disjoint user
-### Split by 4 fold cross validation 
-Set arguments
-```
+Replace `path_to_pretrained_giaa` with the correct checkpoint path.
+
+---
+
+## PIAA with Disjoint Users
+
+### Split by 4-Fold Cross Validation
+
+Use the following arguments:
+
+```bash
 --n_fold 4 --fold_id 1 --use_cv
 ```
-Here we take ```--fold_id 1``` as an example, ```fold_id``` can be 1, 2, 3 and 4.
 
+Here `--fold_id` can be 1, 2, 3, or 4.
 
-Run 
+### Split by Demographics
+
+See:
+
+```bash
+bash run_ptsplit.sh
+bash run_ptsplit_lapis.sh
 ```
-bash run_4foldcv.sh
-```
-to train both PIAA-MIR and PIAA-ICI on the unseen users split by 4-fold cv.
 
+for demographic-based splits.
 
-## Licence
-Our model and code are released under MIT licence.
+---
 
+## License
+
+This project is released under the **MIT License**.
+
+---
 
 ## Citation
-Please cite
-```
+
+If you use this code or dataset, please cite:
+
+```bibtex
 @article{chen2025role,
   title={On the Role of Individual Differences in Current Approaches to Computational Image Aesthetics},
   author={Chen, Li-Wei and Strafforello, Ombretta and Maerten, Anne-Sofie and Tuytelaars, Tinne and Wagemans, Johan},
@@ -134,4 +174,4 @@ Please cite
   year={2025}
 }
 ```
-if you use this dataset.
+
