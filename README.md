@@ -170,9 +170,10 @@ bash run_ptsplit_lapis.sh
 
 Here, the demographic group is specified with the `--trait` and `--values` arguments. For example:
 
-```bash
+```
 # Photography Experience
 python $run_script --trait photographyExperience --values beginner competent proficient expert $training_args
+```
 
 ---
 
