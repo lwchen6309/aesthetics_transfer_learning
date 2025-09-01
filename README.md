@@ -31,14 +31,26 @@ cd ..
 ## PARA
 Please download PARA dataset from [here](https://cv-datasets.institutecv.com/#/data-sets).
 
+create the dataset folder ```PARA``` and unzip ```para_image_user_split.tar.gz``` to it. With the following structure:
 
-
+PARA
+|-- annotation
+|------ARA-GiaaTest.csv  
+|------PARA-GiaaTrain.csv  
+|------PARA-Images.csv  
+|------PARA-UserInfo.csv
+|-- imgs
+|------ *.jpg
+|-- validation_images.txt
+|-- userset
+|------TrainUserIDs_Fold[1-4].txt
+|------TestUserIDs_Fold[1-4].txt
 
 ## LAPIS
 Please download LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git), 
-create the dataset folder ```LAPIS``` and 
-unzip ```LAPIS_annotation_collection.tar.gz``` to it.
-It should be as structured as follows, 
+
+create the dataset folder ```PARA``` and unzip ```lapis_image_user_split.tar.gz``` to it. With the following structure:
+
 ```
 LAPIS
 |-- annotation
@@ -53,10 +65,7 @@ LAPIS
 |------TrainUserIDs_Fold[1-4].txt
 |------TestUserIDs_Fold[1-4].txt
 ```
-and copy ```data_config_tmp.yaml``` as ```data_config.yaml``` and set the dataset path in the it. For example,
-```
-LAPIS_datapath: /data/leuven/XXX/vscXXXXX/datasets/LAPIS
-```
+and set the dataset path in ```data_config.yaml```. 
 
 ### Model Paths
 ```
@@ -68,9 +77,9 @@ models_pth
 
 ## Run GIAA Models
 
-Run NIMA the GIAA baseline, supporting resnet18, resnet50, mobilenet_v2, swin_v2_t, swin_v2_s as backbone
+Run NIMA the GIAA baseline, supporting resnet50, swin_v2_t, swin_v2_s as backbone
 ```
-python train_nima_lapis.py --backbone resnet18 --trainset GIAA
+python train_nima_lapis.py --backbone resnet50 --trainset GIAA
 ```
 
 Run
