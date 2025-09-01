@@ -150,14 +150,29 @@ Here `--fold_id` can be 1, 2, 3, or 4.
 
 ### Split by Demographics
 
-See:
+You can run demographic-based splits using the provided scripts:
 
 ```bash
 bash run_ptsplit.sh
 bash run_ptsplit_lapis.sh
 ```
 
-for demographic-based splits.
+- To **train models** (on disjoint user groups), set:
+  ```bash
+  run_script="train_nima.py"
+  run_script="train_piaa_mir.py"
+  ```
+
+- To **compute the Earth Mover’s Distance (EMD)** across demographic groups, use:
+  ```bash
+  run_script="compare_traitsample.py"
+  ```
+
+Here, the demographic group is specified with the `--trait` and `--values` arguments. For example:
+
+```bash
+# Photography Experience
+python $run_script --trait photographyExperience --values beginner competent proficient expert $training_args
 
 ---
 
