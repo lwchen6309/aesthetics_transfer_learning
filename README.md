@@ -77,72 +77,41 @@ models_pth
 |--- *.pth (models trained with native setup)
 ```
 
-## Run GIAA Models
-
-Run NIMA the GIAA baseline, supporting resnet50, swin_v2_t, swin_v2_s as backbone
-```
-python train_nima_lapis.py --backbone resnet50 --trainset GIAA
-```
-
+## Run GIAA/sGIAA/PIAA Models with overlapped user
+### Onehot encoded models
 Run
 ```
-bash run_giaa.sh
+bash run.sh
 ```
-to train NIMA with all backbones
+to train all models [NIMA, NIMA-Trait, PIAA-MIR (onehot-enc.) and PIAA-ICI (onehot-enc.)] with all backbones (resnet50, vit_small_patch16_224, swin_tiny_patch4_window7_224) on both PARA and LAPIS datasets.
 
+### PIAA baselines
 
-## Run PIAA Models
-Please download the ```pretrained_model``` from [here](https://kuleuven-my.sharepoint.com/:u:/g/personal/li-wei_chen_kuleuven_be/EdrTgzk7Zn9Ak6aX7Vd9PtIB_jjQNQeC46-yOvqmyYDTEA?e=Werd8o) to ```models_pth```,  and run 
+#### Train GIAA models 
+To access the pretrained_model, run 
 ```
-trainargs='--trainset PIAA --pretrained_model models_pth/lapis_resnet50_nima_stilted-jazz-101.pth'
-
-run_script="train_piaa_ici_qip_lapis.py"
-python $run_script $trainargs 
-
-run_script="train_piaa_mir_qip_lapis.py"
-python $run_script $trainargs 
+python train_nima_attr.py --trainset GIAA
+python train_nima_attr_lapis.py --trainset GIAA
+```
+for PARA and LAPIS datasets.
+#### Fine-tuning PIAA-MIR and PIAA-ICI from GIAA pretrained_model
+```
+trainargs='--trainset PIAA'
+run_script="train_piaa_mir.py"
+run_script="train_piaa_ici.py"
+run_script="train_piaa_mir_lapis.py"
+run_script="train_piaa_ici_lapis.py"
+python $run_script --pretrained_model pth_to_pretrained_giaa
 ```
 
-or run 
-```
-bash run_piaa.sh
-```
-to train both PIAA-MIR and PIAA-ICI
-
-
-## Run PIAA Models with Unseen Users
-Here we use 4-fold cross validation (cv) to split the train and test users. It is specified by arguments
+## Run PIAA Models with disjoint user
+### Split by 4 fold cross validation 
+Set arguments
 ```
 --n_fold 4 --fold_id 1 --use_cv
 ```
 Here we take ```--fold_id 1``` as an example, ```fold_id``` can be 1, 2, 3 and 4.
 
-### Access pre-trained GIAA models 
-To access the pretrained_model, run 
-```
-python train_nima_attr_lapis.py --n_fold 4 --fold_id 1 --use_cv --trainset GIAA
-```
-or download it from [Url] to ```models_pth/random_cvs```
-
-### Fine-tuning PIAA-MIR and PIAA-ICI from GIAA pretrained_model
-```
-trainargs='--trainset PIAA'
-
-run_script="train_piaa_mir_qip_lapis.py"
-python $run_script --n_fold 4 --fold_id 1 --use_cv $trainargs --pretrained_model "models_pth/random_cvs/lapis_resnet50_nima_restful-dawn-114.pth"
-
-run_script="train_piaa_ici_qip_lapis.py"
-python $run_script --n_fold 4 --fold_id 1 --use_cv $trainargs --pretrained_model "models_pth/random_cvs/lapis_resnet50_nima_restful-dawn-114.pth"
-```
-where 
-```
-models_pth/random_cvs/lapis_resnet50_nima_restful-dawn-114.pth
-```
-is the models trained from
-```
-python train_nima_attr_lapis.py --n_fold 4 --fold_id 1 --use_cv --trainset GIAA
-```
-a mentioned above. Replace the file acocrding to your own pre-trained models.
 
 Run 
 ```
