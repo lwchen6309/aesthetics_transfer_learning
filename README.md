@@ -185,7 +185,7 @@ This project is released under the **MIT License**.
 
 ## Citation
 
-If you use this code or dataset, please cite:
+If you use this code, please cite:
 
 ```bibtex
 @article{chen2025role,
