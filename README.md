@@ -1,4 +1,4 @@
-# Transfer Learning in IAA
+# On the Role of Individual Differences in Current Approaches to Computational Image Aesthetics (BMVC 2025)
 
 <p align="center">
   <img src="scheme.jpg" alt="Overview" width="600"/>
