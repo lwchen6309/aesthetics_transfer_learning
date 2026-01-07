@@ -61,7 +61,7 @@ PARA
 
 ### LAPIS
 
-Download the LAPIS dataset from [here](git@github.com:Anne-SofieMaerten/LAPIS.git).
+Download the LAPIS dataset from [here](https://github.com/Anne-SofieMaerten/LAPIS).
 
 Unzip `lapis_image_user_split.tar.gz` into a `LAPIS` folder with the following structure:
 
