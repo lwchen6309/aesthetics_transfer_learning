@@ -109,11 +109,10 @@ bash run.sh
 
 #### Train GIAA Models
 
-To access GIAA pretrained models, run:
+To access GIAA pretrained models on PARA dataset, run:
 
 ```bash
 python train_nima_attr.py --trainset GIAA
-python train_nima_attr_lapis.py --trainset GIAA
 ```
 
 #### Fine-tune PIAA-MIR and PIAA-ICI from GIAA Pretrained Models
