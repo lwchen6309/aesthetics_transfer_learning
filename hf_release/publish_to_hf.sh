@@ -44,6 +44,8 @@ cp -f "${SRC_DIR}/models_pth/best_model_vit_small_patch16_224_piaamir_super-yogu
 cp -f "${SRC_DIR}/models_pth/best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth" models/
 cp -f "${SRC_DIR}/models_pth/best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth" models/
 cp -f "${SRC_DIR}/models_pth/best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth" models/
+cp -f "${SRC_DIR}/models_pth/lapis_best_model_resnet50_piaamir_azure-gorge-1153.pth" models/
+cp -f "${SRC_DIR}/models_pth/lapis_best_model_resnet50_piaaici_dutiful-serenity-1076.pth" models/
 
 git add .
 if git diff --cached --quiet; then
