@@ -113,7 +113,7 @@ This section includes both **pip-based inference calls** and **training entry po
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 score = m.predict_piaa(
     image="/path/to/image.jpg",
     demographics={
@@ -141,7 +141,7 @@ print(score)
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 score = m.predict_giaa_prior(
     image="/path/to/image.jpg",
     task="GIAA",
@@ -155,7 +155,7 @@ print(score)
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
     traits=[0.0] * 137,
@@ -171,7 +171,7 @@ print(score)
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
     traits=[0.0] * 137,
