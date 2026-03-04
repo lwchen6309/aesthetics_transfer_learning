@@ -109,10 +109,12 @@ This section includes both **pip-based inference calls** and **training entry po
 
 ### Pip Inference Calls (4 examples)
 
-Demographics/traits options reference files:
+Demographics/traits reference files (updated):
 
-- PARA: `hf_release/configs/demographics_options_para.json`
-- LAPIS: `hf_release/configs/demographics_options_lapis.json`
+- PARA options: `hf_release/configs/demographics_options_para.json`
+- LAPIS metadata/options: `hf_release/configs/demographics_options_lapis.json`
+- PARA inference template: `hf_release/configs/para_demographics_template.json`
+- LAPIS inference template: `hf_release/configs/lapis_traits_template.json`
 
 #### 1) GIAA + PARA
 ```python
