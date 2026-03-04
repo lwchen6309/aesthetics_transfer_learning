@@ -1,5 +1,16 @@
 {
-  "age": "30-34",
+  "_notes": {
+    "age": "Use interval bins (not raw numeric age)",
+    "age_options": [
+      "18-21",
+      "22-25",
+      "26-29",
+      "30-34",
+      "35-40"
+    ],
+    "big5_range": "1-9 (integer)"
+  },
+  "age": "22-25",
   "gender": "female",
   "EducationalLevel": "junior_college",
   "artExperience": "proficient",
