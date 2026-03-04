@@ -8,7 +8,7 @@ from torchvision import transforms
 from huggingface_hub import hf_hub_download
 
 from .modeling import PIAA_MIR, PIAA_ICI
-from .encoding import load_encoders, encode_demographics, PERSONAL_TRAITS, BIG5
+from .encoding import load_encoders, encode_demographics, encode_lapis_inputs, PERSONAL_TRAITS, BIG5, LAPIS_VAIAK
 
 
 ImageLike = Union[str, Path, Image.Image]
@@ -53,6 +53,7 @@ class UnifiedIAA:
         self._compat = None
         self._encoders = None
         self._prior = None
+        self._lapis_trait_encoders = None
         self._tfm = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -70,6 +71,19 @@ class UnifiedIAA:
 
         prior_path = hf_hub_download(repo_id=repo_id, filename="inference/prior_mean_vector.pt", token=token, cache_dir=cache_dir)
         obj._prior = torch.load(prior_path, map_location="cpu").float()
+
+        # Optional LAPIS categorical encoder mapping for user-friendly LAPIS input API
+        obj._lapis_trait_encoders = None
+        try:
+            lapis_opt_path = hf_hub_download(repo_id=repo_id, filename="configs/demographics_options_lapis.json", token=token, cache_dir=cache_dir)
+            lapis_obj = json.loads(Path(lapis_opt_path).read_text(encoding="utf-8"))
+            obj._lapis_trait_encoders = lapis_obj.get("trait_encoders")
+        except Exception:
+            # local fallback (editable/dev usage)
+            local_lapis_opt = Path(__file__).resolve().parents[1] / "hf_release" / "configs" / "demographics_options_lapis.json"
+            if local_lapis_opt.exists():
+                lapis_obj = json.loads(local_lapis_opt.read_text(encoding="utf-8"))
+                obj._lapis_trait_encoders = lapis_obj.get("trait_encoders")
         return obj
 
     def _artifact(self, task: str, backbone: str, dataset: str = "para", model: Optional[str] = None) -> dict:
@@ -134,6 +148,20 @@ class UnifiedIAA:
         with torch.no_grad():
             pred = model_obj(x, traits)
         return float(pred.squeeze().item())
+
+    def predict_lapis(
+        self,
+        image: ImageLike,
+        lapis_demo: Dict[str, str],
+        vaiak: Dict[str, int],
+        task: str = "PIAA",
+        model: str = "mir",
+        backbone: str = "resnet50",
+    ) -> float:
+        if not self._lapis_trait_encoders:
+            raise ValueError("LAPIS trait encoders not available in repo configs/demographics_options_lapis.json")
+        traits = encode_lapis_inputs(lapis_demo, vaiak, self._lapis_trait_encoders)
+        return self.predict_with_traits(image=image, traits=traits, task=task, model=model, backbone=backbone, dataset="lapis")
 
     def predict_giaa_prior(self, image: ImageLike, task: str = "GIAA", model: str = "ici", backbone: str = "swin_tiny_patch4_window7_224") -> float:
         model_obj = self._load_model(task, backbone, dataset="para", model=model)

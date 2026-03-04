@@ -164,18 +164,25 @@ from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 
-# Keep LAPIS input format unchanged: 137-d traits vector
-lapis_input = {
-    "traits": [0.0] * 137
+lapis_demo = {
+    "nationality": "british",
+    "demo_gender": "female",
+    "demo_edu": "Bachelor's or equivalent",
+    "demo_colorblind": "No",
+    "age": "28-38",
+}
+vaiak = {
+    "VAIAK1": 3, "VAIAK2": 3, "VAIAK3": 3, "VAIAK4": 3, "VAIAK5": 3, "VAIAK6": 3, "VAIAK7": 3,
+    "2VAIAK1": 3, "2VAIAK2": 3, "2VAIAK3": 3, "2VAIAK4": 3,
 }
 
-score = m.predict_with_traits(
+score = m.predict_lapis(
     image="/path/to/image.jpg",
-    traits=lapis_input["traits"],
+    lapis_demo=lapis_demo,
+    vaiak=vaiak,
     task="GIAA",
     model="mir",
     backbone="resnet50",
-    dataset="lapis",
 )
 print(score)
 ```
@@ -186,18 +193,25 @@ from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 
-# Keep LAPIS input format unchanged: 137-d traits vector
-lapis_input = {
-    "traits": [0.0] * 137
+lapis_demo = {
+    "nationality": "british",
+    "demo_gender": "female",
+    "demo_edu": "Bachelor's or equivalent",
+    "demo_colorblind": "No",
+    "age": "28-38",
+}
+vaiak = {
+    "VAIAK1": 3, "VAIAK2": 3, "VAIAK3": 3, "VAIAK4": 3, "VAIAK5": 3, "VAIAK6": 3, "VAIAK7": 3,
+    "2VAIAK1": 3, "2VAIAK2": 3, "2VAIAK3": 3, "2VAIAK4": 3,
 }
 
-score = m.predict_with_traits(
+score = m.predict_lapis(
     image="/path/to/image.jpg",
-    traits=lapis_input["traits"],
+    lapis_demo=lapis_demo,
+    vaiak=vaiak,
     task="PIAA",
     model="mir",
     backbone="resnet50",
-    dataset="lapis",
 )
 print(score)
 ```
