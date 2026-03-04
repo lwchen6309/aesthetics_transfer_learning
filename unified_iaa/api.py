@@ -75,15 +75,19 @@ class UnifiedIAA:
         # Optional LAPIS categorical encoder mapping for user-friendly LAPIS input API
         obj._lapis_trait_encoders = None
         try:
-            lapis_opt_path = hf_hub_download(repo_id=repo_id, filename="configs/demographics_options_lapis.json", token=token, cache_dir=cache_dir)
-            lapis_obj = json.loads(Path(lapis_opt_path).read_text(encoding="utf-8"))
-            obj._lapis_trait_encoders = lapis_obj.get("trait_encoders")
+            lapis_tpl_path = hf_hub_download(repo_id=repo_id, filename="configs/lapis_traits_template.json", token=token, cache_dir=cache_dir)
+            lapis_tpl = json.loads(Path(lapis_tpl_path).read_text(encoding="utf-8"))
+            keys = ["nationality", "demo_gender", "demo_edu", "demo_colorblind", "age"]
+            if all(isinstance(lapis_tpl.get(k), list) for k in keys):
+                obj._lapis_trait_encoders = {k: {v: i for i, v in enumerate(lapis_tpl[k])} for k in keys}
         except Exception:
             # local fallback (editable/dev usage)
-            local_lapis_opt = Path(__file__).resolve().parents[1] / "hf_release" / "configs" / "demographics_options_lapis.json"
-            if local_lapis_opt.exists():
-                lapis_obj = json.loads(local_lapis_opt.read_text(encoding="utf-8"))
-                obj._lapis_trait_encoders = lapis_obj.get("trait_encoders")
+            local_lapis_tpl = Path(__file__).resolve().parents[1] / "hf_release" / "configs" / "lapis_traits_template.json"
+            if local_lapis_tpl.exists():
+                lapis_tpl = json.loads(local_lapis_tpl.read_text(encoding="utf-8"))
+                keys = ["nationality", "demo_gender", "demo_edu", "demo_colorblind", "age"]
+                if all(isinstance(lapis_tpl.get(k), list) for k in keys):
+                    obj._lapis_trait_encoders = {k: {v: i for i, v in enumerate(lapis_tpl[k])} for k in keys}
         return obj
 
     def _artifact(self, task: str, backbone: str, dataset: str = "para", model: Optional[str] = None) -> dict:

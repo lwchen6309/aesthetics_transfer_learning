@@ -1,23 +1,37 @@
 {
-  "_notes": {
-    "age": "Use interval bins (not raw numeric age)",
-    "age_options": [
-      "18-21",
-      "22-25",
-      "26-29",
-      "30-34",
-      "35-40"
-    ],
-    "big5_range": "1-9 (integer)"
-  },
-  "age": "22-25",
-  "gender": "female",
-  "EducationalLevel": "junior_college",
-  "artExperience": "proficient",
-  "photographyExperience": "proficient",
-  "personality-E": 6,
-  "personality-A": 7,
-  "personality-N": 4,
-  "personality-O": 8,
-  "personality-C": 6
+  "age": [
+    "18-21",
+    "22-25",
+    "26-29",
+    "30-34",
+    "35-40"
+  ],
+  "gender": [
+    "female",
+    "male"
+  ],
+  "EducationalLevel": [
+    "junior_college",
+    "university",
+    "senior_high_school",
+    "technical_secondary_school",
+    "junior_high_school"
+  ],
+  "artExperience": [
+    "proficient",
+    "competent",
+    "beginner",
+    "expert"
+  ],
+  "photographyExperience": [
+    "proficient",
+    "competent",
+    "beginner",
+    "expert"
+  ],
+  "personality-E": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "personality-A": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "personality-N": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "personality-O": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "personality-C": [1, 2, 3, 4, 5, 6, 7, 8, 9]
 }

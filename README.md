@@ -109,14 +109,10 @@ This section includes both **pip-based inference calls** and **training entry po
 
 ### Pip Inference Calls (4 examples)
 
-Demographics/traits reference files (updated):
+Demographics/traits reference files:
 
-- PARA options: `hf_release/configs/demographics_options_para.json`
-- LAPIS encoder/options: `hf_release/configs/demographics_options_lapis.json` (use listed encoder categories directly; no re-binning)
-- PARA inference template: `hf_release/configs/para_demographics_template.json` (age must be interval bin: `18-21`, `22-25`, `26-29`, `30-34`, `35-40`)
-- LAPIS inference template: `hf_release/configs/lapis_traits_template.json` (single LAPIS input object; SDK encodes internally)
-- LAPIS input key list (no index): `hf_release/configs/lapis_input_keys.json`
-- LAPIS input options (key -> allowed values, no index): `hf_release/configs/lapis_input_options.json`
+- PARA template (key -> allowed values): `hf_release/configs/para_demographics_template.json`
+- LAPIS template (key -> allowed values): `hf_release/configs/lapis_traits_template.json`
 
 #### 1) GIAA + PARA
 ```python
