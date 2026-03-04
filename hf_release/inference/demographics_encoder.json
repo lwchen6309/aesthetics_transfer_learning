@@ -1,0 +1,32 @@
+{
+  "age": {
+    "30-34": 0,
+    "18-21": 1,
+    "22-25": 2,
+    "26-29": 3,
+    "35-40": 4
+  },
+  "gender": {
+    "female": 0,
+    "male": 1
+  },
+  "EducationalLevel": {
+    "junior_college": 0,
+    "university": 1,
+    "senior_high_school": 2,
+    "technical_secondary_school": 3,
+    "junior_high_school": 4
+  },
+  "artExperience": {
+    "proficient": 0,
+    "competent": 1,
+    "beginner": 2,
+    "expert": 3
+  },
+  "photographyExperience": {
+    "proficient": 0,
+    "competent": 1,
+    "beginner": 2,
+    "expert": 3
+  }
+}

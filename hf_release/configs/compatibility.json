@@ -1,0 +1,70 @@
+{
+  "release": "unified-iaa-para70-plus-lapis137",
+  "source_commit": "9808f1e",
+  "constraints": {
+    "notes": "PARA supports num_pt=70 with demographics+Big5; LAPIS supports num_pt=137 via direct trait vector input."
+  },
+  "artifacts": [
+    {
+      "task": "PIAA-MIR",
+      "dataset": "para",
+      "num_pt": 70,
+      "script": "train_piaa_mir.py",
+      "backbone": "vit_small_patch16_224",
+      "checkpoint": "best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth",
+      "sha256": "ed179e735ea6ab1364062abf31b2e3051dba5bb4dc2d78435bac32e6cef27ed0"
+    },
+    {
+      "task": "PIAA-MIR",
+      "dataset": "para",
+      "num_pt": 70,
+      "script": "train_piaa_mir.py",
+      "backbone": "swin_tiny_patch4_window7_224",
+      "checkpoint": "best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth",
+      "sha256": "5176a4dc8b7f42514adbcfdaa26e8bd4a6332f9567c274cb772923bb567ab5b5"
+    },
+    {
+      "task": "PIAA-ICI",
+      "dataset": "para",
+      "num_pt": 70,
+      "script": "train_piaa_ici.py",
+      "backbone": "swin_tiny_patch4_window7_224",
+      "checkpoint": "best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth",
+      "sha256": "3b82f847b9a80a6d521a06e0ea975ef33a2126c885ecfc18e0a1e27df3b6a80d"
+    },
+    {
+      "task": "PIAA-ICI",
+      "dataset": "para",
+      "num_pt": 70,
+      "script": "train_piaa_ici.py",
+      "backbone": "vit_small_patch16_224",
+      "checkpoint": "best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth",
+      "sha256": "25d415450a0b7445ad7ee4aedb40b1639b2ec9d8996b218093008a9a7fbf7cd8"
+    },
+    {
+      "task": "PIAA-MIR",
+      "dataset": "lapis",
+      "num_pt": 137,
+      "script": "train_piaa_mir_lapis.py",
+      "backbone": "resnet50",
+      "checkpoint": "lapis_best_model_resnet50_piaamir_azure-gorge-1153.pth",
+      "sha256": "f9adfd94269dd1c37a17a2ea9034fe4fa18501a3ff5c417ae047e321554001e3"
+    },
+    {
+      "task": "PIAA-ICI",
+      "dataset": "lapis",
+      "num_pt": 137,
+      "script": "train_piaa_ici_lapis.py",
+      "backbone": "resnet50",
+      "checkpoint": "lapis_best_model_resnet50_piaaici_dutiful-serenity-1076.pth",
+      "sha256": "186adb0b8e78196db137beeccc63ccb1c276a413b4be71834208676eecc2fc64"
+    },
+    {
+      "task": "GIAA-prior-vector",
+      "dataset": "para",
+      "artifact": "prior_mean_vector.pt",
+      "shape": [70],
+      "sha256": "cdc1b8cd771d23b4be029772287efe985fc654e021cbf811b4e5cf462956b291"
+    }
+  ]
+}
