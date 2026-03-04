@@ -97,21 +97,72 @@ score_lapis = m.predict_with_traits(
 )
 ```
 
-## Quick local example
+## Quick local examples (what to fill for PARA vs LAPIS)
+
+### A) PIAA on PARA (must provide demographics + Big5)
 
 ```python
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 
-score = m.predict_giaa_prior(
+score_para_piaa = m.predict_piaa(
+    image="/path/to/image.jpg",
+    demographics={
+        "age": "20-29",
+        "gender": "female",
+        "EducationalLevel": "Bachelor",
+        "artExperience": "medium",
+        "photographyExperience": "low",
+    },
+    big5={
+        "personality-E": 6,
+        "personality-A": 7,
+        "personality-N": 4,
+        "personality-O": 8,
+        "personality-C": 6,
+    },
+    task="PIAA",
+    model="mir",  # or "ici"
+    backbone="vit_small_patch16_224",  # or "swin_tiny_patch4_window7_224"
+)
+print("PARA PIAA score =", float(score_para_piaa))
+```
+
+### B) PIAA on LAPIS (must provide trait vector, len=137)
+
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+
+lapis_traits = [0.0] * 137
+score_lapis_piaa = m.predict_with_traits(
+    image="/path/to/image.jpg",
+    traits=lapis_traits,
+    task="PIAA",
+    model="mir",  # or "ici"
+    backbone="resnet50",
+    dataset="lapis",
+)
+print("LAPIS PIAA score =", float(score_lapis_piaa))
+```
+
+### C) GIAA prior
+
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+
+score_giaa = m.predict_giaa_prior(
     image="/path/to/image.jpg",
     task="GIAA",
     model="ici",  # or "mir"
     backbone="swin_tiny_patch4_window7_224",  # or "vit_small_patch16_224"
 )
 
-print("GIAA prior score =", float(score))
+print("GIAA prior score =", float(score_giaa))
 ```
 
 ## Quick usage
