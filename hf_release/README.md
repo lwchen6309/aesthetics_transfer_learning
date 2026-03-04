@@ -41,6 +41,40 @@ See `configs/compatibility.json` for exact artifact mapping and hashes.
 - `inference/predict_piaa.py`
 - `inference/prior_giaa.py`
 
+## Python SDK (pip style)
+
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA")
+
+score_piaa = m.predict_piaa(
+    image="/path/to/test.jpg",
+    demographics={
+        "age": "20-29",
+        "gender": "female",
+        "EducationalLevel": "Bachelor",
+        "artExperience": "medium",
+        "photographyExperience": "low",
+    },
+    big5={
+        "personality-E": 6,
+        "personality-A": 7,
+        "personality-N": 4,
+        "personality-O": 8,
+        "personality-C": 6,
+    },
+    task="mir",
+    backbone="vit_small_patch16_224",
+)
+
+score_giaa = m.predict_giaa_prior(
+    image="/path/to/test.jpg",
+    task="ici",
+    backbone="swin_tiny_patch4_window7_224",
+)
+```
+
 ## Quick usage
 
 ### 1) Build demographics encoder
