@@ -13,7 +13,9 @@ This repository provides code and models for experiments on **Generic Image Aest
 
 ## Installation
 
-Clone the repository and set up the Conda environment:
+Choose one setup path:
+
+### Option A) Full training setup (Conda)
 
 ```bash
 git clone git@github.com:lwchen6309/aesthetics_transfer_learning.git
@@ -22,9 +24,15 @@ conda env create -f environment.yaml
 conda activate iaa_transfer
 ```
 
+### Option B) Pip-only inference setup
+
+```bash
+pip install unified-iaa
+```
+
 ---
 
-## Setup
+## Setup (for training workflows)
 
 Create the required directories for models and preprocessed data:
 
@@ -97,13 +105,9 @@ models_pth
 
 ## Models
 
-This section includes both **pip-based inference** and **training entry points**.
+This section includes both **pip-based inference calls** and **training entry points**.
 
 ### Pip Inference Calls (4 examples)
-
-```bash
-pip install unified-iaa
-```
 
 #### 1) PIAA + PARA
 ```python
