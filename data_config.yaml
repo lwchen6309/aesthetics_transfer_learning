@@ -1,3 +1,2 @@
-PARA_datapath: /home/lwchen/datasets/PARA/
-LAPIS_datapath: /home/lwchen/datasets/LAPIS
-
+PARA_datapath: /mnt/d/datasets/PARA
+LAPIS_datapath: /mnt/d/datasets/LAPIS
