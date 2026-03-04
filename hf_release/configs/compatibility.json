@@ -1,0 +1,31 @@
+{
+  "release": "piaa-giaa-pt70-resnet50",
+  "source_commit": "8443cf1",
+  "constraints": {
+    "num_pt": 70,
+    "disable_onehot": false,
+    "notes": "This release supports onehot demographics + Big5 (pt=70) only."
+  },
+  "artifacts": [
+    {
+      "task": "PIAA-MIR",
+      "script": "train_piaa_mir.py",
+      "backbone": "resnet50",
+      "checkpoint": "best_model_resnet50_piaamir_desert-dawn-621.pth",
+      "sha256": "c1a797b36dd320749879338d65646defb4241e6bb79f639b7cf22fdb58f7faed"
+    },
+    {
+      "task": "PIAA-ICI",
+      "script": "train_piaa_ici.py",
+      "backbone": "resnet50",
+      "checkpoint": "best_model_resnet50_piaaici_crimson-sound-642.pth",
+      "sha256": "6690eb81bda5c7907d4233de75798fb62fbd6fa7b719f404eef58198566d4ebf"
+    },
+    {
+      "task": "GIAA-prior-vector",
+      "artifact": "prior_mean_vector.pt",
+      "shape": [70],
+      "sha256": "cdc1b8cd771d23b4be029772287efe985fc654e021cbf811b4e5cf462956b291"
+    }
+  ]
+}
