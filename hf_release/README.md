@@ -161,32 +161,78 @@ bash run_LAPIS_PIAA.sh
 
 > Category strings must match encoder categories produced from your PARA `PARA-UserInfo.csv`.
 
-## Pip inference quick run
+## Pip inference calls (4 examples)
 
-```bash
-python - <<'PY'
+### 1) PIAA + PARA
+```python
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
-img = "/path/to/image.jpg"
+score = m.predict_piaa(
+    image="/path/to/image.jpg",
+    demographics={
+        "age": "30-34",
+        "gender": "female",
+        "EducationalLevel": "junior_college",
+        "artExperience": "proficient",
+        "photographyExperience": "proficient",
+    },
+    big5={
+        "personality-E": 6,
+        "personality-A": 7,
+        "personality-N": 4,
+        "personality-O": 8,
+        "personality-C": 6,
+    },
+    task="PIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
 
-# PARA demographics from encoder-supported categories
-demo = {
-    "age": "30-34",
-    "gender": "female",
-    "EducationalLevel": "junior_college",
-    "artExperience": "proficient",
-    "photographyExperience": "proficient",
-}
-big5 = {
-    "personality-E": 6,
-    "personality-A": 7,
-    "personality-N": 4,
-    "personality-O": 8,
-    "personality-C": 6,
-}
+### 2) GIAA + PARA
+```python
+from unified_iaa import UnifiedIAA
 
-print("PIAA:", m.predict_piaa(img, demo, big5, task="PIAA", model="mir", backbone="vit_small_patch16_224"))
-print("GIAA:", m.predict_giaa_prior(img, task="GIAA", model="mir", backbone="vit_small_patch16_224"))
-PY
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_giaa_prior(
+    image="/path/to/image.jpg",
+    task="GIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
+
+### 3) PIAA + LAPIS
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_with_traits(
+    image="/path/to/image.jpg",
+    traits=[0.0] * 137,
+    task="PIAA",
+    model="mir",
+    backbone="resnet50",
+    dataset="lapis",
+)
+print(score)
+```
+
+### 4) GIAA + LAPIS
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_with_traits(
+    image="/path/to/image.jpg",
+    traits=[0.0] * 137,
+    task="GIAA",
+    model="mir",
+    backbone="resnet50",
+    dataset="lapis",
+)
+print(score)
 ```
