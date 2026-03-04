@@ -26,6 +26,25 @@ def _remap_legacy_keys(state_dict: dict) -> dict:
     return out
 
 
+def _normalize_task_model(task: str, model: Optional[str] = None):
+    t = (task or "").strip().lower()
+    m = (model or "").strip().lower() if model is not None else None
+
+    # backward compatibility: task="mir"/"ici"
+    if t in {"mir", "ici"} and not m:
+        return "piaa", t
+
+    if t not in {"piaa", "giaa"}:
+        raise ValueError(f"Unsupported task={task}. Use 'PIAA'/'GIAA' (or legacy 'mir'/'ici').")
+
+    if m is None or m == "":
+        m = "ici"
+    if m not in {"mir", "ici"}:
+        raise ValueError(f"Unsupported model={model}. Use 'mir' or 'ici'.")
+
+    return t, m
+
+
 class UnifiedIAA:
     def __init__(self, repo_id: str, device: Optional[str] = None):
         self.repo_id = repo_id
@@ -53,24 +72,27 @@ class UnifiedIAA:
         obj._prior = torch.load(prior_path, map_location="cpu").float()
         return obj
 
-    def _artifact(self, task: str, backbone: str, dataset: str = "para") -> dict:
-        task_key = "PIAA-MIR" if task.lower() == "mir" else "PIAA-ICI"
+    def _artifact(self, task: str, backbone: str, dataset: str = "para", model: Optional[str] = None) -> dict:
+        task_family, head = _normalize_task_model(task, model)
+        # Current release stores checkpoints under PIAA-* keys; GIAA reuses same backbone checkpoints.
+        task_key = f"PIAA-{head.upper()}" if task_family in {"piaa", "giaa"} else f"PIAA-{head.upper()}"
         for item in self._compat["artifacts"]:
             if item.get("task") == task_key and item.get("backbone") == backbone and item.get("dataset", "para") == dataset:
                 return item
         raise ValueError(f"No artifact for task={task_key}, backbone={backbone}, dataset={dataset}")
 
-    def _load_model(self, task: str, backbone: str, dataset: str = "para", token: Optional[str] = None, cache_dir: Optional[str] = None):
-        k = (task.lower(), backbone, dataset)
+    def _load_model(self, task: str, backbone: str, dataset: str = "para", model: Optional[str] = None, token: Optional[str] = None, cache_dir: Optional[str] = None):
+        task_family, head = _normalize_task_model(task, model)
+        k = (task_family, head, backbone, dataset)
         if k in self._models:
             return self._models[k]
 
-        art = self._artifact(task, backbone, dataset=dataset)
+        art = self._artifact(task, backbone, dataset=dataset, model=head)
         ckpt_name = art["checkpoint"]
         num_pt = int(art.get("num_pt", 70))
         ckpt_path = hf_hub_download(self.repo_id, filename=f"models/{ckpt_name}", token=token, cache_dir=cache_dir)
 
-        if task.lower() == "mir":
+        if head == "mir":
             model = PIAA_MIR(9, 8, num_pt, dropout=0.0, backbone=backbone)
         else:
             model = PIAA_ICI(9, 8, num_pt, dropout=0.0, backbone=backbone)
@@ -93,16 +115,16 @@ class UnifiedIAA:
         vec = encode_demographics(demographics, big5, self._encoders)
         return vec.unsqueeze(0).to(self.device)
 
-    def predict_piaa(self, image: ImageLike, demographics: Dict[str, str], big5: Dict[str, float], task: str = "mir", backbone: str = "vit_small_patch16_224") -> float:
-        model = self._load_model(task, backbone, dataset="para")
+    def predict_piaa(self, image: ImageLike, demographics: Dict[str, str], big5: Dict[str, float], task: str = "PIAA", model: str = "mir", backbone: str = "vit_small_patch16_224") -> float:
+        model_obj = self._load_model(task, backbone, dataset="para", model=model)
         x = self._to_image_tensor(image)
         pt = self._to_pt_tensor(demographics, big5)
         with torch.no_grad():
-            pred = model(x, pt)
+            pred = model_obj(x, pt)
         return float(pred.squeeze().item())
 
-    def predict_with_traits(self, image: ImageLike, traits: Union[torch.Tensor, list], task: str = "mir", backbone: str = "resnet50", dataset: str = "lapis") -> float:
-        model = self._load_model(task, backbone, dataset=dataset)
+    def predict_with_traits(self, image: ImageLike, traits: Union[torch.Tensor, list], task: str = "PIAA", model: str = "mir", backbone: str = "resnet50", dataset: str = "lapis") -> float:
+        model_obj = self._load_model(task, backbone, dataset=dataset, model=model)
         x = self._to_image_tensor(image)
         if not torch.is_tensor(traits):
             traits = torch.tensor(traits, dtype=torch.float32)
@@ -110,13 +132,13 @@ class UnifiedIAA:
             traits = traits.unsqueeze(0)
         traits = traits.float().to(self.device)
         with torch.no_grad():
-            pred = model(x, traits)
+            pred = model_obj(x, traits)
         return float(pred.squeeze().item())
 
-    def predict_giaa_prior(self, image: ImageLike, task: str = "ici", backbone: str = "swin_tiny_patch4_window7_224") -> float:
-        model = self._load_model(task, backbone, dataset="para")
+    def predict_giaa_prior(self, image: ImageLike, task: str = "GIAA", model: str = "ici", backbone: str = "swin_tiny_patch4_window7_224") -> float:
+        model_obj = self._load_model(task, backbone, dataset="para", model=model)
         x = self._to_image_tensor(image)
         pt = self._prior.unsqueeze(0).to(self.device)
         with torch.no_grad():
-            pred = model(x, pt)
+            pred = model_obj(x, pt)
         return float(pred.squeeze().item())
