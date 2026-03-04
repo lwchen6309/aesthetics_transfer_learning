@@ -160,15 +160,18 @@ print(score)
 
 #### 3) GIAA + LAPIS
 ```python
-import json
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
-traits = json.load(open("hf_release/configs/lapis_traits_template.json", "r"))["traits"]
+
+# Keep LAPIS input format unchanged: 137-d traits vector
+lapis_input = {
+    "traits": [0.0] * 137
+}
 
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=traits,
+    traits=lapis_input["traits"],
     task="GIAA",
     model="mir",
     backbone="resnet50",
@@ -179,15 +182,18 @@ print(score)
 
 #### 4) PIAA + LAPIS
 ```python
-import json
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
-traits = json.load(open("hf_release/configs/lapis_traits_template.json", "r"))["traits"]
+
+# Keep LAPIS input format unchanged: 137-d traits vector
+lapis_input = {
+    "traits": [0.0] * 137
+}
 
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=traits,
+    traits=lapis_input["traits"],
     task="PIAA",
     model="mir",
     backbone="resnet50",
