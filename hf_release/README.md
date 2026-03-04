@@ -47,6 +47,8 @@ See `configs/compatibility.json` for exact artifact mapping and hashes.
 - `inference/demographics_encoder.py`
 - `inference/predict_piaa.py`
 - `inference/prior_giaa.py`
+- `infer_unified_iaa.sh`
+- `run_LAPIS_PIAA.sh`
 
 ## Python SDK (pip style)
 
@@ -120,6 +122,11 @@ python inference/prior_giaa.py \
   --checkpoint models/best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth \
   --image /path/to/image.jpg \
   --prior_vector_path inference/prior_mean_vector.pt
+```
+
+### 4) Run LAPIS PIAA eval pipeline
+```bash
+bash run_LAPIS_PIAA.sh
 ```
 
 ## user_demo.json format
