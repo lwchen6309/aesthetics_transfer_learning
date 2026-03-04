@@ -1,23 +1,143 @@
 {
   "_notes": {
-    "description": "Single LAPIS input object for UnifiedIAA.predict_lapis(...).",
-    "encoder_options": "See hf_release/configs/demographics_options_lapis.json for allowed categorical values.",
-    "vaiak_range": "Each VAIAK value must be integer in [0, 6]."
+    "description": "Full LAPIS input template with complete categorical options + VAIAK fields.",
+    "rule": "Use exactly one value from each categorical options list; VAIAK fields are integers in [0,6].",
+    "api": "UnifiedIAA.predict_lapis(image, lapis_input, task, model, backbone)"
   },
-  "nationality": "british",
-  "demo_gender": "female",
-  "demo_edu": "Bachelor's or equivalent",
-  "demo_colorblind": "No",
-  "age": "28-38",
-  "VAIAK1": 3,
-  "VAIAK2": 3,
-  "VAIAK3": 3,
-  "VAIAK4": 3,
-  "VAIAK5": 3,
-  "VAIAK6": 3,
-  "VAIAK7": 3,
-  "2VAIAK1": 3,
-  "2VAIAK2": 3,
-  "2VAIAK3": 3,
-  "2VAIAK4": 3
+  "categorical_options": {
+    "nationality": [
+      "british",
+      "south african",
+      "american",
+      "portuguese",
+      "hungarian",
+      "malaysian",
+      "belgian",
+      "northern irish",
+      "polish",
+      "slovenian",
+      "spanish",
+      "italian",
+      "egyptian",
+      "scottish",
+      "mexican",
+      "irish",
+      "south korean",
+      "greek",
+      "czech",
+      "brazilian",
+      "canadian",
+      "indian",
+      "ugandan",
+      "zimbabwean",
+      "dutch",
+      "welsh",
+      "french",
+      "finnish",
+      "german",
+      "bangladeshi",
+      "lithuanian",
+      "australian",
+      "tunisian",
+      "swiss",
+      "romanian",
+      "chilean",
+      "austrian",
+      "nigerien",
+      "estonian",
+      "bulgarian",
+      "turkish",
+      "vietnamese",
+      "latvian",
+      "malawian"
+    ],
+    "demo_gender": [
+      "female",
+      "male",
+      "non-binary",
+      "other/would prefer not to disclose"
+    ],
+    "demo_edu": [
+      "secondary education",
+      "Master's or equivalent",
+      "primary education",
+      "Bachelor's or equivalent",
+      "Doctorate"
+    ],
+    "demo_colorblind": [
+      "No",
+      "Yes, but I still perceive colors"
+    ],
+    "age": [
+      "18-27",
+      "39-49",
+      "28-38",
+      "50-60",
+      "61-71"
+    ]
+  },
+  "vaiak_fields": {
+    "VAIAK1": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK2": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK3": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK4": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK5": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK6": {
+      "min": 0,
+      "max": 6
+    },
+    "VAIAK7": {
+      "min": 0,
+      "max": 6
+    },
+    "2VAIAK1": {
+      "min": 0,
+      "max": 6
+    },
+    "2VAIAK2": {
+      "min": 0,
+      "max": 6
+    },
+    "2VAIAK3": {
+      "min": 0,
+      "max": 6
+    },
+    "2VAIAK4": {
+      "min": 0,
+      "max": 6
+    }
+  },
+  "sample_input": {
+    "nationality": "british",
+    "demo_gender": "female",
+    "demo_edu": "secondary education",
+    "demo_colorblind": "No",
+    "age": "18-27",
+    "VAIAK1": 3,
+    "VAIAK2": 3,
+    "VAIAK3": 3,
+    "VAIAK4": 3,
+    "VAIAK5": 3,
+    "VAIAK6": 3,
+    "VAIAK7": 3,
+    "2VAIAK1": 3,
+    "2VAIAK2": 3,
+    "2VAIAK3": 3,
+    "2VAIAK4": 3
+  }
 }
