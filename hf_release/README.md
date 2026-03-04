@@ -163,11 +163,25 @@ bash run_LAPIS_PIAA.sh
 
 ## Pip inference calls (4 examples)
 
-### 1) PIAA + PARA
+### 1) GIAA + PARA
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+score = m.predict_giaa_prior(
+    image="/path/to/image.jpg",
+    task="GIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
+
+### 2) PIAA + PARA
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 score = m.predict_piaa(
     image="/path/to/image.jpg",
     demographics={
@@ -191,29 +205,21 @@ score = m.predict_piaa(
 print(score)
 ```
 
-### 2) GIAA + PARA
+### 3) GIAA + LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
-score = m.predict_giaa_prior(
-    image="/path/to/image.jpg",
-    task="GIAA",
-    model="mir",
-    backbone="vit_small_patch16_224",
-)
-print(score)
-```
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 
-### 3) PIAA + LAPIS
-```python
-from unified_iaa import UnifiedIAA
+# Keep LAPIS input format unchanged: 137-d traits vector
+lapis_input = {
+    "traits": [0.0] * 137
+}
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=[0.0] * 137,
-    task="PIAA",
+    traits=lapis_input["traits"],
+    task="GIAA",
     model="mir",
     backbone="resnet50",
     dataset="lapis",
@@ -221,15 +227,21 @@ score = m.predict_with_traits(
 print(score)
 ```
 
-### 4) GIAA + LAPIS
+### 4) PIAA + LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+
+# Keep LAPIS input format unchanged: 137-d traits vector
+lapis_input = {
+    "traits": [0.0] * 137
+}
+
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=[0.0] * 137,
-    task="GIAA",
+    traits=lapis_input["traits"],
+    task="PIAA",
     model="mir",
     backbone="resnet50",
     dataset="lapis",
