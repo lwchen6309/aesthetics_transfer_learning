@@ -97,7 +97,7 @@ score_lapis = m.predict_with_traits(
 )
 ```
 
-## Quick local example (fixed PARA image, no search)
+## Quick local example
 
 ```python
 from unified_iaa import UnifiedIAA
@@ -105,7 +105,7 @@ from unified_iaa import UnifiedIAA
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 
 score = m.predict_giaa_prior(
-    image="/home/lwchen/datasets/PARA/imgs/session1/iaa_pub10_.jpg",
+    image="/path/to/image.jpg",
     task="GIAA",
     model="ici",  # or "mir"
     backbone="swin_tiny_patch4_window7_224",  # or "vit_small_patch16_224"
