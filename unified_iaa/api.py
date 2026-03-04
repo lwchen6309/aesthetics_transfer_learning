@@ -152,15 +152,14 @@ class UnifiedIAA:
     def predict_lapis(
         self,
         image: ImageLike,
-        lapis_demo: Dict[str, str],
-        vaiak: Dict[str, int],
+        lapis_input: Dict[str, object],
         task: str = "PIAA",
         model: str = "mir",
         backbone: str = "resnet50",
     ) -> float:
         if not self._lapis_trait_encoders:
             raise ValueError("LAPIS trait encoders not available in repo configs/demographics_options_lapis.json")
-        traits = encode_lapis_inputs(lapis_demo, vaiak, self._lapis_trait_encoders)
+        traits = encode_lapis_inputs(lapis_input, self._lapis_trait_encoders)
         return self.predict_with_traits(image=image, traits=traits, task=task, model=model, backbone=backbone, dataset="lapis")
 
     def predict_giaa_prior(self, image: ImageLike, task: str = "GIAA", model: str = "ici", backbone: str = "swin_tiny_patch4_window7_224") -> float:

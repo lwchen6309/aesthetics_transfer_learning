@@ -114,7 +114,7 @@ Demographics/traits reference files (updated):
 - PARA options: `hf_release/configs/demographics_options_para.json`
 - LAPIS encoder/options: `hf_release/configs/demographics_options_lapis.json` (use listed encoder categories directly; no re-binning)
 - PARA inference template: `hf_release/configs/para_demographics_template.json` (age must be interval bin: `18-21`, `22-25`, `26-29`, `30-34`, `35-40`)
-- LAPIS inference template: `hf_release/configs/lapis_traits_template.json` (`lapis_demo` + `vaiak`; SDK encodes internally)
+- LAPIS inference template: `hf_release/configs/lapis_traits_template.json` (single LAPIS input object; SDK encodes internally)
 
 #### 1) GIAA + PARA
 ```python
@@ -164,22 +164,19 @@ from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 
-lapis_demo = {
+lapis_input = {
     "nationality": "british",
     "demo_gender": "female",
     "demo_edu": "Bachelor's or equivalent",
     "demo_colorblind": "No",
     "age": "28-38",
-}
-vaiak = {
     "VAIAK1": 3, "VAIAK2": 3, "VAIAK3": 3, "VAIAK4": 3, "VAIAK5": 3, "VAIAK6": 3, "VAIAK7": 3,
     "2VAIAK1": 3, "2VAIAK2": 3, "2VAIAK3": 3, "2VAIAK4": 3,
 }
 
 score = m.predict_lapis(
     image="/path/to/image.jpg",
-    lapis_demo=lapis_demo,
-    vaiak=vaiak,
+    lapis_input=lapis_input,
     task="GIAA",
     model="mir",
     backbone="resnet50",
@@ -193,22 +190,19 @@ from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
 
-lapis_demo = {
+lapis_input = {
     "nationality": "british",
     "demo_gender": "female",
     "demo_edu": "Bachelor's or equivalent",
     "demo_colorblind": "No",
     "age": "28-38",
-}
-vaiak = {
     "VAIAK1": 3, "VAIAK2": 3, "VAIAK3": 3, "VAIAK4": 3, "VAIAK5": 3, "VAIAK6": 3, "VAIAK7": 3,
     "2VAIAK1": 3, "2VAIAK2": 3, "2VAIAK3": 3, "2VAIAK4": 3,
 }
 
 score = m.predict_lapis(
     image="/path/to/image.jpg",
-    lapis_demo=lapis_demo,
-    vaiak=vaiak,
+    lapis_input=lapis_input,
     task="PIAA",
     model="mir",
     backbone="resnet50",

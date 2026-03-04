@@ -41,25 +41,24 @@ def encode_demographics(demo: Dict[str, str], big5: Dict[str, float], encoders: 
 
 
 def encode_lapis_inputs(
-    lapis_demo: Dict[str, str],
-    vaiak: Dict[str, int],
+    lapis_input: Dict[str, object],
     lapis_trait_encoders: Dict[str, Dict[str, int]],
 ) -> torch.Tensor:
     parts: List[torch.Tensor] = []
 
     for k in LAPIS_CATEGORICAL:
-        if k not in lapis_demo:
+        if k not in lapis_input:
             raise ValueError(f"Missing LAPIS field: {k}")
-        v = str(lapis_demo[k])
+        v = str(lapis_input[k])
         if k not in lapis_trait_encoders or v not in lapis_trait_encoders[k]:
             raise ValueError(f"Unknown category for {k}: {v}")
         idx = lapis_trait_encoders[k][v]
         parts.append(F.one_hot(torch.tensor(idx), num_classes=len(lapis_trait_encoders[k])).float())
 
     for k in LAPIS_VAIAK:
-        if k not in vaiak:
+        if k not in lapis_input:
             raise ValueError(f"Missing VAIAK field: {k}")
-        iv = int(vaiak[k])
+        iv = int(lapis_input[k])
         if iv < 0 or iv > 6:
             raise ValueError(f"{k} out of range [0,6]: {iv}")
         parts.append(F.one_hot(torch.tensor(iv), num_classes=7).float())
