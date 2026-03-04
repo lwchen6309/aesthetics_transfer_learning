@@ -3,16 +3,21 @@ library_name: pytorch
 tags:
   - image-aesthetics
   - personalization
-  - resnet50
+  - vit
+  - swin
   - pt70
 ---
 
-# PARA PIAA/GIAA (pt=70, resnet50)
+# Unified IAA (pt=70, ViT/Swin)
 
 This release includes **pt=70 onehot** compatible checkpoints for:
 
-- **PIAA-MIR** (`best_model_resnet50_piaamir_desert-dawn-621.pth`)
-- **PIAA-ICI** (`best_model_resnet50_piaaici_crimson-sound-642.pth`)
+- **PIAA-MIR**
+  - `best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth`
+  - `best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth`
+- **PIAA-ICI**
+  - `best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth`
+  - `best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth`
 - **GIAA prior vector** (`prior_mean_vector.pt`, shape `[70]`)
 
 ## Scope and compatibility
@@ -21,14 +26,16 @@ This release includes **pt=70 onehot** compatible checkpoints for:
 - ✅ Supports both:
   - **GIAA prior inference** (using uploaded `prior_mean_vector.pt`)
   - **PIAA personalized inference** (user provides demographics + Big5)
-- ❌ Not in this release: `num_pt=25` / `--disable_onehot` variants
+- ℹ️ ResNet checkpoints are excluded from this package by choice.
 
 See `configs/compatibility.json` for exact artifact mapping and hashes.
 
 ## Files
 
-- `models/best_model_resnet50_piaamir_desert-dawn-621.pth`
-- `models/best_model_resnet50_piaaici_crimson-sound-642.pth`
+- `models/best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth`
+- `models/best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth`
+- `models/best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth`
+- `models/best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth`
 - `inference/prior_mean_vector.pt`
 - `inference/demographics_encoder.py`
 - `inference/predict_piaa.py`
@@ -47,8 +54,8 @@ python inference/demographics_encoder.py \
 ```bash
 python inference/predict_piaa.py \
   --task mir \
-  --backbone resnet50 \
-  --checkpoint models/best_model_resnet50_piaamir_desert-dawn-621.pth \
+  --backbone vit_small_patch16_224 \
+  --checkpoint models/best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth \
   --image /path/to/image.jpg \
   --encoder_json inference/demographics_encoder.json \
   --demographics_json /path/to/user_demo.json
@@ -58,8 +65,8 @@ python inference/predict_piaa.py \
 ```bash
 python inference/prior_giaa.py \
   --task ici \
-  --backbone resnet50 \
-  --checkpoint models/best_model_resnet50_piaaici_crimson-sound-642.pth \
+  --backbone swin_tiny_patch4_window7_224 \
+  --checkpoint models/best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth \
   --image /path/to/image.jpg \
   --prior_vector_path inference/prior_mean_vector.pt
 ```
