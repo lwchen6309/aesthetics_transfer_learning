@@ -163,7 +163,7 @@ bash run_LAPIS_PIAA.sh
 
 ## Pip inference calls (4 examples)
 
-### 1) GIAA + PARA
+### 1) GIAA mode pretrained on PARA
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -177,7 +177,7 @@ score = m.predict_giaa_prior(
 print(score)
 ```
 
-### 2) PIAA + PARA
+### 2) PIAA mode pretrained on PARA
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -205,7 +205,7 @@ score = m.predict_piaa(
 print(score)
 ```
 
-### 3) GIAA + LAPIS
+### 3) GIAA mode pretrained on LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -231,7 +231,7 @@ score = m.predict_lapis(
 print(score)
 ```
 
-### 4) PIAA + LAPIS
+### 4) PIAA mode pretrained on LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
