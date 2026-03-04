@@ -1,12 +1,243 @@
 {
   "dataset": "LAPIS",
-  "description": "LAPIS inference in this release uses a direct trait vector (not categorical demographics).",
-  "inference_input": {
-    "type": "traits_vector",
+  "description": "Available LAPIS demographics/metadata options extracted from LAPIS_individualratings_metaANDdemodata.csv.",
+  "current_inference_api": {
+    "input_type": "traits_vector",
     "length": 137,
     "dtype": "float",
     "api": "predict_with_traits(image, traits, task, model, backbone='resnet50', dataset='lapis')"
   },
-  "demographics_fields": [],
-  "note": "If you have LAPIS demographics metadata, convert/encode it upstream into the 137-dim trait vector."
+  "demographics_metadata_fields": {
+    "age": {
+      "non_null_count": 266606,
+      "unique_count": 54,
+      "options_sample": [
+        "18.0",
+        "19.0",
+        "20.0",
+        "21.0",
+        "22.0",
+        "23.0",
+        "24.0",
+        "25.0",
+        "26.0",
+        "27.0",
+        "28.0",
+        "29.0",
+        "30.0",
+        "31.0",
+        "32.0",
+        "33.0",
+        "34.0",
+        "35.0",
+        "36.0",
+        "37.0",
+        "38.0",
+        "39.0",
+        "40.0",
+        "41.0",
+        "42.0",
+        "43.0",
+        "44.0",
+        "45.0",
+        "46.0",
+        "47.0",
+        "48.0",
+        "49.0",
+        "50.0",
+        "51.0",
+        "52.0",
+        "53.0",
+        "54.0",
+        "55.0",
+        "56.0",
+        "57.0"
+      ]
+    },
+    "nationality": {
+      "non_null_count": 266606,
+      "unique_count": 44,
+      "options_sample": [
+        "american",
+        "australian",
+        "austrian",
+        "bangladeshi",
+        "belgian",
+        "brazilian",
+        "british",
+        "bulgarian",
+        "canadian",
+        "chilean",
+        "czech",
+        "dutch",
+        "egyptian",
+        "estonian",
+        "finnish",
+        "french",
+        "german",
+        "greek",
+        "hungarian",
+        "indian",
+        "irish",
+        "italian",
+        "latvian",
+        "lithuanian",
+        "malawian",
+        "malaysian",
+        "mexican",
+        "nigerien",
+        "northern irish",
+        "polish",
+        "portuguese",
+        "romanian",
+        "scottish",
+        "slovenian",
+        "south african",
+        "south korean",
+        "spanish",
+        "swiss",
+        "tunisian",
+        "turkish"
+      ]
+    },
+    "demo_gender": {
+      "non_null_count": 266606,
+      "unique_count": 4,
+      "options": [
+        "female",
+        "male",
+        "non-binary",
+        "other/would prefer not to disclose"
+      ]
+    },
+    "demo_edu": {
+      "non_null_count": 266606,
+      "unique_count": 5,
+      "options": [
+        "Bachelor's or equivalent",
+        "Doctorate",
+        "Master's or equivalent",
+        "primary education",
+        "secondary education"
+      ]
+    },
+    "demo_colorblind": {
+      "non_null_count": 266606,
+      "unique_count": 2,
+      "options": [
+        "No",
+        "Yes, but I still perceive colors"
+      ]
+    },
+    "genre": {
+      "non_null_count": 283860,
+      "unique_count": 7,
+      "options": [
+        "abstract",
+        "cityscape",
+        "flower painting",
+        "landscape",
+        "nude painting",
+        "portrait",
+        "still life"
+      ]
+    },
+    "style": {
+      "non_null_count": 283860,
+      "unique_count": 26,
+      "options": [
+        "Abstract_Expressionism",
+        "Action_painting",
+        "Analytical_Cubism",
+        "Art_Nouveau_Modern",
+        "Baroque",
+        "Color_Field_Painting",
+        "Contemporary_Realism",
+        "Cubism",
+        "Early_Renaissance",
+        "Expressionism",
+        "Fauvism",
+        "High_Renaissance",
+        "Impressionism",
+        "Mannerism_Late_Renaissance",
+        "Minimalism",
+        "Naive_Art_Primitivism",
+        "New_Realism",
+        "Northern_Renaissance",
+        "Pointillism",
+        "Pop_Art",
+        "Post_Impressionism",
+        "Realism",
+        "Rococo",
+        "Romanticism",
+        "Symbolism",
+        "Synthetic_Cubism"
+      ]
+    },
+    "4_styles": {
+      "non_null_count": 283860,
+      "unique_count": 4,
+      "options": [
+        "Non-representational, abstract - geometric",
+        "Non-representational, abstract - lyrical",
+        "Representational abstract art - Identifiable",
+        "Representational/ Figurative art"
+      ]
+    },
+    "two_styles": {
+      "non_null_count": 283860,
+      "unique_count": 2,
+      "options": [
+        "ABSTRACT",
+        "FIGURATIVE"
+      ]
+    },
+    "artist": {
+      "non_null_count": 283860,
+      "unique_count": 843,
+      "options_sample": [
+        "a.y.-jackson",
+        "aaron-siskind",
+        "abdullah-suriosubroto",
+        "abidin-dino",
+        "abraham-manievich",
+        "ad-reinhardt",
+        "adam-baltatu",
+        "adnan-coker",
+        "adolf-fleischmann",
+        "adolf-hitler",
+        "adolphe-joseph-thomas-monticelli",
+        "adriaen-brouwer",
+        "adriaen-van-de-velde",
+        "adriaen-van-de-venne",
+        "adriaen-van-ostade",
+        "aelbert-cuyp",
+        "afro",
+        "agnes-martin",
+        "agnolo-bronzino",
+        "agostino-carracci",
+        "aki-kuroda",
+        "akseli-gallen-kallela",
+        "al-held",
+        "aladar-korosfoi-kriesch",
+        "albert-bierstadt",
+        "albert-bloch",
+        "albert-gleizes",
+        "albert-huie",
+        "albert-marquet",
+        "albert-pinkham-ryder",
+        "alberto-burri",
+        "alberto-magnelli",
+        "albrecht-altdorfer",
+        "albrecht-durer",
+        "aldemir-martins",
+        "aldo-mondino",
+        "alekos-kontopoulos",
+        "aleksandra-ekster",
+        "aleksey-antropov",
+        "aleksey-savrasov"
+      ]
+    }
+  },
+  "note": "Current SDK inference consumes a 137-dim traits vector. If you start from LAPIS demographics/metadata fields, encode/convert them to the traits vector upstream."
 }
