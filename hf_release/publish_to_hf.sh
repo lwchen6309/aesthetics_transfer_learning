@@ -39,6 +39,9 @@ cp -f "${ROOT_DIR}/configs/compatibility.json" configs/compatibility.json
 cp -f "${ROOT_DIR}/inference/"*.py inference/
 cp -f "${ROOT_DIR}/inference/prior_mean_vector.pt" inference/
 cp -f "${ROOT_DIR}/inference/demographics_encoder.json" inference/
+cp -f "${ROOT_DIR}/infer_unified_iaa.sh" infer_unified_iaa.sh
+cp -f "${ROOT_DIR}/run_LAPIS_PIAA.sh" run_LAPIS_PIAA.sh
+chmod +x infer_unified_iaa.sh run_LAPIS_PIAA.sh
 
 cp -f "${SRC_DIR}/models_pth/best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth" models/
 cp -f "${SRC_DIR}/models_pth/best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth" models/
