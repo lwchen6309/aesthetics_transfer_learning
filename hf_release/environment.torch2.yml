@@ -1,0 +1,22 @@
+name: torch2
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.1.*
+  - torchvision=0.16.*
+  - pytorch-cuda=11.8
+  - numpy
+  - pandas
+  - scipy
+  - pyyaml
+  - pillow
+  - scikit-learn
+  - tqdm
+  - pip:
+      - timm
+      - wandb
