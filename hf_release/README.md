@@ -160,3 +160,33 @@ bash run_LAPIS_PIAA.sh
 ```
 
 > Category strings must match encoder categories produced from your PARA `PARA-UserInfo.csv`.
+
+## Pip inference quick run
+
+```bash
+python - <<'PY'
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+img = "/path/to/image.jpg"
+
+# PARA demographics from encoder-supported categories
+demo = {
+    "age": "30-34",
+    "gender": "female",
+    "EducationalLevel": "junior_college",
+    "artExperience": "proficient",
+    "photographyExperience": "proficient",
+}
+big5 = {
+    "personality-E": 6,
+    "personality-A": 7,
+    "personality-N": 4,
+    "personality-O": 8,
+    "personality-C": 6,
+}
+
+print("PIAA:", m.predict_piaa(img, demo, big5, task="PIAA", model="mir", backbone="vit_small_patch16_224"))
+print("GIAA:", m.predict_giaa_prior(img, task="GIAA", model="mir", backbone="vit_small_patch16_224"))
+PY
+```
