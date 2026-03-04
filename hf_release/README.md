@@ -73,13 +73,15 @@ score_piaa = m.predict_piaa(
         "personality-O": 8,
         "personality-C": 6,
     },
-    task="mir",
+    task="PIAA",
+    model="mir",
     backbone="vit_small_patch16_224",
 )
 
 score_giaa = m.predict_giaa_prior(
     image="/path/to/test.jpg",
-    task="ici",
+    task="GIAA",
+    model="ici",
     backbone="swin_tiny_patch4_window7_224",
 )
 
@@ -88,7 +90,8 @@ lapis_traits = [0.0] * 137
 score_lapis = m.predict_with_traits(
     image="/path/to/test.jpg",
     traits=lapis_traits,
-    task="mir",
+    task="PIAA",  # or "GIAA"
+    model="mir",  # or "ici"
     backbone="resnet50",
     dataset="lapis",
 )
