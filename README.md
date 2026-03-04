@@ -112,9 +112,9 @@ This section includes both **pip-based inference calls** and **training entry po
 Demographics/traits reference files (updated):
 
 - PARA options: `hf_release/configs/demographics_options_para.json`
-- LAPIS metadata/options: `hf_release/configs/demographics_options_lapis.json` (use listed encoder categories directly; no re-binning)
+- LAPIS encoder/options: `hf_release/configs/demographics_options_lapis.json` (use listed encoder categories directly; no re-binning)
 - PARA inference template: `hf_release/configs/para_demographics_template.json` (age must be interval bin: `18-21`, `22-25`, `26-29`, `30-34`, `35-40`)
-- LAPIS inference template: `hf_release/configs/lapis_traits_template.json`
+- LAPIS inference template: `hf_release/configs/lapis_traits_template.json` (traits length must match model input)
 
 #### 1) GIAA + PARA
 ```python
@@ -160,12 +160,15 @@ print(score)
 
 #### 3) GIAA + LAPIS
 ```python
+import json
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+traits = json.load(open("hf_release/configs/lapis_traits_template.json", "r"))["traits"]
+
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=[0.0] * 137,
+    traits=traits,
     task="GIAA",
     model="mir",
     backbone="resnet50",
@@ -176,12 +179,15 @@ print(score)
 
 #### 4) PIAA + LAPIS
 ```python
+import json
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+traits = json.load(open("hf_release/configs/lapis_traits_template.json", "r"))["traits"]
+
 score = m.predict_with_traits(
     image="/path/to/image.jpg",
-    traits=[0.0] * 137,
+    traits=traits,
     task="PIAA",
     model="mir",
     backbone="resnet50",
