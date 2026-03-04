@@ -24,6 +24,88 @@ conda activate iaa_transfer
 
 ---
 
+## Pip Inference Calls (4 examples)
+
+```bash
+pip install unified-iaa
+```
+
+### 1) PIAA + PARA
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_piaa(
+    image="/path/to/image.jpg",
+    demographics={
+        "age": "30-34",
+        "gender": "female",
+        "EducationalLevel": "junior_college",
+        "artExperience": "proficient",
+        "photographyExperience": "proficient",
+    },
+    big5={
+        "personality-E": 6,
+        "personality-A": 7,
+        "personality-N": 4,
+        "personality-O": 8,
+        "personality-C": 6,
+    },
+    task="PIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
+
+### 2) GIAA + PARA
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_giaa_prior(
+    image="/path/to/image.jpg",
+    task="GIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
+
+### 3) PIAA + LAPIS
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_with_traits(
+    image="/path/to/image.jpg",
+    traits=[0.0] * 137,
+    task="PIAA",
+    model="mir",
+    backbone="resnet50",
+    dataset="lapis",
+)
+print(score)
+```
+
+### 4) GIAA + LAPIS
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+score = m.predict_with_traits(
+    image="/path/to/image.jpg",
+    traits=[0.0] * 137,
+    task="GIAA",
+    model="mir",
+    backbone="resnet50",
+    dataset="lapis",
+)
+print(score)
+```
+
+---
+
 ## Setup
 
 Create the required directories for models and preprocessed data:
