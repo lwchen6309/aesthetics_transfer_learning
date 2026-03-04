@@ -7,9 +7,8 @@ from PIL import Image
 from torchvision import transforms
 from huggingface_hub import hf_hub_download
 
-from train_piaa_mir import PIAA_MIR
-from train_piaa_ici import PIAA_ICI
-from inference.demographics_encoder import load_encoders, encode_demographics, PERSONAL_TRAITS, BIG5
+from .modeling import PIAA_MIR, PIAA_ICI
+from .encoding import load_encoders, encode_demographics, PERSONAL_TRAITS, BIG5
 
 
 ImageLike = Union[str, Path, Image.Image]
