@@ -1,0 +1,12 @@
+{
+  "dataset": "LAPIS",
+  "description": "LAPIS inference in this release uses a direct trait vector (not categorical demographics).",
+  "inference_input": {
+    "type": "traits_vector",
+    "length": 137,
+    "dtype": "float",
+    "api": "predict_with_traits(image, traits, task, model, backbone='resnet50', dataset='lapis')"
+  },
+  "demographics_fields": [],
+  "note": "If you have LAPIS demographics metadata, convert/encode it upstream into the 137-dim trait vector."
+}

@@ -109,7 +109,26 @@ This section includes both **pip-based inference calls** and **training entry po
 
 ### Pip Inference Calls (4 examples)
 
-#### 1) PIAA + PARA
+Demographics/traits options reference files:
+
+- PARA: `hf_release/configs/demographics_options_para.json`
+- LAPIS: `hf_release/configs/demographics_options_lapis.json`
+
+#### 1) GIAA + PARA
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+score = m.predict_giaa_prior(
+    image="/path/to/image.jpg",
+    task="GIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print(score)
+```
+
+#### 2) PIAA + PARA
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -137,21 +156,23 @@ score = m.predict_piaa(
 print(score)
 ```
 
-#### 2) GIAA + PARA
+#### 3) GIAA + LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
-score = m.predict_giaa_prior(
+score = m.predict_with_traits(
     image="/path/to/image.jpg",
+    traits=[0.0] * 137,
     task="GIAA",
     model="mir",
-    backbone="vit_small_patch16_224",
+    backbone="resnet50",
+    dataset="lapis",
 )
 print(score)
 ```
 
-#### 3) PIAA + LAPIS
+#### 4) PIAA + LAPIS
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -160,22 +181,6 @@ score = m.predict_with_traits(
     image="/path/to/image.jpg",
     traits=[0.0] * 137,
     task="PIAA",
-    model="mir",
-    backbone="resnet50",
-    dataset="lapis",
-)
-print(score)
-```
-
-#### 4) GIAA + LAPIS
-```python
-from unified_iaa import UnifiedIAA
-
-m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
-score = m.predict_with_traits(
-    image="/path/to/image.jpg",
-    traits=[0.0] * 137,
-    task="GIAA",
     model="mir",
     backbone="resnet50",
     dataset="lapis",
