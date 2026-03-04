@@ -56,6 +56,12 @@ See `configs/compatibility.json` for exact artifact mapping and hashes.
 
 ## Python SDK (pip style)
 
+```bash
+pip install unified-iaa
+# or local editable
+# pip install -e .
+```
+
 ```python
 from unified_iaa import UnifiedIAA
 
@@ -140,11 +146,11 @@ bash run_LAPIS_PIAA.sh
 
 ```json
 {
-  "age": "20-29",
+  "age": "30-34",
   "gender": "female",
-  "EducationalLevel": "Bachelor",
-  "artExperience": "medium",
-  "photographyExperience": "low",
+  "EducationalLevel": "junior_college",
+  "artExperience": "proficient",
+  "photographyExperience": "proficient",
   "personality-E": 6,
   "personality-A": 7,
   "personality-N": 4,
