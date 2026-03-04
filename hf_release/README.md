@@ -8,25 +8,30 @@ tags:
   - pt70
 ---
 
-# Unified IAA (pt=70, ViT/Swin)
+# Unified IAA (PARA pt=70 + LAPIS pt=137)
 
-This release includes **pt=70 onehot** compatible checkpoints for:
+This release includes:
 
-- **PIAA-MIR**
+- **PARA PIAA-MIR (pt=70)**
   - `best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth`
   - `best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth`
-- **PIAA-ICI**
+- **PARA PIAA-ICI (pt=70)**
   - `best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth`
   - `best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth`
-- **GIAA prior vector** (`prior_mean_vector.pt`, shape `[70]`)
+- **LAPIS PIAA-MIR (pt=137)**
+  - `lapis_best_model_resnet50_piaamir_azure-gorge-1153.pth`
+- **LAPIS PIAA-ICI (pt=137)**
+  - `lapis_best_model_resnet50_piaaici_dutiful-serenity-1076.pth`
+- **PARA GIAA prior vector** (`prior_mean_vector.pt`, shape `[70]`)
 
 ## Scope and compatibility
 
-- ✅ Supported: `num_pt=70`, `disable_onehot=false`
+- ✅ PARA supported: `num_pt=70`, `disable_onehot=false`
+- ✅ LAPIS supported: `num_pt=137` (use direct trait vector input)
 - ✅ Supports both:
-  - **GIAA prior inference** (using uploaded `prior_mean_vector.pt`)
-  - **PIAA personalized inference** (user provides demographics + Big5)
-- ℹ️ ResNet checkpoints are excluded from this package by choice.
+  - **PARA GIAA prior inference** (using uploaded `prior_mean_vector.pt`)
+  - **PARA PIAA personalized inference** (user provides demographics + Big5)
+  - **LAPIS inference** (user provides a trait vector)
 
 See `configs/compatibility.json` for exact artifact mapping and hashes.
 
@@ -36,6 +41,8 @@ See `configs/compatibility.json` for exact artifact mapping and hashes.
 - `models/best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth`
 - `models/best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth`
 - `models/best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth`
+- `models/lapis_best_model_resnet50_piaamir_azure-gorge-1153.pth`
+- `models/lapis_best_model_resnet50_piaaici_dutiful-serenity-1076.pth`
 - `inference/prior_mean_vector.pt`
 - `inference/demographics_encoder.py`
 - `inference/predict_piaa.py`
@@ -72,6 +79,16 @@ score_giaa = m.predict_giaa_prior(
     image="/path/to/test.jpg",
     task="ici",
     backbone="swin_tiny_patch4_window7_224",
+)
+
+# LAPIS (pt=137) with direct trait vector
+lapis_traits = [0.0] * 137
+score_lapis = m.predict_with_traits(
+    image="/path/to/test.jpg",
+    traits=lapis_traits,
+    task="mir",
+    backbone="resnet50",
+    dataset="lapis",
 )
 ```
 

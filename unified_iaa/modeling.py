@@ -10,8 +10,11 @@ class NIMA_attr(nn.Module):
         super().__init__()
         if backbone == "resnet50":
             self.backbone = resnet50(pretrained=pretrained)
-            feature_dim = self.backbone.fc.in_features
-            self.backbone.fc = nn.Identity()
+            self.backbone.fc = nn.Sequential(
+                nn.Linear(self.backbone.fc.in_features, 512),
+                nn.ReLU(),
+            )
+            feature_dim = 512
         elif backbone == "vit_small_patch16_224":
             self.backbone = create_model("vit_small_patch16_224", pretrained=pretrained, num_classes=0)
             feature_dim = self.backbone.embed_dim
