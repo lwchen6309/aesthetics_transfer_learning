@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unified-iaa"
+version = "0.1.0"
+description = "Unified IAA inference SDK (PIAA + GIAA prior)"
+readme = "hf_release/README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.1",
+  "torchvision>=0.16",
+  "pillow",
+  "huggingface_hub>=0.20",
+  "pyyaml",
+  "timm",
+]
+
+[tool.setuptools]
+packages = ["unified_iaa"]
