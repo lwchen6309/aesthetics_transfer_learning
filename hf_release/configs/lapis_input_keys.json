@@ -1,0 +1,22 @@
+{
+  "categorical_keys": [
+    "nationality",
+    "demo_gender",
+    "demo_edu",
+    "demo_colorblind",
+    "age"
+  ],
+  "vaiak_keys": [
+    "VAIAK1",
+    "VAIAK2",
+    "VAIAK3",
+    "VAIAK4",
+    "VAIAK5",
+    "VAIAK6",
+    "VAIAK7",
+    "2VAIAK1",
+    "2VAIAK2",
+    "2VAIAK3",
+    "2VAIAK4"
+  ]
+}

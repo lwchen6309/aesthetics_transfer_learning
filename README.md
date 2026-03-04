@@ -115,6 +115,7 @@ Demographics/traits reference files (updated):
 - LAPIS encoder/options: `hf_release/configs/demographics_options_lapis.json` (use listed encoder categories directly; no re-binning)
 - PARA inference template: `hf_release/configs/para_demographics_template.json` (age must be interval bin: `18-21`, `22-25`, `26-29`, `30-34`, `35-40`)
 - LAPIS inference template: `hf_release/configs/lapis_traits_template.json` (single LAPIS input object; SDK encodes internally)
+- LAPIS input key list (no index): `hf_release/configs/lapis_input_keys.json`
 
 #### 1) GIAA + PARA
 ```python
