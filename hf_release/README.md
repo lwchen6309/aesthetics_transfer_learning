@@ -97,16 +97,16 @@ score_lapis = m.predict_with_traits(
 )
 ```
 
-## Quick local examples (what to fill for PARA vs LAPIS)
+## Quick local examples (4 blocks: ViT + MIR)
 
-### A) PIAA on PARA (must provide demographics + Big5)
+### 1) PIAA + PARA (ViT, MIR)
 
 ```python
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 
-score_para_piaa = m.predict_piaa(
+score = m.predict_piaa(
     image="/path/to/image.jpg",
     demographics={
         "age": "20-29",
@@ -123,13 +123,29 @@ score_para_piaa = m.predict_piaa(
         "personality-C": 6,
     },
     task="PIAA",
-    model="mir",  # or "ici"
-    backbone="vit_small_patch16_224",  # or "swin_tiny_patch4_window7_224"
+    model="mir",
+    backbone="vit_small_patch16_224",
 )
-print("PARA PIAA score =", float(score_para_piaa))
+print("PIAA+PARA (ViT/MIR) =", float(score))
 ```
 
-### B) PIAA on LAPIS (must provide trait vector, len=137)
+### 2) GIAA + PARA (ViT, MIR)
+
+```python
+from unified_iaa import UnifiedIAA
+
+m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
+
+score = m.predict_giaa_prior(
+    image="/path/to/image.jpg",
+    task="GIAA",
+    model="mir",
+    backbone="vit_small_patch16_224",
+)
+print("GIAA+PARA (ViT/MIR) =", float(score))
+```
+
+### 3) PIAA + LAPIS (ViT, MIR)
 
 ```python
 from unified_iaa import UnifiedIAA
@@ -137,32 +153,34 @@ from unified_iaa import UnifiedIAA
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 
 lapis_traits = [0.0] * 137
-score_lapis_piaa = m.predict_with_traits(
+score = m.predict_with_traits(
     image="/path/to/image.jpg",
     traits=lapis_traits,
     task="PIAA",
-    model="mir",  # or "ici"
-    backbone="resnet50",
+    model="mir",
+    backbone="vit_small_patch16_224",
     dataset="lapis",
 )
-print("LAPIS PIAA score =", float(score_lapis_piaa))
+print("PIAA+LAPIS (ViT/MIR) =", float(score))
 ```
 
-### C) GIAA prior
+### 4) GIAA + LAPIS (ViT, MIR)
 
 ```python
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cpu")
 
-score_giaa = m.predict_giaa_prior(
+lapis_traits = [0.0] * 137
+score = m.predict_with_traits(
     image="/path/to/image.jpg",
+    traits=lapis_traits,
     task="GIAA",
-    model="ici",  # or "mir"
-    backbone="swin_tiny_patch4_window7_224",  # or "vit_small_patch16_224"
+    model="mir",
+    backbone="vit_small_patch16_224",
+    dataset="lapis",
 )
-
-print("GIAA prior score =", float(score_giaa))
+print("GIAA+LAPIS (ViT/MIR) =", float(score))
 ```
 
 ## Quick usage
