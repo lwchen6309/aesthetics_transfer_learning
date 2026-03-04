@@ -97,6 +97,8 @@ models_pth
 
 ## Models
 
+This section includes both **pip-based inference** and **training entry points**.
+
 ### Pip Inference Calls (4 examples)
 
 ```bash
@@ -177,25 +179,25 @@ score = m.predict_with_traits(
 print(score)
 ```
 
-### One-hot Encoded Models (GIAA, NIMA-Trait, PIAA-MIR, PIAA-ICI)
+### Training: One-hot Encoded Models (GIAA, NIMA-Trait, PIAA-MIR, PIAA-ICI)
 
-To train all models with all backbones (`resnet50`, `vit_small_patch16_224`, `swin_tiny_patch4_window7_224`) on both PARA and LAPIS datasets:
+To train all models with all three backbones (`resnet50`, `vit_small_patch16_224`, `swin_tiny_patch4_window7_224`) on both PARA and LAPIS:
 
 ```bash
 bash run.sh
 ```
 
-### PIAA Baselines
+### Training: PIAA Baselines
 
-#### Train GIAA Models
+#### 1) Train GIAA models
 
-To access GIAA pretrained models on PARA dataset, run:
+To train/access GIAA pretrained models on PARA, run:
 
 ```bash
 python train_nima_attr.py --trainset GIAA
 ```
 
-#### Fine-tune PIAA-MIR and PIAA-ICI from GIAA Pretrained Models
+#### 2) Fine-tune PIAA-MIR and PIAA-ICI from GIAA pretrained models
 
 ```bash
 trainargs='--trainset PIAA'
