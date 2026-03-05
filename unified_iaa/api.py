@@ -11,7 +11,7 @@ from .modeling import PIAA_MIR, PIAA_ICI
 from .encoding import load_encoders, encode_demographics, encode_lapis_inputs, PERSONAL_TRAITS, BIG5, LAPIS_VAIAK
 
 
-ImageLike = Union[str, Path, Image.Image]
+ImageLike = Union[str, Path, Image.Image, torch.Tensor]
 
 
 def _remap_legacy_keys(state_dict: dict) -> dict:
@@ -123,6 +123,14 @@ class UnifiedIAA:
         return model
 
     def _to_image_tensor(self, image: ImageLike) -> torch.Tensor:
+        if torch.is_tensor(image):
+            x = image
+            if x.ndim == 3:
+                x = x.unsqueeze(0)
+            if x.ndim != 4:
+                raise ValueError(f"image tensor must be CHW or BCHW, got shape={tuple(image.shape)}")
+            return x.float().to(self.device)
+
         if isinstance(image, (str, Path)):
             img = Image.open(image).convert("RGB")
         else:
