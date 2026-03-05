@@ -96,8 +96,8 @@ class LAPIS_GIAA_HistogramDataset(LAPIS_PIAADataset):
             response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
             accumulated_response += response_one_hot
             if self.disable_onehot:
-                accumulated_vaia = torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
-                accumulated_2vaia = torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+                accumulated_vaia += torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1).float()
+                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1).float()
             else:
                 accumulated_vaia += torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
                 accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
@@ -290,8 +290,8 @@ class LAPIS_sGIAA_HistogramDataset(LAPIS_GIAA_HistogramDataset):
             response_one_hot = F.one_hot(torch.tensor(round_score), num_classes=max_response_score)
             accumulated_response += response_one_hot
             if self.disable_onehot:
-                accumulated_vaia += torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1)
-                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1)
+                accumulated_vaia += torch.stack([sample[f'VAIAK{i}'] for i in range(1, 8)], dim=0).view(-1).float()
+                accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}'] for i in range(1, 5)], dim=0).view(-1).float()
             else:
                 accumulated_vaia += torch.stack([sample[f'VAIAK{i}_onehot'] for i in range(1, 8)], dim=0).view(-1)
                 accumulated_2vaia += torch.stack([sample[f'2VAIAK{i}_onehot'] for i in range(1, 5)], dim=0).view(-1)
