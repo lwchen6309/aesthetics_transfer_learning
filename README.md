@@ -211,7 +211,7 @@ score = m.predict_lapis(
     lapis_input=lapis_input,
     task="GIAA",
     model="mir",
-    backbone="resnet50",
+    backbone="vit_small_patch16_224",  # or "swin_tiny_patch4_window7_224"
 )
 print(score)
 ```
@@ -236,8 +236,8 @@ score = m.predict_lapis(
     image="/path/to/image.jpg",
     lapis_input=lapis_input,
     task="PIAA",
-    model="mir",
-    backbone="resnet50",
+    model="mir",      # or "ici"
+    backbone="vit_small_patch16_224",  # or "swin_tiny_patch4_window7_224"
 )
 print(score)
 ```
