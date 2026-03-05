@@ -151,11 +151,7 @@ class UnifiedIAA:
         traits = traits.float().to(self.device)
         with torch.no_grad():
             pred = model_obj(x, traits)
-        score = float(pred.squeeze().item())
-        # LAPIS inference is expected on a 0-10 scale for user-facing outputs.
-        if str(dataset).lower() == "lapis":
-            score = max(0.0, min(10.0, score))
-        return score
+        return float(pred.squeeze().item())
 
     def predict_lapis(
         self,
