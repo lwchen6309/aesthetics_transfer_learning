@@ -1,8 +1,14 @@
 import json
+import sys
 from pathlib import Path
 import torch
 from PIL import Image
 from torchvision import transforms
+
+# Ensure repo root is importable when running as a script.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from unified_iaa import UnifiedIAA
 from unified_iaa.encoding import load_encoders, encode_demographics, encode_lapis_inputs
