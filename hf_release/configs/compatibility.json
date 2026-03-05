@@ -46,18 +46,36 @@
       "dataset": "lapis",
       "num_pt": 137,
       "script": "train_piaa_mir_lapis.py",
-      "backbone": "resnet50",
-      "checkpoint": "lapis_best_model_resnet50_piaamir_azure-gorge-1153.pth",
-      "sha256": "f9adfd94269dd1c37a17a2ea9034fe4fa18501a3ff5c417ae047e321554001e3"
+      "backbone": "vit_small_patch16_224",
+      "checkpoint": "best_model_vit_small_patch16_224_piaamir_woven-wind-1160.pth",
+      "sha256": "96460284d25f08c42770b0800e5e5728c30225d43f754bc8d9107132158c5857"
+    },
+    {
+      "task": "PIAA-MIR",
+      "dataset": "lapis",
+      "num_pt": 137,
+      "script": "train_piaa_mir_lapis.py",
+      "backbone": "swin_tiny_patch4_window7_224",
+      "checkpoint": "best_model_swin_tiny_patch4_window7_224_piaamir_electric-wind-1161.pth",
+      "sha256": "a03e937c05030c2f19ea639a569e482bf82e4d0e706c8c68d5e9daeff22d8857"
     },
     {
       "task": "PIAA-ICI",
       "dataset": "lapis",
       "num_pt": 137,
       "script": "train_piaa_ici_lapis.py",
-      "backbone": "resnet50",
-      "checkpoint": "lapis_best_model_resnet50_piaaici_dutiful-serenity-1076.pth",
-      "sha256": "186adb0b8e78196db137beeccc63ccb1c276a413b4be71834208676eecc2fc64"
+      "backbone": "swin_tiny_patch4_window7_224",
+      "checkpoint": "best_model_swin_tiny_patch4_window7_224_piaaici_crimson-armadillo-1151.pth",
+      "sha256": "5cbc59d3af5c84be1a58d3cf68f9348416cfe2e1a3f0ba1eaf7b71b8e5fa77a8"
+    },
+    {
+      "task": "PIAA-ICI",
+      "dataset": "lapis",
+      "num_pt": 137,
+      "script": "train_piaa_ici_lapis.py",
+      "backbone": "vit_small_patch16_224",
+      "checkpoint": "best_model_vit_small_patch16_224_piaaici_misunderstood-pond-1151.pth",
+      "sha256": "61d70b40037a166500ba61046b382eea8eaa841ed957a37d2b394a587c04e1f0"
     },
     {
       "task": "GIAA-prior-vector",
