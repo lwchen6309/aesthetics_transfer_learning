@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unified-iaa"
-version = "0.1.0"
+version = "0.1.1"
 description = "Unified IAA inference SDK (PIAA + GIAA prior)"
 readme = "hf_release/README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,11 @@ dependencies = [
   "pyyaml",
   "timm",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lwchen6309/aesthetics_transfer_learning"
+Repository = "https://github.com/lwchen6309/aesthetics_transfer_learning"
+Issues = "https://github.com/lwchen6309/aesthetics_transfer_learning/issues"
 
 [tool.setuptools]
 packages = ["unified_iaa"]
