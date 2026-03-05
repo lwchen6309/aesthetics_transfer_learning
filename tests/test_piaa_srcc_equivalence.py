@@ -196,3 +196,77 @@ def test_pip_lapis_multisample_consistency_from_trainer_dataset():
         checked += 1
 
     assert checked > 0
+
+
+@pytest.mark.skipif(not MODEL_DIR.exists(), reason='models_pth not found')
+def test_pip_para_ici_multisample_consistency_from_trainer_dataset():
+    device = _device()
+    m = UnifiedIAA.from_pretrained('stupidog04/Unified_IAA', device=device)
+    model = m._load_model(task='PIAA', model='ici', backbone='vit_small_patch16_224', dataset='para')
+
+    args = _args()
+    _, _, test_dataset = para_load_data(args)
+
+    n = min(_max_samples(5), len(test_dataset.data))
+    checked = 0
+    for i in range(n):
+        row = test_dataset.data.iloc[i]
+        image_path = Path(test_dataset.root_dir) / 'imgs' / str(row['sessionId']) / str(row['imageName'])
+        demographics = {
+            'age': str(row['age']),
+            'gender': str(row['gender']),
+            'EducationalLevel': str(row['EducationalLevel']),
+            'artExperience': str(row['artExperience']),
+            'photographyExperience': str(row['photographyExperience']),
+        }
+        big5 = {
+            'personality-E': float(row['personality-E']),
+            'personality-A': float(row['personality-A']),
+            'personality-N': float(row['personality-N']),
+            'personality-O': float(row['personality-O']),
+            'personality-C': float(row['personality-C']),
+        }
+        pip_score = m.predict_piaa(image=image_path, demographics=demographics, big5=big5, task='PIAA', model='ici', backbone='vit_small_patch16_224')
+        x = m._to_image_tensor(image_path)
+        pt = encode_demographics(demographics, big5, m._encoders).unsqueeze(0).to(device)
+        with torch.no_grad():
+            direct_score = float(model(x, pt).squeeze().item())
+        _assert_close(pip_score, direct_score)
+        checked += 1
+
+    assert checked > 0
+
+
+@pytest.mark.skipif(not MODEL_DIR.exists(), reason='models_pth not found')
+def test_pip_lapis_ici_multisample_consistency_from_trainer_dataset():
+    device = _device()
+    m = UnifiedIAA.from_pretrained('stupidog04/Unified_IAA', device=device)
+    model = m._load_model(task='PIAA', model='ici', backbone='resnet50', dataset='lapis')
+
+    args = _args()
+    _, _, test_dataset = lapis_load_data(args)
+
+    n = min(_max_samples(5), len(test_dataset.data))
+    checked = 0
+    for i in range(n):
+        row = test_dataset.data.iloc[i]
+        image_path = Path(test_dataset.image_dir) / str(row['imageName'])
+        lapis_input = {
+            'nationality': str(row['nationality']),
+            'demo_gender': str(row['demo_gender']),
+            'demo_edu': str(row['demo_edu']),
+            'demo_colorblind': str(row['demo_colorblind']),
+            'age': str(row['age']),
+            'VAIAK1': int(row['VAIAK1']), 'VAIAK2': int(row['VAIAK2']), 'VAIAK3': int(row['VAIAK3']), 'VAIAK4': int(row['VAIAK4']),
+            'VAIAK5': int(row['VAIAK5']), 'VAIAK6': int(row['VAIAK6']), 'VAIAK7': int(row['VAIAK7']),
+            '2VAIAK1': int(row['2VAIAK1']), '2VAIAK2': int(row['2VAIAK2']), '2VAIAK3': int(row['2VAIAK3']), '2VAIAK4': int(row['2VAIAK4']),
+        }
+        pip_score = m.predict_lapis(image=image_path, lapis_input=lapis_input, task='PIAA', model='ici', backbone='resnet50')
+        x = m._to_image_tensor(image_path)
+        pt = encode_lapis_inputs(lapis_input, m._lapis_trait_encoders).unsqueeze(0).to(device)
+        with torch.no_grad():
+            direct_score = float(model(x, pt).squeeze().item())
+        _assert_close(pip_score, direct_score)
+        checked += 1
+
+    assert checked > 0
