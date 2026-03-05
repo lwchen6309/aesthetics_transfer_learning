@@ -103,6 +103,40 @@ models_pth
 
 ---
 
+## Quick Eval Scripts (Auto-download checkpoints)
+
+Both scripts now auto-download required checkpoints from Hugging Face into `models_pth/` (or custom `MODELS_DIR`) before running.
+
+```bash
+# PARA (4 models)
+bash run_PARA_PIAA.sh
+
+# LAPIS (4 models)
+bash run_LAPIS_PIAA.sh
+```
+
+Optional custom checkpoint directory:
+
+```bash
+MODELS_DIR=/tmp/my_models bash run_PARA_PIAA.sh
+MODELS_DIR=/tmp/my_models bash run_LAPIS_PIAA.sh
+```
+
+The 8 checkpoints used by these scripts are:
+
+- PARA:
+  - `best_model_vit_small_patch16_224_piaamir_super-yogurt-742.pth`
+  - `best_model_swin_tiny_patch4_window7_224_piaamir_fanciful-blaze-742.pth`
+  - `best_model_swin_tiny_patch4_window7_224_piaaici_ethereal-cherry-741.pth`
+  - `best_model_vit_small_patch16_224_piaaici_laced-bird-742.pth`
+- LAPIS:
+  - `best_model_vit_small_patch16_224_piaamir_woven-wind-1160.pth`
+  - `best_model_swin_tiny_patch4_window7_224_piaamir_electric-wind-1161.pth`
+  - `best_model_swin_tiny_patch4_window7_224_piaaici_crimson-armadillo-1151.pth`
+  - `best_model_vit_small_patch16_224_piaaici_misunderstood-pond-1151.pth`
+
+---
+
 ## Models
 
 This section includes both **pip-based inference calls** and **training entry points**.
