@@ -20,6 +20,22 @@ with open(file_path, 'r') as file:
     datapath = yaml.safe_load(file)
 
 
+def _load_annotation_table(annotation_dir, base_name):
+    csv_path = os.path.join(annotation_dir, f"{base_name}.csv")
+    if os.path.exists(csv_path):
+        return pd.read_csv(csv_path)
+
+    for ext in ("xlsx", "xls"):
+        excel_path = os.path.join(annotation_dir, f"{base_name}.{ext}")
+        if os.path.exists(excel_path):
+            return pd.read_excel(excel_path)
+
+    raise FileNotFoundError(
+        f"Missing annotation table for '{base_name}' in {annotation_dir}. "
+        f"Looked for .csv, .xlsx, and .xls"
+    )
+
+
 class PARA_PIAADataset(Dataset):
     def __init__(self, root_dir, transform=None):
         """
@@ -28,8 +44,9 @@ class PARA_PIAADataset(Dataset):
             transform (callable, optional): Optional transform to be applied on a sample.
         """
         self.root_dir = root_dir
-        self.images_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-Images.csv'))
-        self.user_info_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-UserInfo.csv'))
+        annotation_dir = os.path.join(root_dir, "annotation")
+        self.images_df = _load_annotation_table(annotation_dir, "PARA-Images")
+        self.user_info_df = _load_annotation_table(annotation_dir, "PARA-UserInfo")
         self.data = pd.merge(self.images_df, self.user_info_df, on='userId', how='inner')
         
         # Encoding personal traits
@@ -249,8 +266,9 @@ def split_dataset_by_user(dataset, test_count=40, max_annotations_per_user=100, 
 
 def split_dataset_by_images(dataset, root_dir, validation_split=0.1):
     # Read train and test CSV files
-    trainset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTrain.csv'))
-    testset = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-GiaaTest.csv'))
+    annotation_dir = os.path.join(root_dir, "annotation")
+    trainset = _load_annotation_table(annotation_dir, "PARA-GiaaTrain")
+    testset = _load_annotation_table(annotation_dir, "PARA-GiaaTest")
     
     # Create copies of the original dataset for training, validation, and testing
     train_dataset = copy.deepcopy(dataset)

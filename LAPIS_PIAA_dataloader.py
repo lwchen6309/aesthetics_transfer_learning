@@ -25,6 +25,22 @@ with open(file_path, 'r') as file:
     datapath = yaml.safe_load(file)
 
 
+def _load_annotation_table(annotation_dir, base_name):
+    csv_path = os.path.join(annotation_dir, f"{base_name}.csv")
+    if os.path.exists(csv_path):
+        return pd.read_csv(csv_path)
+
+    for ext in ("xlsx", "xls"):
+        excel_path = os.path.join(annotation_dir, f"{base_name}.{ext}")
+        if os.path.exists(excel_path):
+            return pd.read_excel(excel_path)
+
+    raise FileNotFoundError(
+        f"Missing annotation table for '{base_name}' in {annotation_dir}. "
+        f"Looked for .csv, .xlsx, and .xls"
+    )
+
+
 class LAPIS_PIAADataset(Dataset):
     def __init__(self, root_dir, transform=None):
         """
@@ -36,10 +52,10 @@ class LAPIS_PIAADataset(Dataset):
         self.transform = transform
         self.annot_dir = os.path.join(root_dir, 'annotation')
 
-        data = pd.read_csv(os.path.join(self.annot_dir, 
-                'LAPIS_individualratings_metaANDdemodata.csv'))
-        self.qip_data = pd.read_csv(os.path.join(self.annot_dir, 
-                'QIP_LAPIS.csv'))
+        data = _load_annotation_table(
+            self.annot_dir, "LAPIS_individualratings_metaANDdemodata"
+        )
+        self.qip_data = _load_annotation_table(self.annot_dir, "QIP_LAPIS")
         self.qip_data.fillna(0, inplace=True)
         self.qip_data = self.qip_data.set_index("img_file").to_dict(orient="index")
         
@@ -319,7 +335,7 @@ def plot_histogram_comparison(dataset):
     plt.savefig('LAPIS_histogram.jpg', dpi=300)
 
     root_dir = '/home/lwchen/datasets/PARA/'
-    para_df = pd.read_csv(os.path.join(root_dir, 'annotation', 'PARA-Images.csv'))
+    para_df = _load_annotation_table(os.path.join(root_dir, "annotation"), "PARA-Images")
     number_image_per_user = [len(group) for _, group in para_df.groupby('userId')]
     number_user_per_image = [len(group) for _, group in para_df.groupby('imageName')]
     
