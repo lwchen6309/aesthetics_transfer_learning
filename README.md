@@ -162,13 +162,23 @@ score = m.predict_giaa_prior(
 print(score)
 ```
 
-#### 2) PIAA mode pretrained on PARA
+#### 2) PIAA mode pretrained on PARA (image tensor input)
 ```python
+from PIL import Image
+from torchvision import transforms
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+
+tfm = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+image_tensor = tfm(Image.open("/path/to/image.jpg").convert("RGB")).unsqueeze(0)  # BCHW
+
 score = m.predict_piaa(
-    image="/path/to/image.jpg",
+    image=image_tensor,
     demographics={
         "age": "30-34",
         "gender": "female",
@@ -216,11 +226,20 @@ score = m.predict_lapis(
 print(score)
 ```
 
-#### 4) PIAA mode pretrained on LAPIS
+#### 4) PIAA mode pretrained on LAPIS (image tensor input)
 ```python
+from PIL import Image
+from torchvision import transforms
 from unified_iaa import UnifiedIAA
 
 m = UnifiedIAA.from_pretrained("stupidog04/Unified_IAA", device="cuda")  # or "cpu"
+
+tfm = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+image_tensor = tfm(Image.open("/path/to/image.jpg").convert("RGB")).unsqueeze(0)  # BCHW
 
 lapis_input = {
     "nationality": "british",
@@ -233,7 +252,7 @@ lapis_input = {
 }
 
 score = m.predict_lapis(
-    image="/path/to/image.jpg",
+    image=image_tensor,
     lapis_input=lapis_input,
     task="PIAA",
     model="mir",      # or "ici"
